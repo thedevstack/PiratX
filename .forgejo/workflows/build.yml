@@ -6,8 +6,7 @@ jobs:
     runs-on: docker
     container:
       image: docker.io/redemonbr/android-sdk:node-lts-api-30
-      options:
-        --env ASDK_ACCEPT_LICENSES_SILENT=yes --env ASDK_ACCEPT_LICENSES=yes
+      options: "--env ASDK_ACCEPT_LICENSES_SILENT=yes --env ASDK_ACCEPT_LICENSES=yes"
 
     steps:
       - uses: https://git.fucktheforce.de/actions/checkout@v4
