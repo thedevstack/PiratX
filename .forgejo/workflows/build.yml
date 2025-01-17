@@ -15,5 +15,5 @@ jobs:
       - name: build debug apk
         run: |
           cd $GITHUB_WORKSPACE
-          ./gradlew assembleMonoclesPiratxDebugi -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
+          ./gradlew assembleMonoclesPiratxDebug -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
 
