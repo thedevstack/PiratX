@@ -7,6 +7,7 @@ jobs:
     container:
       image: docker.io/redemonbr/android-sdk:node-lts-api-30
       env:
+        ASDK_PROMPT_LICENSES: yes
         ASDK_ACCEPT_LICENSES_SILENT: yes
         ASDK_ACCEPT_LICENSES: yes
 
