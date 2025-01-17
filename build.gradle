@@ -2,8 +2,9 @@
 // sub-projects/modules.
 buildscript {
     repositories {
-        google()
-        mavenCentral()
+        maven {
+            url "https://mvn.thedevstack.de/mvn"
+        }
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.3.2'
@@ -20,9 +21,9 @@ apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
 repositories {
-    google()
-    mavenCentral()
-    maven { url='https://jitpack.io'}
+    maven {
+        url "https://mvn.thedevstack.de/mvn"
+    }
 }
 
 def tags = grgit.tag.list().findAll { it.dateTime != null }.sort { it.dateTime }
@@ -39,6 +40,7 @@ configurations {
     quicksyPlaystoreImplementation
     quicksyFreeImplementation
     quicksyImplementation
+    piratxImplementation
 }
 
 dependencies {
@@ -79,7 +81,7 @@ dependencies {
     implementation 'androidx.work:work-runtime:2.9.1'
 
     implementation "androidx.emoji2:emoji2:1.5.0"
-    freeImplementation "androidx.emoji2:emoji2-bundled:1.5.0"
+    piratxImplementation "androidx.emoji2:emoji2-bundled:1.5.0"
     implementation "androidx.emoji2:emoji2-emojipicker:1.5.0"
 
     implementation 'org.bouncycastle:bcmail-jdk18on:1.79'
@@ -190,76 +192,46 @@ android {
 
     productFlavors {
 
-        quicksy {
+        monocles {
             dimension "mode"
-            applicationId = "im.quicksy.client"
-            def appName = "Quicksy"
-            resValue "string", "app_name", appName
-            buildConfigField "String", "APP_NAME", "\"$appName\""
-            buildConfigField "String", "PRIVACY_POLICY", "\"https://quicksy.im/privacy.htm\""
         }
 
-        conversations {
-            dimension "mode"
-            buildConfigField "String", "PRIVACY_POLICY", "\"https://conversations.im/privacy.html\""
-        }
-
-        monocleschat {
-            dimension "mode"
-            applicationId = "de.monocles.chat"
-            versionCode 181
-            versionName "2.0.4"
-            def appName = "monocles chat"
-            resValue "string", "app_name", appName
-            buildConfigField "String", "APP_NAME", "\"$appName\""
-            buildConfigField "String", "PRIVACY_POLICY", "\"https://monocles.eu/legal-privacy/#policies-section\""
-        }
-
-        playstore {
+        piratx {
             dimension "distribution"
-            versionNameSuffix "+playstore"
-            applicationIdSuffix "playstore"
-        }
-        free {
-            dimension "distribution"
-            versionNameSuffix "+free"
-        }
-    }
+            applicationId = "de.thedevstack.piratx"
+            versionCode 5
+            versionName "0.0.5"
 
-    applicationVariants.all { variant ->
-      variant.resValue "string", "applicationId", applicationId
+            def appName = "PiratX"
+            def xmppDomain = "jabber.thedevstack.de"
+            buildConfigField "String", "APP_NAME", "\"$appName\""
+            buildConfigField "String", "PRIVACY_POLICY", "\"https://piratx.thedevstack.de/privacy.html\""
+            buildConfigField "String", "XMPP_DOMAIN", "\"$xmppDomain\""
+            buildConfigField "String", "SUPPORT_JID", "\"support@$xmppDomain\""
+            buildConfigField "String", "HELP_URL", "\"https://piratx.thedevstack.de/help\""
+            buildConfigField "String", "ONBOARDING_URL", "\"onboarding.thedevstack.de\""
+            buildConfigField "String", "CHANNEL_DISCOVERY_URL", "\"https://search.jabber.network\""
+
+            resValue "string", "app_name", appName
+            resValue "string", "applicationId", applicationId
+        }
     }
 
     sourceSets {
-        quicksyFree {
+        monocles {
             java {
-                srcDir 'src/quicksyFree/java'
-            }
-        }
-        quicksyPlaystore {
-            java {
-                srcDir 'src/quicksyPlaystore/java'
-            }
-            res {
-                srcDir 'src/quicksyPlaystore/res'
-            }
-        }
-        conversationsFree {
-            java {
+                srcDir 'src/monocleschat/java'
+                srcDir 'src/free/java'
                 srcDir 'src/conversationsFree/java'
             }
-        }
-        monocleschatFree {
-            java {
-                srcDir 'src/conversationsFree/java'
-            }
-        }
-        conversationsPlaystore {
-            java {
-                srcDir 'src/conversationsPlaystore/java'
-            }
             res {
-                srcDir 'src/conversationsPlaystore/res'
+                srcDir 'src/monocleschat/res'
+            }
+            manifest {
+                srcFile 'src/monocleschat/AndroidManifest.xml'
+            }
+            aidl {
+                srcDir 'src/monocleschat/aidl'
             }
         }
     }

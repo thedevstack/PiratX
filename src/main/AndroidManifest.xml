@@ -377,10 +377,10 @@
         <activity
             android:name=".ui.AboutActivity"
             android:exported="false"
-            android:parentActivityName=".ui.SettingsActivity">
+            android:parentActivityName=".ui.activity.SettingsActivity">
             <meta-data
                 android:name="android.support.PARENT_ACTIVITY"
-                android:value="eu.siacs.conversations.ui.SettingsActivity" />
+                android:value="eu.siacs.conversations.ui.activity.SettingsActivity" />
         </activity>
         <activity
             android:name="com.canhub.cropper.CropImageActivity"
