@@ -8,8 +8,8 @@ env:
 jobs:
   build:
     runs-on: docker
-      container:
-        image: docker.io/redemonbr/android-sdk:bookworm-api-30
+    container:
+      image: docker.io/redemonbr/android-sdk:bookworm-api-30
 
     steps:
       - uses: https://git.fucktheforce.de/actions/checkout@v4
