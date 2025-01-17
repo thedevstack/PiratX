@@ -1,0 +1,19 @@
+on:
+  push:
+
+env:
+  ASDK_ACCEPT_LICENSES_SILENT: yes
+  ASDK_ACCEPT_LICENSES: yes
+
+jobs:
+  build:
+    runs-on: docker
+      container:
+        image: docker.io/redemonbr/android-sdk:bookworm-api-30
+
+    steps:
+      - uses: https://git.fucktheforce.de/actions/checkout@v4
+      - name: build debug apk
+        run: |
+          cd $GITHUB_WORKSPACE
+          ./gradlew assembleMonoclesPiratxDebug --no-daemon
