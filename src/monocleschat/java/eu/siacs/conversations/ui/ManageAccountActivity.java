@@ -5,8 +5,10 @@ import static android.view.View.VISIBLE;
 import android.Manifest;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.security.KeyChain;
@@ -143,7 +145,9 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
 
             switch (item.getItemId()) {
                 case R.id.chats -> {
-                    startActivity(new Intent(getApplicationContext(), ConversationsActivity.class));
+                    Intent i = new Intent(getApplicationContext(), ConversationsActivity.class);
+                    i.putExtra("show_nav_bar", true);
+                    startActivity(i);
                     overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
                     return true;
                 }
@@ -162,7 +166,9 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
             }
         });
     }
-
+    public static float dpToPx(int dp, Context context) {
+        return dp * context.getResources().getDisplayMetrics().density;
+    }
     @Override
     public void onStart() {
         super.onStart();
@@ -172,8 +178,12 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
 
         if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar) && getIntent().getBooleanExtra("show_nav_bar", false)) {
             bottomNavigationView.setVisibility(VISIBLE);
+            accountListView.setClipToPadding(false);
+            accountListView.setPadding(0,0,0,(int) dpToPx(72, this));
         } else {
             bottomNavigationView.setVisibility(View.GONE);
+            accountListView.setClipToPadding(true);
+            accountListView.setPadding(0,0,0,0);
         }
     }
 

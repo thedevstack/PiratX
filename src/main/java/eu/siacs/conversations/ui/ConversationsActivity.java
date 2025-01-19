@@ -1080,7 +1080,6 @@ public class ConversationsActivity extends XmppActivity implements OnConversatio
                     Intent i = new Intent(getApplicationContext(), StartConversationActivity.class);
                     i.putExtra("show_nav_bar", true);
                     startActivity(i);
-
                     overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
                     return true;
                 }
