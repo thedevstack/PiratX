@@ -1437,7 +1437,7 @@ public class StartConversationActivity extends XmppActivity
         for (final var account : xmppConnectionService.getAccounts()) {
             if (mActivatedAccounts.contains(account.getJid().asBareJid().toEscapedString())) accounts.add(account);
         }
-        boolean foundSopranica = false;
+
         for (final Account account : accounts) {
             for (Contact contact : account.getRoster().getContacts()) {
                 Presence.Status s = contact.getShownStatus();
@@ -1459,9 +1459,6 @@ public class StartConversationActivity extends XmppActivity
 
             for (Bookmark bookmark : account.getBookmarks()) {
                 if (bookmark.match(this, needle)) {
-                    if (bookmark.getJid().toString().equals("support@conference.monocles.eu")) {
-                        foundSopranica = true;
-                    }
                     this.contacts.add(bookmark);
                     tags.addAll(bookmark.getTags(this));
                 }
@@ -1479,18 +1476,6 @@ public class StartConversationActivity extends XmppActivity
                         .map(e -> e.getKey()).collect(Collectors.toList())
         );
         Collections.sort(this.contacts);
-
-        final boolean sopranicaDeleted = getPreferences().getBoolean("monocles_support_bookmark_deleted", false);
-
-        if (!sopranicaDeleted && !foundSopranica && (needle == null || needle.equals("")) && xmppConnectionService.getAccounts().size() > 0) {
-            Bookmark bookmark = new Bookmark(
-                xmppConnectionService.getAccounts().get(0),
-                Jid.of("support@conference.monocles.eu")
-            );
-            bookmark.setBookmarkName("monocles support room");
-            bookmark.addChild("group").setContent("support");
-            this.contacts.add(0, bookmark);
-        }
 
         mContactsAdapter.notifyDataSetChanged();
     }
