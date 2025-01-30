@@ -6661,29 +6661,8 @@ public class XmppConnectionService extends Service {
 
     public Collection<String> getKnownHosts() {
         final Set<String> hosts = new HashSet<>();
-        for (final Account account : getAccounts()) {
-            hosts.add(account.getServer());
-            for (final Contact contact : account.getRoster().getContacts()) {
-                if (contact.showInRoster()) {
-                    final String server = contact.getServer();
-                    if (server != null) {
-                        hosts.add(server);
-                    }
-                }
-            }
-        }
-        if (Config.QUICKSY_DOMAIN != null) {
-            hosts.remove(
-                    Config.QUICKSY_DOMAIN
-                            .toEscapedString()); // we only want to show this when we type a e164
-            // number
-        }
-        // Not needed currently
-        //if (Config.MAGIC_CREATE_DOMAIN != null) {
-        //    hosts.add(Config.MAGIC_CREATE_DOMAIN);
-        //}
-        hosts.add("monocles.eu");
-        hosts.add("monocles.de");
+        hosts.addAll(Arrays.asList(this.getResources().getStringArray(R.array.domains)));
+
         return hosts;
     }
 
