@@ -1,3 +1,4 @@
 include ':libs:annotation', ':libs:annotation-processor:'
 
 rootProject.name = 'PiratX'
+rootProject.buildFileName = 'piratx.gradle'
