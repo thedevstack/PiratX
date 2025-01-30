@@ -2,6 +2,7 @@ package eu.siacs.conversations.generator;
 
 import android.text.TextUtils;
 
+import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.MucOptions;
@@ -80,7 +81,7 @@ public class PresenceGenerator extends AbstractGenerator {
             Element cap = packet.addChild("c",
                     "http://jabber.org/protocol/caps");
             cap.setAttribute("hash", "sha-1");
-            cap.setAttribute("node", "https://monocles.eu");
+            cap.setAttribute("node", "https://piratx.thedevstack.de");
             cap.setAttribute("ver", capHash);
         }
         return packet;
