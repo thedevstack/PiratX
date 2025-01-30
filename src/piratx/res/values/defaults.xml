@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mappreview_url">https://piratx.thedevstack.de/staticmap</string>
+    <string name="omemo_setting_default">always_off</string>
+
+    <string-array name="domains">
+        <item>jabber.thedevstack.de</item>
+        <item>jabber.thehappy.de</item>
+        <item>jabber.mail-zur.de</item>
+    </string-array>
+
+
+    <string-array name="support_domains">
+        <item>jabber.thehappy.de</item>
+        <item>jabber.thedevstack.de</item>
+    </string-array>
+
+    <string-array name="support_site">
+        <item>https://jabber.thedevstack.de</item>
+    </string-array>
+</resources>
