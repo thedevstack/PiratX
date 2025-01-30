@@ -3,13 +3,10 @@ package eu.siacs.conversations;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
-
 import androidx.annotation.BoolRes;
 import androidx.annotation.NonNull;
 import androidx.preference.PreferenceManager;
-
 import com.google.common.base.Strings;
-
 import java.security.SecureRandom;
 
 public class AppSettings {
@@ -49,10 +46,15 @@ public class AppSettings {
     public static final String SHOW_LINK_PREVIEWS = "show_link_previews";
     public static final String SHOW_AVATARS = "show_avatars";
     public static final String CALL_INTEGRATION = "call_integration";
+    public static final String ALIGN_START = "align_start";
+
     private static final String ACCEPT_INVITES_FROM_STRANGERS = "accept_invites_from_strangers";
     private static final String INSTALLATION_ID = "im.conversations.android.install_id";
     public static final String SECURE_TLS = "secure_tls";
     public static final String PREFER_IPV6 = "prefer_ipv6";
+    public static final String UNENCRYPTED_REACTIONS = "allow_unencrypted_reactions";
+    public static final String USE_CACHE_STORAGE = "default_store_media_in_cache";
+    public static final String SHOW_MAPS_INSIDE = "show_maps_inside";
 
     private final Context context;
 
@@ -125,16 +127,20 @@ public class AppSettings {
         return getBooleanPreference(SHOW_AVATARS, R.bool.show_avatars);
     }
 
+    public boolean isCallIntegration() {
+        return getBooleanPreference(CALL_INTEGRATION, R.bool.call_integration);
+    }
+
+    public boolean isAlignStart() {
+        return getBooleanPreference(ALIGN_START, R.bool.align_start);
+    }
+
     public boolean isSecureTLS() {
         return getBooleanPreference(SECURE_TLS, R.bool.secure_tls);
     }
 
     public boolean preferIPv6() {
         return getBooleanPreference(PREFER_IPV6, R.bool.prefer_ipv6);
-    }
-
-    public boolean isCallIntegration() {
-        return getBooleanPreference(CALL_INTEGRATION, R.bool.call_integration);
     }
 
     public boolean isUseTor() {

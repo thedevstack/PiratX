@@ -159,6 +159,7 @@
     <string name="account_status_unauthorized">Unauthorized</string>
     <string name="account_status_not_found">Server not found</string>
     <string name="account_status_no_internet">No connectivity</string>
+    <string name="account_status_connection_timeout">Connection timeout</string>
     <string name="account_status_regis_fail">Registration failed</string>
     <string name="account_status_regis_conflict">Username already in use</string>
     <string name="account_status_regis_success">Registration completed</string>
@@ -469,7 +470,7 @@
     <string name="download_failed_invalid_file">Download failed: Invalid file</string>
     <string name="account_status_tor_unavailable">Tor network unavailable</string>
     <string name="account_status_bind_failure">Bind failure</string>
-    <string name="account_status_host_unknown">The server is not responsible for this domain</string>
+    <string name="account_status_host_unknown">Not responsible for domain</string>
     <string name="server_info_broken">Broken</string>
     <string name="pref_presence_settings">Availability</string>
     <string name="pref_away_when_screen_off">Away when device is locked</string>
@@ -1288,7 +1289,7 @@
     <string name="mute_locally">Mute locally</string>
     <string name="unmute_locally">Unmute locally</string>
     <string name="invite_to_start_chat">Invite to start chat</string>
-    <string name="xmpp_network_description">The XMPP network is powered by a protocol called XMPP. It is a decentralized network, which means no one owns or controls the whole thing. It is a federated network which means anyone can run a XMPP service. Messages to other XMPP users are per default end-to-end encrypted with OMEMO.\\n\\nAddresses are called XMPP IDs and look similar to email addresses:</string>
+    <string name="xmpp_network_description">The XMPP network is powered by a protocol called XMPP. It is a decentralized network, which means no one owns or controls the whole thing. It is a federated network which means anyone can run a XMPP service. Messages to other XMPP users are per default end-to-end encrypted with OMEMO.\n\nAddresses are called XMPP IDs and look similar to email addresses:</string>
     <string name="example_jid">username@monocles.eu</string>
     <string name="view_privacy_policy">View privacy policy</string>
     <string name="pref_theme_title">Theme</string>
@@ -1374,7 +1375,7 @@
     <string name="pref_show_avatars">Show avatars</string>
     <string name="pref_show_avatars_summary">Display avatars for your messages and in 1:1 chats, in addition to group chats.</string>
     <string name="pref_chat_bubbles">Chat bubbles</string>
-    <string name="pref_chat_bubbles_summary">Background color, Font size, Avatars</string>
+    <string name="pref_chat_bubbles_summary">Background color, Avatars</string>
     <string name="pref_title_bubbles">Chat Bubbles</string>
     <string name="block_avatar_question">Do you really want to block this avatar?</string>
     <string name="block_media_question">Do you really want to block this media in all messages?</string>
@@ -1415,4 +1416,23 @@
     <string name="pref_export_plain_text_logs">Export plain text</string>
     <string name="pref_export_plain_text_logs_summary">Export messages unencrypted in human readable plain text</string>
     <string name="select_settings_dat">Select a settings.dat</string>
+    <string name="pref_allow_unencrypted_reactions">Reactions in E2EE chats</string>
+    <string name="pref_allow_unencrypted_reactions_summary">Allow using unencrypted reactions in end-to-end encrypted chats</string>
+    <string name="pref_show_muc_pm_summary">Allow starting semi-private chats inside a channel</string>
+    <string name="pref_show_muc_pm_title">Show channel PM</string>
+    <string name="pref_swipe_to_archive_title">Swipe to archive</string>
+    <string name="pref_swipe_to_archive_summary">Swipe left or right in the chats overview to archive a chat</string>
+    <string name="set_preferences_title">Set preferences</string>
+    <string name="set_preferences_summary">Here you can change the default settings for some of the most important preferences before you login to enhance your privacy or security. You can change them all again after you logged in.</string>
+    <string name="pref_store_media_in_cache">Default system wide to store media in cache only.</string>
+    <string name="monocles_account_introduction">Sign up now and <b>get a secure monocles account, powered with regenerative energies</b> to directly start chatting.</string>
+    <string name="monocles_account_details">This includes:\n● one month temporary chat storage\n● e-mail with 2 GB storage\n\n optionally: \n● 5 GB cloud storage (nextcloud)\n● calendar and contact sync\n● a secure conferencing tool \n and more on <a href="https://monocles.eu/more/">https://monocles.eu/more/</a></string>
+    <string name="create_monocles_account">Sign up</string>
+    <string name="or_use_another">… or choose another one below</string>
+    <string name="use_monocles">I prefer monocles</string>
+    <string name="clients_may_not_support_av">Your contact’s XMPP client might not support audio/video calls.</string>
+    <string name="pref_align_start">Left-aligned messages</string>
+    <string name="pref_align_start_summary">Display all messages, including sent ones, on the left side for a uniform chat layout.</string>
+    <string name="custom_notifications">Custom notifications</string>
+    <string name="custom_notifications_enable">Enable customized notification settings (importance, sound, vibration) settings for this conversation?</string>
 </resources>

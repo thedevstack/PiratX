@@ -79,7 +79,7 @@
             android:title="@string/custom_background_color"
             android:defaultValue="@color/md_theme_dark_surface"
             app:colorpicker_showAlpha="false" />
-    </PreferenceCategory>>
+    </PreferenceCategory>
     <PreferenceCategory android:title="@string/appearance">
         <Preference
             android:key="import_background"
@@ -168,10 +168,16 @@
             android:title="@string/pref_allow_screenshots" />
         <SwitchPreferenceCompat
             android:defaultValue="@bool/default_custom_tab"
-            android:icon="@drawable/ic_link_24dp"
+            android:icon="@drawable/browse_24dp"
             android:key="custom_tab"
             android:summary="@string/pref_custom_tab_summary"
             android:title="@string/pref_custom_tab" />
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/swipe_to_archive"
+            android:icon="@drawable/ic_archive_24dp"
+            android:key="swipe_to_archive"
+            android:summary="@string/pref_swipe_to_archive_summary"
+            android:title="@string/pref_swipe_to_archive_title" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/pref_input_options">
         <SwitchPreferenceCompat
@@ -231,6 +237,12 @@
             android:key="compose_rich_text"
             android:summary="@string/compose_using_rich_text_summary"
             android:title="@string/compose_using_rich_text" />
+        <SwitchPreferenceCompat
+            android:icon="@drawable/ic_announcement_24dp"
+            android:defaultValue="@bool/show_muc_pm"
+            android:key="show_muc_pm"
+            android:summary="@string/pref_show_muc_pm_summary"
+            android:title="@string/pref_show_muc_pm_title" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/pref_keyboard_options">
         <SwitchPreferenceCompat

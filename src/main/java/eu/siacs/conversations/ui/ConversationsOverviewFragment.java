@@ -32,7 +32,6 @@ package eu.siacs.conversations.ui;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Fragment;
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -300,23 +299,12 @@ public class ConversationsOverviewFragment extends XmppFragment {
 			}
 		});
 		this.binding.list.setAdapter(this.conversationsAdapter);
-		if (activity.getPreferences().getBoolean("show_nav_bar", true)) {
-			binding.list.setClipToPadding(false);
-			binding.list.setPadding(0,0,0,(int) dpToPx(66, activity));
-		} else {
-			binding.list.setClipToPadding(true);
-			binding.list.setPadding(0,0,0,0);
-		}
 		this.binding.list.setLayoutManager(new LinearLayoutManager(getActivity(),LinearLayoutManager.VERTICAL,false));
 		registerForContextMenu(this.binding.list);
 		this.binding.list.addOnScrollListener(ExtendedFabSizeChanger.of(binding.fab));
-		this.touchHelper = new ItemTouchHelper(this.callback);
-		this.touchHelper.attachToRecyclerView(this.binding.list);
+		if (activity.getPreferences().getBoolean("swipe_to_archive", true)) this.touchHelper = new ItemTouchHelper(this.callback);
+		if (activity.getPreferences().getBoolean("swipe_to_archive", true)) this.touchHelper.attachToRecyclerView(this.binding.list);
 		return binding.getRoot();
-	}
-
-	public static float dpToPx(int dp, Context context) {
-		return dp * context.getResources().getDisplayMetrics().density;
 	}
 
 	@Override
@@ -512,7 +500,7 @@ public class ConversationsOverviewFragment extends XmppFragment {
 
 	@Override
 	protected void refresh() {
-		if (this.binding == null || this.activity == null) {
+		if (binding == null || this.activity == null) {
 			Log.d(Config.LOGTAG,"ConversationsOverviewFragment.refresh() skipped updated because view binding or activity was null");
 			return;
 		}
@@ -552,10 +540,10 @@ public class ConversationsOverviewFragment extends XmppFragment {
 				}
 			}
 		}
-		setupSwipe();
+		if (activity.getPreferences().getBoolean("swipe_to_archive", true)) setupSwipe();
 
-		if (binding.overviewSnackbar != null) binding.overviewSnackbar.setVisibility(View.GONE);
-		if (activity.xmppConnectionService == null) return;
+		if (activity.xmppConnectionService == null || binding == null || binding.overviewSnackbar == null) return;
+		binding.overviewSnackbar.setVisibility(View.GONE);
 		for (final var account : activity.xmppConnectionService.getAccounts()) {
 			if (activity.getPreferences().getBoolean("no_mam_pref_warn:" + account.getUuid(), false)) continue;
 			if (account.mamPrefs() != null && !"always".equals(account.mamPrefs().getAttribute("default"))) {

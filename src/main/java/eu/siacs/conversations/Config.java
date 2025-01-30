@@ -2,11 +2,9 @@ package eu.siacs.conversations;
 
 import android.graphics.Bitmap;
 import android.net.Uri;
-
 import eu.siacs.conversations.crypto.XmppDomainVerifier;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.chatstate.ChatState;
-
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -50,7 +48,7 @@ public final class Config {
 
     public static final Jid BUG_REPORTS = Jid.of("support@monocles.eu");
     public static final Uri HELP = Uri.parse("https://docs.monocles.eu");
-    public static final String MAGIC_CREATE_DOMAIN = "monocles.eu";
+    public static final String MAGIC_CREATE_DOMAIN = "conversations.im";
     public static final Jid QUICKSY_DOMAIN = Jid.of("cheogram.com");
     public static final Jid ONBOARDING_DOMAIN = Jid.of("onboarding.cheogram.com");
 
@@ -86,7 +84,6 @@ public final class Config {
     public static final int POST_CONNECTIVITY_CHANGE_PING_INTERVAL = 30;
     public static final int CONNECT_DISCO_TIMEOUT = 20;
     public static final int MINI_GRACE_PERIOD = 750;
-
 
     // media file formats. Homogenous Android or Conversations only deployments can switch to opus
     // and webp
