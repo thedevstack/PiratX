@@ -46,11 +46,11 @@ public final class Config {
 
     public static final boolean QUICK_LOG = false;
 
-    public static final Jid BUG_REPORTS = Jid.of("support@monocles.eu");
-    public static final Uri HELP = Uri.parse("https://docs.monocles.eu");
-    public static final String MAGIC_CREATE_DOMAIN = "conversations.im";
-    public static final Jid QUICKSY_DOMAIN = Jid.of("cheogram.com");
-    public static final Jid ONBOARDING_DOMAIN = Jid.of("onboarding.cheogram.com");
+    public static final Jid BUG_REPORTS = Jid.of("support@jabber.thedevstack.de");
+    public static final Uri HELP = null; // Seems like setting this to null avoids display of help button
+    public static final String MAGIC_CREATE_DOMAIN = "jabber.thedevstack.de";
+    public static final Jid QUICKSY_DOMAIN = Jid.of("quick.jabber.thedevstack.de");
+    public static final Jid ONBOARDING_DOMAIN = Jid.of("onboarding.jabber.thedevstack.de");
 
     public static final String CHANNEL_DISCOVERY = "https://search.jabber.network";
 
