@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="huawei_protected_apps_summary">为了在屏幕关闭后继续接收通知，您需要将 monocles chat 加入受保护的应用列表。</string>
+    <string name="set_profile_picture">monocles chat 个人资料照片</string>
+    <string name="conversations_backup">monocles chat 备份</string>
+    <string name="not_a_backup_file">所选文件不是 monocles chat 备份文件</string>
+    <string name="invite_to_app">邀请至 monocles chat</string>
+    <string name="welcome_to_monocles_chat">欢迎使用 monocles chat</string>
+    <string name="monocles_chat_intro_description">monocles chat 将您连接到名为 XMPP 的全球网络。此网络包括称为网关的服务，用于与短信、IRC、Matrix 等其他网络聊天。</string>
+    <string name="internal_meda_viewer_summary">使用内部媒体查看器打开 monocles chat 中的图片和视频文件</string>
+    <string name="use_conversations.im">使用 monocles</string>
+    <string name="do_you_have_an_account">您已经有 XMPP 地址了吗？如果您使用过 monocles chat、Conversations 或 Snikket 等其他 XMPP 客户端，那么您已经有 XMPP 地址了。如果没有，您现在可以创建新的 XMPP 地址。</string>
+    <string name="pref_export_settings_summary">将 monocles chat 应用设置导出到备份文件夹</string>
+    <string name="create_monocles_account">注册</string>
+    <string name="use_monocles">我更喜欢 monocles</string>
+    <string name="monocles_account_introduction">立即注册，<b>获取安全的 monocles 账号，由再生能源提供动力</b>，直接开始聊天。</string>
+    <string name="monocles_account_details">这包括：\n● 一个月临时聊天存储\n● 2 GB 存储空间的电子邮件\n\n 可选：\n● 5 GB 云存储（Nextcloud）\n● 日历和联系人同步\n● 安全会议工具 \n 更多详情请访问 <a href="https://monocles.eu/more/">https://monocles.eu/more/</a></string>
+</resources>

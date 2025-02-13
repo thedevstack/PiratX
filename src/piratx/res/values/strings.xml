@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mappreview_url" translatable="false">https://piratx.thedevstack.de/staticmap</string>
+    <string name="example_jid">username@jabber.thedevstack.de</string>
+</resources>

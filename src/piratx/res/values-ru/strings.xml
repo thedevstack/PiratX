@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="not_a_backup_file">Выбранный вами файл не является файлом резервной копии monocles chat</string>
+    <string name="invite_to_app">Пригласить в monocles chat</string>
+    <string name="welcome_to_monocles_chat">Добро пожаловать в чат моноклей</string>
+    <string name="monocles_chat_intro_description">monocles chat — это приложение, которое подключает вас к глобальной сети XMPP. Эта сеть включает в себя службы, называемые шлюзами, для общения с другими сетями, такими как SMS, IRC, Matrix и т. д.</string>
+    <string name="do_you_have_an_account">У вас уже есть XMPP ID? Это может быть в случае, если вы уже используете другой XMPP-клиент или использовали monocles chat, Conversations или Snikket ранее. Если нет, вы можете создать новый XMPP ID прямо сейчас.</string>
+    <string name="monocles_account_introduction">Зарегистрируйтесь сейчас, и <b> Получите безопасную учетную запись Monocles, оснащенную регенеративными энергиями </b>, чтобы напрямую начать чат.</string>
+    <string name="monocles_account_details">Это включает в себя:\n● Один месяц временного хранения чата\n● Электронная почта с хранением 2 ГБ\n\n необязательно: \n● 5 ГБ облачного хранилища (NextCloud)\n● Календарь и контакт синхронизации\n● Безопасный инструмент конференции \n и подробнее о <a href="https://monocles.eu/more/"> https://monocles.eu/more/ </a></string>
+    <string name="create_monocles_account">Зарегистрироваться</string>
+    <string name="use_monocles">Я предпочитаю монокли</string>
+</resources>

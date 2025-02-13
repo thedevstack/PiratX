@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="not_a_backup_file">Kartela që përzgjodhët s’është kartelë kopjeruajtjeje monocles chat</string>
+    <string name="invite_to_app">Ftojeni te monocles chat</string>
+    <string name="welcome_to_monocles_chat">Mirë se vini te fjalosja Monocles</string>
+    <string name="monocles_chat_intro_description">Fjalosja Monocles është një aplikacion që ju lidh me një rrjet global të quajtur XMPP. Ky rrjet përfshin shërbime, të quajtur kanale, për të biseduar me rrjete të tjerë, të tillë si SMS, IRC, Matrix, etj.</string>
+    <string name="create_monocles_account">Regjistrohuni</string>
+    <string name="monocles_account_introduction">Regjistrohuni tani dhe <b>merrni një llogari të siguruar monocles, që funksionon me energji rigjeneruese</b> që të filloni e të bisedoni menjëherë.</string>
+    <string name="monocles_account_details">Kjo përfshin:\n● depozitim të përkohshëm një muaj të fjalosjeve\n● e-mail me depozitë 2 GB\n\n opsionale: \n● 5 GB depozitë në re (nextcloud)\n● njëkohësim kalendari dhe kontaktesh\n● një mjet të siguruar konferencash \n dhe më tepër, te <a href="https://monocles.eu/more/">https://monocles.eu/more/</a></string>
+    <string name="use_monocles">Parapëlqej monocles</string>
+</resources>
