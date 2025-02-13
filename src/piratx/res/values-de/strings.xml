@@ -8,7 +8,7 @@
     <string name="welcome_to_monocles_chat">Willkommen bei PiratX</string>
 	<string name="welcome_header_quicksy">Willkommen bei PiratX</string>
 	<string name="quicksy_wants_your_consent">Quicksy bittet dich um deine Zustimmung zur Verwendung deiner Daten</string>
-    <string name="monocles_chat_intro_description">monocles chat ist eine App, die es dir ermöglicht sich mit einem globalen Netzwerk namens XMPP zu verbinden. Das Netzwerk beinhaltet Dienste, sogenannte Gateways, um mit anderen Netzwerken wie SMS, IRC, Matrix und weiteren zu chatten.</string>
+    <string name="monocles_chat_intro_description">PiratX ist eine App, die es dir ermöglicht sich mit einem globalen Netzwerk namens XMPP zu verbinden. Das Netzwerk beinhaltet Dienste, sogenannte Gateways, um mit anderen Netzwerken wie SMS, IRC, Matrix und weiteren zu chatten.</string>
     <string name="internal_meda_viewer_summary">Verwende den internen Medienbetrachter, um Bilder oder Videos in PiratX zu öffnen</string>
     <string name="use_conversations.im">Benutze PiratX</string>
     <string name="i_am_snikket_user">Ich verwende Snikket</string>
