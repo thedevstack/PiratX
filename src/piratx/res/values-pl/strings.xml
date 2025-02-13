@@ -2,9 +2,9 @@
 <resources>
     <string name="magic_create_text">Poprowadzimy cię przez proces tworzenia konta na monocles.eu.
 \nKiedy wybierzesz monocles.eu jako dostawcę będziesz mógł komunikować się z innymi osobami jeśli podasz im swój pełen adres XMPP.</string>
-    <string name="not_a_backup_file">Plik, który otworzyłeś, nie jest plikiem kopii zapasowej monocles chat</string>
-    <string name="invite_to_app">Zaproś do monocles chat</string>
-    <string name="monocles_chat_intro_description">monocles chat to aplikacja dzięki której połączysz się do globalnej sieci XMPP. Ta sieć zawiera serwisy, zwane przejściami, aby móc rozmawiać z innymi sieciami takimi jak SMS, IRC, Matrix i inne.</string>
-    <string name="welcome_to_monocles_chat">Witamy w monocles chat</string>
+    <string name="not_a_backup_file">Plik, który otworzyłeś, nie jest plikiem kopii zapasowej PiratX</string>
+    <string name="invite_to_app">Zaproś do PiratX</string>
+    <string name="monocles_chat_intro_description">PiratX to aplikacja dzięki której połączysz się do globalnej sieci XMPP. Ta sieć zawiera serwisy, zwane przejściami, aby móc rozmawiać z innymi sieciami takimi jak SMS, IRC, Matrix i inne.</string>
+    <string name="welcome_to_monocles_chat">Witamy w PiratX</string>
     <string name="use_conversations.im">Użyj monocles</string>
 </resources>

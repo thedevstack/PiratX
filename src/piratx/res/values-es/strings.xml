@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="example_jid">username@jabber.thedevstack.de</string>
-    <string name="not_a_backup_file">El fichero seleccionado no es un respaldo de monocles chat</string>
-    <string name="invite_to_app">Invitar a monocles chat</string>
-    <string name="welcome_to_monocles_chat">Bienvenido a monocles chat</string>
-    <string name="monocles_chat_intro_description">monocles chat es una app que te conecta a la red global llamada XMPP. Esta red incluye servicios, llamados pasarelas, para chatear con otras redes como SMS, IRC, Matrix, y más.</string>
-    <string name="use_conversations.im">Usar monocles</string>
+    <string name="not_a_backup_file">El fichero seleccionado no es un respaldo de PiratX</string>
+    <string name="invite_to_app">Invitar a PiratX</string>
+    <string name="welcome_to_monocles_chat">Bienvenido a PiratX</string>
+    <string name="monocles_chat_intro_description">PiratX es una app que te conecta a la red global llamada XMPP. Esta red incluye servicios, llamados pasarelas, para chatear con otras redes como SMS, IRC, Matrix, y más.</string>
+    <string name="use_conversations.im">Usar PiratX</string>
     <string name="do_you_have_an_account">¿Ya tienes un ID XMPP? Podría ser el caso si ya estás usando un cliente XMPP diferente o si ya has usado Monocles Chat, Conversations o Snikket antes. Si no es así, puedes crear un nuevo ID XMPP ahora mismo.</string>
-    <string name="internal_meda_viewer_summary">Usar visualizador interno para abrir imágenes o vídeos dentro de monocles chat</string>
-    <string name="pref_export_settings_summary">Exportar los ajustes de monocles chat a la carpeta de backup</string>
+    <string name="internal_meda_viewer_summary">Usar visualizador interno para abrir imágenes o vídeos dentro de PiratX</string>
+    <string name="pref_export_settings_summary">Exportar los ajustes de PiratX a la carpeta de backup</string>
 </resources>

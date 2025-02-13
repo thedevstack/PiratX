@@ -9,14 +9,13 @@
 	<string name="welcome_header_quicksy">Willkommen bei PiratX</string>
 	<string name="quicksy_wants_your_consent">Quicksy bittet dich um deine Zustimmung zur Verwendung deiner Daten</string>
     <string name="monocles_chat_intro_description">monocles chat ist eine App, die es dir ermöglicht sich mit einem globalen Netzwerk namens XMPP zu verbinden. Das Netzwerk beinhaltet Dienste, sogenannte Gateways, um mit anderen Netzwerken wie SMS, IRC, Matrix und weiteren zu chatten.</string>
-    <string name="internal_meda_viewer_summary">Verwende den internen Medienbetrachter, um Bilder oder Videos in monocles chat zu öffnen</string>
-    <string name="use_conversations.im">Benutze monocles</string>
+    <string name="internal_meda_viewer_summary">Verwende den internen Medienbetrachter, um Bilder oder Videos in PiratX zu öffnen</string>
+    <string name="use_conversations.im">Benutze PiratX</string>
     <string name="i_am_snikket_user">Ich verwende Snikket</string>
     <string name="do_you_have_an_account">Hast du bereits eine XMPP-Adresse? Das kann der Fall sein, wenn du bereits vorher eine XMPP App wie zum Beispiel monocles chat, Conversations oder Snikket verwendet hast. Falls das nicht der Fall ist, kannst du jetzt eine XMPP-Adresse anlegen.</string>
     <string name="magic_create_text_on_x">Du wurdest zu to %1$s eingeladen. monocles chat wird dich durch den Registrierungsprozess leiten.
 \nDurch die Registrierung bei %1$s kannst du auch mit Menschen bei anderen Anbietern kommunizieren, indem du ihnen deine XMPP-Adresse mitteilst.</string>
     <string name="monocles_account_introduction">Melde dich jetzt an und <b>erhalte einen sicheres monocles-Konto, versorgt mit regenerativen Energien</b>, um direkt mit dem Chatten zu beginnen.</string>
     <string name="use_monocles">Ich bevorzuge monocles</string>
-    <string name="pref_swipe_to_archive_summary">Wische in der Chat-Übersicht nach links oder rechts, um einen Chat zu archivieren</string>
     <string name="monocles_account_details">Dies beinhaltet:\n● einen Monat temporärer Chatspeicher\n● E-Mail mit 2 GB Speicher\n\n optional: \n● 5 GB Cloud-Speicher (nextcloud)\n● Kalender- und Kontaktsynchronisation\n● ein sicheres Konferenztool \n und mehr auf <a href="https://monocles.eu/more/">https://monocles.eu/more/</a></string>
 </resources>

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="not_a_backup_file">選択したファイルは、 monocles chat のバックアップファイルではありません</string>
-    <string name="invite_to_app">monocles chatに招待</string>
-    <string name="do_you_have_an_account">既に XMPP ID を持っていますか?　すなわち、別の XMPP クライアントを使用中か、以前に monocles chat 、 Conversations 、または Snikket を使用していたかもしれません。そうでなければ、新規 XMPP ID を今、作成できます。</string>
-    <string name="monocles_chat_intro_description">monocles chat は XMPP と呼ばれる全世界のネットワークに接続するアプリです。このネットワークは SMS 、 IRC 、 Matrix などような他のネットワークと話をするためのゲートウェイと呼ばれるサービスが含まれています。</string>
-    <string name="internal_meda_viewer_summary">monocles chat の内側で画像またはビデオのファイルを開くために、 monocles chat 内部のメディア表示器を使用する</string>
-    <string name="welcome_to_monocles_chat">monocles chat へようこそ</string>
-    <string name="use_conversations.im">monocles を使用</string>
+    <string name="not_a_backup_file">選択したファイルは、 PiratX のバックアップファイルではありません</string>
+    <string name="invite_to_app">PiratXに招待</string>
+    <string name="do_you_have_an_account">既に XMPP ID を持っていますか?　すなわち、別の XMPP クライアントを使用中か、以前に PiratX 、 Conversations 、または Snikket を使用していたかもしれません。そうでなければ、新規 XMPP ID を今、作成できます。</string>
+    <string name="monocles_chat_intro_description">PiratX は XMPP と呼ばれる全世界のネットワークに接続するアプリです。このネットワークは SMS 、 IRC 、 Matrix などような他のネットワークと話をするためのゲートウェイと呼ばれるサービスが含まれています。</string>
+    <string name="internal_meda_viewer_summary">PiratX の内側で画像またはビデオのファイルを開くために、 PiratX 内部のメディア表示器を使用する</string>
+    <string name="welcome_to_monocles_chat">PiratX へようこそ</string>
+    <string name="use_conversations.im">PiratX を使用</string>
 </resources>

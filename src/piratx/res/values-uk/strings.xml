@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="huawei_protected_apps_summary">Щоб отримувати сповіщення навіть коли екран погас, необхідно додати monocles chat до списку захищених програм.</string>
-    <string name="set_profile_picture">Зображення для облікового запису monocles chat</string>
-    <string name="conversations_backup">Резервна копія monocles chat</string>
-    <string name="not_a_backup_file">Вибраний файл не є резервною копією monocles chat</string>
-    <string name="invite_to_app">Запросити до monocles chat</string>
-    <string name="welcome_to_monocles_chat">Вітаємо в monocles chat</string>
-    <string name="monocles_chat_intro_description">monocles chat — це застосунок, який підключає вас до глобальної мережі під назвою XMPP. Ця мережа включає в себе сервіси, які називаються шлюзами, для спілкування з іншими мережами, такими як SMS, IRC, Matrix тощо.</string>
-    <string name="internal_meda_viewer_summary">Відкривати зображення чи відеофайли у внутрішньому переглядачі monocles chat</string>
-    <string name="use_conversations.im">Використовувати monocles</string>
-    <string name="do_you_have_an_account">Уже маєте обліковий запис XMPP? Можливо, користуєтеся іншою програмою XMPP або користувалися monocles chat, Conversations чи Snikket раніше. Якщо ні, можете створити новий обліковий запис XMPP просто зараз.</string>
-    <string name="pref_export_settings_summary">Експорт налаштувань monocles chat у теку резервних копій</string>
+    <string name="huawei_protected_apps_summary">Щоб отримувати сповіщення навіть коли екран погас, необхідно додати PiratX до списку захищених програм.</string>
+    <string name="set_profile_picture">Зображення для облікового запису PiratX</string>
+    <string name="conversations_backup">Резервна копія PiratX</string>
+    <string name="not_a_backup_file">Вибраний файл не є резервною копією PiratX</string>
+    <string name="invite_to_app">Запросити до PiratX</string>
+    <string name="welcome_to_monocles_chat">Вітаємо в PiratX</string>
+    <string name="monocles_chat_intro_description">PiratX — це застосунок, який підключає вас до глобальної мережі під назвою XMPP. Ця мережа включає в себе сервіси, які називаються шлюзами, для спілкування з іншими мережами, такими як SMS, IRC, Matrix тощо.</string>
+    <string name="internal_meda_viewer_summary">Відкривати зображення чи відеофайли у внутрішньому переглядачі PiratX</string>
+    <string name="use_conversations.im">Використовувати PiratX</string>
+    <string name="do_you_have_an_account">Уже маєте обліковий запис XMPP? Можливо, користуєтеся іншою програмою XMPP або користувалися PiratX, Conversations чи Snikket раніше. Якщо ні, можете створити новий обліковий запис XMPP просто зараз.</string>
+    <string name="pref_export_settings_summary">Експорт налаштувань PiratX у теку резервних копій</string>
 </resources>

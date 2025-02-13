@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="not_a_backup_file">Kartela që përzgjodhët s’është kartelë kopjeruajtjeje monocles chat</string>
-    <string name="invite_to_app">Ftojeni te monocles chat</string>
+    <string name="not_a_backup_file">Kartela që përzgjodhët s’është kartelë kopjeruajtjeje PiratX</string>
+    <string name="invite_to_app">Ftojeni te PiratX</string>
     <string name="welcome_to_monocles_chat">Mirë se vini te fjalosja Monocles</string>
     <string name="monocles_chat_intro_description">Fjalosja Monocles është një aplikacion që ju lidh me një rrjet global të quajtur XMPP. Ky rrjet përfshin shërbime, të quajtur kanale, për të biseduar me rrjete të tjerë, të tillë si SMS, IRC, Matrix, etj.</string>
     <string name="create_monocles_account">Regjistrohuni</string>
