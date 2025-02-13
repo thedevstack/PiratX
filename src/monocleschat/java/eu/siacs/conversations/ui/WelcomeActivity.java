@@ -178,7 +178,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
 
             public void onPageSelected(int position) {
                 binding.buttonNext.setVisibility(position > 2 ? View.GONE : View.VISIBLE);
-                binding.buttonPrivacy.setVisibility(position < 3 ? View.GONE : View.VISIBLE);
+                //binding.buttonPrivacy.setVisibility(position < 3 ? View.GONE : View.VISIBLE);
                 if (position > 2) {
                     setSettings();
                 }
