@@ -15,7 +15,7 @@ jobs:
       - name: build debug apk
         run: ./gradlew assembleMonoclesPiratxDebug -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
         working-directory: $GITHUB_WORKSPACE
-      - uses: https://git.fucktheforce.de/actions/upload-artifact@v4
+      - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
         with:
           name: debug-apks
           path: build/outputs/apk/*/debug/*.apk
