@@ -16,4 +16,10 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           ./gradlew assembleMonoclesPiratxDebug -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
+      - uses: https://git.fucktheforce.de/actions/upload-artifact@v4
+        with:
+          name: debug-apks
+          path: $GITHUB_WORKSPACE/build/outputs/apk/*/debug/*.apk
+          if-no-files-found: error
+          retention-days: 10
 
