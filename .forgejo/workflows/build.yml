@@ -13,13 +13,13 @@ jobs:
         run: yes | sdkmanager --licenses > /dev/null
       - uses: https://git.fucktheforce.de/actions/checkout@v4
       - name: build debug apk
-        run: |
-          cd $GITHUB_WORKSPACE
-          ./gradlew assembleMonoclesPiratxDebug -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
+        run: ./gradlew assembleMonoclesPiratxDebug -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
+        working-directory: ${{ github.workspace }}
       - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
         with:
           name: debug-apks
-          path: ${{ github.workspace }}/build/outputs/apk/*/debug/*.apk
+          path: build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
           retention-days: 10
+        working-directory: ${{ github.workspace }}
 
