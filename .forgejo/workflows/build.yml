@@ -13,7 +13,27 @@ jobs:
         run: yes | sdkmanager --licenses > /dev/null
       - uses: https://git.fucktheforce.de/actions/checkout@v4
       - name: build debug apk
-        run: |
-          cd $GITHUB_WORKSPACE
-          ./gradlew assembleMonoclesPiratxDebug -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
+        run: ./gradlew assembleMonoclesPiratxDebug -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
+        working-directory: ${{ github.workspace }}
+      - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
+        with:
+          name: debug-apk-arm64-v8a
+          path: build/outputs/apk/*/debug/*-arm64-v8a-*.apk
+          if-no-files-found: error
+          retention-days: 10
+        working-directory: ${{ github.workspace }}
+      - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
+        with:
+          name: debug-apk-armeabi-v7a
+          path: build/outputs/apk/*/debug/*-armeabi-v7a-*.apk
+          if-no-files-found: error
+          retention-days: 10
+        working-directory: ${{ github.workspace }}
+      - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
+        with:
+          name: debug-apk-universal
+          path: build/outputs/apk/*/debug/*-universal-*.apk
+          if-no-files-found: error
+          retention-days: 10
+        working-directory: ${{ github.workspace }}
 
