@@ -33,7 +33,7 @@ import eu.siacs.conversations.ui.ManageAccountActivity;
 import eu.siacs.conversations.ui.WelcomeActivity;
 
 public class SignUpPage extends RegisterMonoclesActivity {
-    final String url = "https://ocean.monocles.eu/apps/registration/";
+    final String url = "https://jabber.thedevstack.de/apps/registration/";
     private WebView webView;
     @Override
     public void onCreate(Bundle savedInstanceState) {
