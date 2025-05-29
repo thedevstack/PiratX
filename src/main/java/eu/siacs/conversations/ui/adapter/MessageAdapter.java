@@ -51,6 +51,8 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
 import androidx.core.widget.ImageViewCompat;
 import androidx.databinding.DataBindingUtil;
+import androidx.media3.common.util.Log;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.github.pgreze.reactions.ReactionPopup;
@@ -93,6 +95,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -178,9 +181,26 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     private String selectionUuid = null;
     private final AppSettings appSettings;
 
+    private final float imagePreviewWidthTarget;
+    private final float bubbleRadiusDim;
+    private final float imageRadiusDim;
+    private final float density;
+    private final float padding8dp;
+    private final float padding22dp;
+    private final float targetImageWidthSmallThreshold;
+    private final float targetImageWidthLargeThreshold;
+
     public MessageAdapter(
             final XmppActivity activity, final List<Message> messages, final boolean forceNames) {
         super(activity, 0, messages);
+        this.density = activity.getResources().getDisplayMetrics().density;
+        this.imagePreviewWidthTarget = activity.getResources().getDimension(R.dimen.image_preview_width);
+        this.bubbleRadiusDim = activity.getResources().getDimension(R.dimen.bubble_radius);
+        this.imageRadiusDim = activity.getResources().getDimension(R.dimen.image_radius);
+        this.padding8dp = 8 * this.density;
+        this.padding22dp = 22 * this.density;
+        this.targetImageWidthSmallThreshold = 110 * this.density;
+        this.targetImageWidthLargeThreshold = 200 * this.density;
         this.audioPlayer = new AudioPlayer(this);
         this.activity = activity;
         metrics = getContext().getResources().getDisplayMetrics();
@@ -266,7 +286,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
     @Override
     public int getItemViewType(final int position) {
-        return getItemViewType(getItem(position), bubbleDesign.alignStart);
+        return getItemViewType(Objects.requireNonNull(getItem(position)), bubbleDesign.alignStart);
     }
 
 
@@ -328,8 +348,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     .time()
                     .setTextColor(
                             MaterialColors.getColor(
-                                    viewHolder.time(),
-                                    com.google.android.material.R.attr.colorError));
+                                    viewHolder.time(), androidx.appcompat.R.attr.colorError));
         } else {
             setTextColor(viewHolder.time(), bubbleColor);
         }
@@ -376,27 +395,39 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 UIHelper.readableTimeDifferenceFull(getContext(), message.getTimeSent());
         final String bodyLanguage = message.getBodyLanguage();
         final ImmutableList.Builder<String> timeInfoBuilder = new ImmutableList.Builder<>();
-
-        if (mForceNames || multiReceived || showUserNickname || (message.getTrueCounterpart() != null && message.getContact() != null)) {
-            final String displayName = UIHelper.getMessageDisplayName(message);
-            if (displayName != null && viewHolder.username() != null) {
-                timeInfoBuilder.add("");
-                viewHolder.username().setVisibility(View.VISIBLE);
-                viewHolder.username().setText(UIHelper.getColoredUsername(activity.xmppConnectionService, message));
-            }
-        }
-        if (fileSize != null) {
-            timeInfoBuilder.add(fileSize);
-        }
-        if (bodyLanguage != null) {
-            timeInfoBuilder.add(bodyLanguage.toUpperCase(Locale.US));
-        }
-        // for space reasons we display only 'additional status info' (send progress or concrete
-        // failure reason) or the time
-        if (additionalStatusInfo != null) {
-            timeInfoBuilder.add(additionalStatusInfo);
-        } else {
+        if (message.getStatus() <= Message.STATUS_RECEIVED) {
             timeInfoBuilder.add(formattedTime);
+            if (fileSize != null) {
+                timeInfoBuilder.add(fileSize);
+            }
+            if (mForceNames || multiReceived || (message.getTrueCounterpart() != null && message.getContact() != null)) {
+                final String displayName = UIHelper.getMessageDisplayName(message);
+                if (displayName != null) {
+                    timeInfoBuilder.add("");
+                    viewHolder.username().setVisibility(View.VISIBLE);
+                    viewHolder.username().setText(UIHelper.getColoredUsername(activity.xmppConnectionService, message));
+                }
+            } else {
+                viewHolder.username().setText(null);
+                viewHolder.username().setVisibility(GONE);
+            }
+            if (bodyLanguage != null) {
+                timeInfoBuilder.add(bodyLanguage.toUpperCase(Locale.US));
+            }
+        } else {
+            if (bodyLanguage != null) {
+                timeInfoBuilder.add(bodyLanguage.toUpperCase(Locale.US));
+            }
+            if (fileSize != null) {
+                timeInfoBuilder.add(fileSize);
+            }
+            // for space reasons we display only 'additional status info' (send progress or concrete
+            // failure reason) or the time
+            if (additionalStatusInfo != null) {
+                timeInfoBuilder.add(additionalStatusInfo);
+            } else {
+                timeInfoBuilder.add(formattedTime);
+            }
         }
         final var timeInfo = timeInfoBuilder.build();
         viewHolder.time().setText(Joiner.on(" · ").join(timeInfo));
@@ -512,14 +543,14 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
-    public boolean handleTextQuotes(final TextView textView, final Editable body) {
-        return handleTextQuotes(textView, body, true);
+    public void handleTextQuotes(final TextView textView, final Editable body) {
+        handleTextQuotes(textView, body, true);
     }
 
-    public boolean handleTextQuotes(final TextView textView, final Editable body, final boolean deleteMarkers) {
+    public void handleTextQuotes(final TextView textView, final Editable body, final boolean deleteMarkers) {
         final boolean colorfulBackground = this.bubbleDesign.colorfulChatBubbles;
         final BubbleColor bubbleColor = colorfulBackground ? (deleteMarkers ? BubbleColor.SECONDARY : BubbleColor.TERTIARY) : BubbleColor.SURFACE;
-        return handleTextQuotes(textView, body, bubbleColor, deleteMarkers);
+        handleTextQuotes(textView, body, bubbleColor, deleteMarkers);
     }
 
     /**
@@ -641,8 +672,8 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
         if (processMarkup)
             StylingHelper.format(body, viewHolder.messageBody().getCurrentTextColor());
-        MyLinkify.addLinks(body, message.getConversation().getAccount(), message.getConversation().getJid());
-        boolean startsWithQuote = processMarkup ? handleTextQuotes(viewHolder.messageBody(), body, bubbleColor, true) : false;
+        MyLinkify.addLinks(body, message.getConversation().getAccount(), message.getConversation().getJid(), activity.xmppConnectionService);
+        boolean startsWithQuote = processMarkup && handleTextQuotes(viewHolder.messageBody(), body, bubbleColor, true);
         for (final android.text.style.QuoteSpan quote : body.getSpans(0, body.length(), android.text.style.QuoteSpan.class)) {
             int start = body.getSpanStart(quote);
             int end = body.getSpanEnd(quote);
@@ -659,7 +690,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     body.delete(start, end);
                     while (body.length() > start && body.charAt(start) == '\n')
                         body.delete(start, 1); // Newlines after quote
-                    continue;
                 }
             }
         }
@@ -761,43 +791,32 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
         // Experimental expandable text, collapse after 8 lines
         if (activity.xmppConnectionService.getBooleanPreference("set_text_collapsable", R.bool.set_text_collapsable)) {
-            viewHolder.messageBody().post(new Runnable() {
-                @Override
-                public void run() {
-                    int lineCount = viewHolder.messageBody().getLineCount();
-                    if (lineCount > 8) {
-                        viewHolder.showMore().setVisibility(View.VISIBLE);
-                    } else {
-                        viewHolder.showMore().setVisibility(GONE);
-                    }
+            viewHolder.messageBody().post(() -> {
+                int lineCount = viewHolder.messageBody().getLineCount();
+                if (lineCount > 8) {
+                    viewHolder.showMore().setVisibility(View.VISIBLE);
+                } else {
+                    viewHolder.showMore().setVisibility(GONE);
                 }
             });
             final boolean[] isTextViewClicked = {false};
-            viewHolder.showMore().setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (isTextViewClicked[0]) {
-                        //This will shrink textview to 8 lines if it is expanded.
-                        viewHolder.showMore().setText(R.string.show_more);
-                        viewHolder.messageBody().setMaxLines(8);
-                        isTextViewClicked[0] = false;
-                    } else {
-                        //This will expand the textview if it is of 8 lines
-                        viewHolder.showMore().setText(R.string.show_less);
-                        viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
-                        isTextViewClicked[0] = true;
-                    }
+            viewHolder.showMore().setOnClickListener(v -> {
+                if (isTextViewClicked[0]) {
+                    //This will shrink textview to 8 lines if it is expanded.
+                    viewHolder.showMore().setText(R.string.show_more);
+                    viewHolder.messageBody().setMaxLines(8);
+                    isTextViewClicked[0] = false;
+                } else {
+                    //This will expand the textview if it is of 8 lines
+                    viewHolder.showMore().setText(R.string.show_less);
+                    viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
+                    isTextViewClicked[0] = true;
                 }
             });
         } else viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
 
         if (body.length() <= 0) viewHolder.messageBody().setVisibility(GONE);
         BetterLinkMovementMethod method = getBetterLinkMovementMethod();
-        method.setOnLinkLongClickListener((tv, url) -> {
-            tv.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_CANCEL, 0f, 0f, 0));
-            ShareUtil.copyLinkToClipboard(activity, url);
-            return true;
-        });
         viewHolder.messageBody().setMovementMethod(method);
     }
 
@@ -843,12 +862,12 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         if (thumbs != null && !thumbs.isEmpty()) {
             for (Element thumb : thumbs) {
                 Uri uri = Uri.parse(thumb.getAttribute("uri"));
-                if (uri.getScheme().equals("data")) {
+                if (Objects.equals(uri.getScheme(), "data")) {
                     String[] parts = uri.getSchemeSpecificPart().split(",", 2);
                     parts = parts[0].split(";");
                     if (!parts[0].equals("image/blurhash") && !parts[0].equals("image/thumbhash") && !parts[0].equals("image/jpeg") && !parts[0].equals("image/png") && !parts[0].equals("image/webp") && !parts[0].equals("image/gif"))
                         continue;
-                } else if (uri.getScheme().equals("cid")) {
+                } else if (Objects.equals(uri.getScheme(), "cid")) {
                     Cid cid = BobTransfer.cid(uri);
                     if (cid == null) continue;
                     DownloadableFile f = activity.xmppConnectionService.getFileForCid(cid);
@@ -858,7 +877,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
                         try {
                             new BobTransfer(BobTransfer.uri(cid), message.getConversation().getAccount(), message.getCounterpart(), activity.xmppConnectionService).start();
-                        } catch (final NoSuchAlgorithmException | URISyntaxException e) {
+                        } catch (final NoSuchAlgorithmException | URISyntaxException ignored) {
                         }
                         continue;
                     }
@@ -932,7 +951,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 }
             }).start();
         } else {
-            if (lastUpdate != null && (lastUpdate.getSummary() != null || lastUpdate.getDocument() != null)) {
+            if (lastUpdate.getSummary() != null || lastUpdate.getDocument() != null) {
                 viewHolder.messageBody().setVisibility(View.VISIBLE);
                 viewHolder.messageBody().setText(
                         (lastUpdate.getDocument() == null ? "" : lastUpdate.getDocument() + "\n") +
@@ -988,27 +1007,27 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         final var uri = message.wholeIsKnownURI();
         if ("bitcoin".equals(uri.getScheme())) {
             final var amount = uri.getQueryParameter("amount");
-            final var formattedAmount = amount == null || amount.equals("") ? "" : amount + " ";
+            final var formattedAmount = amount == null || amount.isEmpty() ? "" : amount + " ";
             viewHolder.downloadButton().setIconResource(R.drawable.bitcoin_24dp);
             viewHolder.downloadButton().setText("Send " + formattedAmount + "Bitcoin");
         } else if ("bitcoincash".equals(uri.getScheme())) {
             final var amount = uri.getQueryParameter("amount");
-            final var formattedAmount = amount == null || amount.equals("") ? "" : amount + " ";
+            final var formattedAmount = amount == null || amount.isEmpty() ? "" : amount + " ";
             viewHolder.downloadButton().setIconResource(R.drawable.bitcoin_cash_24dp);
             viewHolder.downloadButton().setText("Send " + formattedAmount + "Bitcoin Cash");
         } else if ("ethereum".equals(uri.getScheme())) {
             final var amount = uri.getQueryParameter("value");
-            final var formattedAmount = amount == null || amount.equals("") ? "" : amount + " ";
+            final var formattedAmount = amount == null || amount.isEmpty() ? "" : amount + " ";
             viewHolder.downloadButton().setIconResource(R.drawable.eth_24dp);
             viewHolder.downloadButton().setText("Send " + formattedAmount + "via Ethereum");
         } else if ("monero".equals(uri.getScheme())) {
             final var amount = uri.getQueryParameter("tx_amount");
-            final var formattedAmount = amount == null || amount.equals("") ? "" : amount + " ";
+            final var formattedAmount = amount == null || amount.isEmpty() ? "" : amount + " ";
             viewHolder.downloadButton().setIconResource(R.drawable.monero_24dp);
             viewHolder.downloadButton().setText("Send " + formattedAmount + "Monero");
         } else if ("wownero".equals(uri.getScheme())) {
             final var amount = uri.getQueryParameter("tx_amount");
-            final var formattedAmount = amount == null || amount.equals("") ? "" : amount + " ";
+            final var formattedAmount = amount == null || amount.isEmpty() ? "" : amount + " ";
             viewHolder.downloadButton().setIconResource(R.drawable.wownero_24dp);
             viewHolder.downloadButton().setText("Send " + formattedAmount + "Wownero");
         }
@@ -1069,56 +1088,95 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     }
 
     private void imagePreviewLayout(int w, int h, ShapeableImageView image, boolean otherAbove, boolean otherBelow, BubbleMessageItemViewHolder viewHolder) {
-        final float target = activity.getResources().getDimension(R.dimen.image_preview_width);
+        // metrics.density is used multiple times, cache it locally or make it a member if metrics is stable.
+        // Assuming 'density' is now a member variable 'this.density' initialized in constructor.
+
         final int scaledW;
         final int scaledH;
-        if (Math.max(h, w) * metrics.density <= target) {
-            scaledW = (int) (w * metrics.density);
-            scaledH = (int) (h * metrics.density);
-        } else if (Math.max(h, w) <= target) {
+
+        // Use the pre-fetched imagePreviewWidthTarget
+        if (Math.max(h, w) * this.density <= this.imagePreviewWidthTarget) {
+            scaledW = (int) (w * this.density);
+            scaledH = (int) (h * this.density);
+        } else if (Math.max(h, w) <= this.imagePreviewWidthTarget) {
             scaledW = w;
             scaledH = h;
         } else if (w <= h) {
-            scaledW = (int) (w / ((double) h / target));
-            scaledH = (int) target;
+            scaledW = (int) (w / ((double) h / this.imagePreviewWidthTarget));
+            scaledH = (int) this.imagePreviewWidthTarget;
         } else {
-            scaledW = (int) target;
-            scaledH = (int) (h / ((double) w / target));
+            scaledW = (int) this.imagePreviewWidthTarget;
+            scaledH = (int) (h / ((double) w / this.imagePreviewWidthTarget));
         }
-        final var bodyWidth = Math.max(viewHolder.messageBody().getWidth(), viewHolder.downloadButton().getWidth() + (20 * metrics.density));
-        var targetImageWidth = 200 * metrics.density;
-        if (!otherBelow) targetImageWidth = 110 * metrics.density;
-        if (bodyWidth > 0 && bodyWidth < targetImageWidth) targetImageWidth = bodyWidth;
-        final var small = scaledW < targetImageWidth;
-        final LinearLayout.LayoutParams layoutParams =
-                new LinearLayout.LayoutParams(scaledW, scaledH);
-        image.setLayoutParams(layoutParams);
 
-        final var bubbleRadius = activity.getResources().getDimension(R.dimen.bubble_radius);
-        var shape = new ShapeAppearanceModel.Builder();
+        final var bodyWidth = Math.max(viewHolder.messageBody().getWidth(), viewHolder.downloadButton().getWidth() + (int)this.padding22dp); // Use pre-calculated padding22dp
+
+        // Use pre-calculated thresholds
+        float currentTargetImageWidth = this.targetImageWidthLargeThreshold;
+        if (!otherBelow) {
+            currentTargetImageWidth = this.targetImageWidthSmallThreshold;
+        }
+
+        if (bodyWidth > 0 && bodyWidth < currentTargetImageWidth) {
+            currentTargetImageWidth = bodyWidth;
+        }
+
+        final boolean small = scaledW < currentTargetImageWidth;
+
+        ViewGroup.LayoutParams currentParams = image.getLayoutParams();
+        if (currentParams instanceof LinearLayout.LayoutParams linearParams) {
+            if (linearParams.width != scaledW || linearParams.height != scaledH) {
+                linearParams.width = scaledW;
+                linearParams.height = scaledH;
+                image.setLayoutParams(linearParams); // Only set if changed
+            }
+        } else {
+            // Fallback or if it's a different type of LayoutParams initially
+            image.setLayoutParams(new LinearLayout.LayoutParams(scaledW, scaledH));
+        }
+
+
+        ShapeAppearanceModel.Builder shapeBuilder = new ShapeAppearanceModel.Builder();
+        boolean shapeChanged = false; // Flag to track if we need to rebuild
+
         if (!otherAbove) {
-            shape = shape.setTopRightCorner(CornerFamily.ROUNDED, bubbleRadius);
+            shapeBuilder = shapeBuilder.setTopRightCorner(CornerFamily.ROUNDED, this.bubbleRadiusDim);
             if (viewHolder instanceof EndBubbleMessageItemViewHolder) {
-                shape = shape.setTopLeftCorner(CornerFamily.ROUNDED, bubbleRadius);
+                shapeBuilder = shapeBuilder.setTopLeftCorner(CornerFamily.ROUNDED, this.bubbleRadiusDim);
             }
         }
+
         if (small) {
-            final var imageRadius = activity.getResources().getDimension(R.dimen.image_radius);
-            shape = shape.setAllCorners(CornerFamily.ROUNDED, imageRadius);
-            image.setPadding(0, (int) (8 * metrics.density), 0, 0);
+            shapeBuilder = shapeBuilder.setAllCorners(CornerFamily.ROUNDED, this.imageRadiusDim);
+            // Padding can be set directly without checking old values, it's cheap.
+            image.setPadding(0, (int) this.padding8dp, 0, 0);
         } else {
             image.setPadding(0, 0, 0, 0);
         }
-        image.setShapeAppearanceModel(shape.build());
+
+        // This is the most direct way if caching `ShapeAppearanceModel` instances is too complex
+        image.setShapeAppearanceModel(shapeBuilder.build());
+
 
         if (!small) {
-            final ViewGroup.LayoutParams blayoutParams = viewHolder.messageBody().getLayoutParams();
-            blayoutParams.width = (int) (scaledW - (22 * metrics.density));
-            viewHolder.messageBody().setLayoutParams(blayoutParams);
+            // Optimize LayoutParams for messageBody and inReplyToQuote
+            // Get params once, modify, then set.
+            final ViewGroup.LayoutParams bodyLayoutParams = viewHolder.messageBody().getLayoutParams();
+            int targetWidth = (int) (scaledW - this.padding22dp); // Use pre-calculated padding22dp
 
-            final ViewGroup.LayoutParams qlayoutParams = viewHolder.inReplyToQuote().getLayoutParams();
-            qlayoutParams.width = (int) (scaledW - (22 * metrics.density));
-            viewHolder.messageBody().setLayoutParams(qlayoutParams);
+            if (bodyLayoutParams.width != targetWidth) {
+                bodyLayoutParams.width = targetWidth;
+                viewHolder.messageBody().setLayoutParams(bodyLayoutParams);
+            }
+
+            // Only modify quote params if the view exists (assuming inReplyToQuote() can be null or GONE)
+            if (viewHolder.inReplyToQuote().getVisibility() == View.VISIBLE) {
+                final ViewGroup.LayoutParams qLayoutParams = viewHolder.inReplyToQuote().getLayoutParams();
+                if (qLayoutParams.width != targetWidth) {
+                    qLayoutParams.width = targetWidth;
+                    viewHolder.inReplyToQuote().setLayoutParams(qLayoutParams); // Corrected from messageBody()
+                }
+            }
         }
     }
 
@@ -1159,7 +1217,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
     private void loadMoreMessages(final Conversation conversation) {
         conversation.setLastClearHistory(0, null);
-        activity.xmppConnectionService.updateConversation(conversation);
+        activity.runOnUiThread(() -> activity.xmppConnectionService.updateConversation(conversation));
         conversation.setHasMessagesLeftOnServer(true);
         conversation.setFirstMamReference(null);
         long timestamp = conversation.getLastMessageTransmitted().getTimestamp();
@@ -1189,44 +1247,49 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             return messageItemViewHolder;
         } else {
             final MessageItemViewHolder viewHolder =
-                    switch (type) {
-                        case RTP_SESSION ->
-                                new RtpSessionMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_rtp_session,
-                                                parent,
-                                                false));
-                        case DATE_SEPARATOR ->
-                                new DateSeperatorMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_date_bubble,
-                                                parent,
-                                                false));
-                        case STATUS ->
-                                new StatusMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_status,
-                                                parent,
-                                                false));
-                        case END ->
-                                new EndBubbleMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_end,
-                                                parent,
-                                                false));
-                        case START ->
-                                new StartBubbleMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_start,
-                                                parent,
-                                                false));
-                        default -> throw new AssertionError("Unable to create ViewHolder for type");
-                    };
+                switch (type) {
+                    case RTP_SESSION ->
+                            new RtpSessionMessageItemViewHolder(
+                                    DataBindingUtil.inflate(
+                                            LayoutInflater.from(parent.getContext()),
+                                            R.layout.item_message_rtp_session,
+                                            parent,
+                                            false));
+                    case DATE_SEPARATOR ->
+                            new DateSeperatorMessageItemViewHolder(
+                                    DataBindingUtil.inflate(
+                                            LayoutInflater.from(parent.getContext()),
+                                            R.layout.item_message_date_bubble,
+                                            parent,
+                                            false));
+                    case STATUS ->
+                            new StatusMessageItemViewHolder(
+                                    DataBindingUtil.inflate(
+                                            LayoutInflater.from(parent.getContext()),
+                                            R.layout.item_message_status,
+                                            parent,
+                                            false));
+                    // Ensure END and START produce distinct types if they have different render logic
+                    // or are checked separately in getView's switch.
+                    case END ->
+                            new EndBubbleMessageItemViewHolder( // Make sure this is a distinct class
+                                    DataBindingUtil.inflate(
+                                            LayoutInflater.from(parent.getContext()),
+                                            R.layout.item_message_end,
+                                            parent,
+                                            false));
+                    case START ->
+                            new StartBubbleMessageItemViewHolder( // Make sure this is a distinct class
+                                    DataBindingUtil.inflate(
+                                            LayoutInflater.from(parent.getContext()),
+                                            R.layout.item_message_start,
+                                            parent,
+                                            false));
+                    default -> {
+                        Log.e("MessageAdapter", "Unable to create ViewHolder for type: " + type);
+                        throw new AssertionError("Unable to create ViewHolder for type: " + type);
+                    }
+                };
             viewHolder.itemView.setTag(viewHolder);
             return viewHolder;
         }
@@ -1236,29 +1299,32 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     @Override
     public View getView(final int position, final View view, final @NonNull ViewGroup parent) {
         final Message message = getItem(position);
-        final int type = getItemViewType(message, bubbleDesign.alignStart);
-        final MessageItemViewHolder viewHolder = getViewHolder(view, parent, type);
+        final int type;
+        if (message != null) {
+            type = getItemViewType(message, bubbleDesign.alignStart);
 
-        if (type == DATE_SEPARATOR
-                && viewHolder instanceof DateSeperatorMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
+            final MessageItemViewHolder viewHolder = getViewHolder(view, parent, type);
+
+            if (type == DATE_SEPARATOR
+                    && viewHolder instanceof DateSeperatorMessageItemViewHolder messageItemViewHolder) {
+                return render(message, messageItemViewHolder);
+            }
+
+            if (type == RTP_SESSION
+                    && viewHolder instanceof RtpSessionMessageItemViewHolder messageItemViewHolder) {
+                return render(message, messageItemViewHolder);
+            }
+
+            if (type == STATUS
+                    && viewHolder instanceof StatusMessageItemViewHolder messageItemViewHolder) {
+                return render(message, messageItemViewHolder);
+            }
+
+            if ((type == END || type == START)
+                    && viewHolder instanceof BubbleMessageItemViewHolder messageItemViewHolder) {
+                return render(position, message, messageItemViewHolder);
+            }
         }
-
-        if (type == RTP_SESSION
-                && viewHolder instanceof RtpSessionMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
-        }
-
-        if (type == STATUS
-                && viewHolder instanceof StatusMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
-        }
-
-        if ((type == END || type == START)
-                && viewHolder instanceof BubbleMessageItemViewHolder messageItemViewHolder) {
-            return render(position, message, messageItemViewHolder);
-        }
-
         throw new AssertionError();
     }
 
@@ -1277,9 +1343,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             final var desc = (Element) adapter.getItemAtPosition(pos);
             var url = desc.findChildContent("url", "https://ogp.me/ns#");
             // should we prefer about? Maybe, it's the real original link, but it's not what we show the user
-            if (url == null || url.length() < 1)
+            if (url == null || url.isEmpty())
                 url = desc.getAttribute("{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about");
-            if (url == null || url.length() < 1) return;
+            if (url == null || url.isEmpty()) return;
             new FixedURLSpan(url).onClick(v);
         });
 
@@ -1390,7 +1456,11 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             public void onOpen(SwipeLayout layout) {
                 swipeLayout.refreshDrawableState();
                 //when the BottomView totally show.
-                mConversationFragment.setupReply(message);
+                if (mConversationFragment != null) {
+                    mConversationFragment.setupReply(message);
+                } else {
+                    activity.switchToConversationAndQuote(wrap(message.getConversation()), MessageUtils.prepareQuote(message));
+                }
                 swipeLayout.close(true);
                 swipeLayout.setClickToClose(true);
             }
@@ -1408,134 +1478,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             }
         });
 
-        // new reactions popup
-        Consumer<Collection<String>> callback = reactions -> activity.xmppConnectionService.sendReactions(message, reactions);
-        ReactionsConfig config = new ReactionsConfigBuilder(activity)
-                .withReactions(new int[]{
-                        R.drawable.heart,
-                        R.drawable.thumbs_up,
-                        R.drawable.thumbs_down,
-                        R.drawable.tears_of_joy,
-                        R.drawable.astonished,
-                        R.drawable.crying,
-                        R.drawable.ic_more_horiz_24dp
-                })
-                .withPopupAlpha(255)
-                .withPopupColor(MaterialColors.getColor(viewHolder.messageBox(), com.google.android.material.R.attr.colorSurface))
-                .build();
-        ReactionPopup popup = new ReactionPopup(activity, config, (positionPopup) -> {
-            if (positionPopup.equals(0)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("❤\uFE0F")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("❤\uFE0F");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(1)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDC4D")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDC4D");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(2)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDC4E")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDC4E");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(3)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDE02")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDE02");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(4)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDE32")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDE32");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(5)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDE22")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDE22");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(6)) {
-                final var intent = new Intent(activity, AddReactionActivity.class);
-                intent.putExtra("conversation", message.getConversation().getUuid());
-                intent.putExtra("message", message.getUuid());
-                activity.startActivity(intent);
-            }
-            return true; // true is closing popup, false is requesting a new selection
-        });
-
-        LinkClickDetector.setupLinkClickDetector(viewHolder.messageBody());
-        final boolean showError =
-                message.getStatus() == Message.STATUS_SEND_FAILED
-                        && message.getErrorMessage() != null
-                        && !Message.ERROR_MESSAGE_CANCELLED.equals(message.getErrorMessage());
-        final Conversational conversational = message.getConversation();
-        if (conversational instanceof Conversation c) {
-            if (!showError
-                    && !message.isPrivateMessage()
-                    && (message.getEncryption() == Message.ENCRYPTION_NONE
-                    || activity.getBooleanPreference("allow_unencrypted_reactions", R.bool.allow_unencrypted_reactions))
-                    && !message.isDeleted()
-                    && (c.getMode() == Conversational.MODE_SINGLE
-                    || (c.getMucOptions().occupantId()
-                    && c.getMucOptions().participating()))) {
-                viewHolder.messageBox().setOnTouchListener((v, event) -> {
-                    if (event.getAction() == MotionEvent.ACTION_UP) {
-                        if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
-                            popup.setFocusable(false);
-                            popup.onTouch(v, event);
-                        }
-                    }
-                    return false;
-                });
-
-                viewHolder.messageBody().setOnTouchListener((v, event) -> {
-                    boolean isLink = LinkClickDetector.isLinkClicked(viewHolder.messageBody(), event);
-                    if (event.getAction() == MotionEvent.ACTION_UP && !isLink) {
-                        if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
-                            popup.setFocusable(false);
-                            popup.onTouch(v, event);
-                        }
-                    }
-                    return false;
-                });
-            }
-        }
+        reactionsPopup(message, viewHolder);
 
         viewHolder.messageBody().setOnClickListener(v -> {
             if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
@@ -1680,7 +1623,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 viewHolder.commandsList().setVisibility(View.VISIBLE);
                 viewHolder.commandsList().setOnItemClickListener((p, v, pos, id) -> {
                     final Element command = adapter.getItem(pos);
-                    activity.startCommand(conversation.getAccount(), command.getAttributeAsJid("jid"), command.getAttribute("node"));
+                    if (command != null) {
+                        activity.startCommand(conversation.getAccount(), command.getAttributeAsJid("jid"), command.getAttribute("node"));
+                    }
                 });
             } else {
                 // It's unclear if we can set this to null...
@@ -1756,14 +1701,15 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         if (appSettings.showLinkPreviews()) {
             final var descriptions = message.getLinkDescriptions();
             viewHolder.linkDescriptions().setAdapter(new ArrayAdapter<>(activity, 0, descriptions) {
+                @NonNull
                 @Override
                 public View getView(int position, View view, @NonNull ViewGroup parent) {
                     final LinkDescriptionBinding binding = DataBindingUtil.inflate(LayoutInflater.from(parent.getContext()), R.layout.link_description, parent, false);
-                    binding.title.setText(getItem(position).findChildContent("title", "https://ogp.me/ns#"));
-                    binding.description.setText(getItem(position).findChildContent("description", "https://ogp.me/ns#"));
-                    binding.url.setText(getItem(position).findChildContent("url", "https://ogp.me/ns#"));
-                    final var video = getItem(position).findChildContent("video", "https://ogp.me/ns#");
-                    if (video != null && video.length() > 0) {
+                    binding.title.setText(Objects.requireNonNull(getItem(position)).findChildContent("title", "https://ogp.me/ns#"));
+                    binding.description.setText(Objects.requireNonNull(getItem(position)).findChildContent("description", "https://ogp.me/ns#"));
+                    binding.url.setText(Objects.requireNonNull(getItem(position)).findChildContent("url", "https://ogp.me/ns#"));
+                    final var video = Objects.requireNonNull(getItem(position)).findChildContent("video", "https://ogp.me/ns#");
+                    if (video != null && !video.isEmpty()) {
                         binding.playButton.setVisibility(View.VISIBLE);
                         binding.playButton.setOnClickListener((v) -> {
                             new FixedURLSpan(video).onClick(v);
@@ -1779,7 +1725,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
        viewHolder.messageBody().setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override
-            public void sendAccessibilityEvent(View host, int eventType) {
+            public void sendAccessibilityEvent(@NonNull View host, int eventType) {
                 super.sendAccessibilityEvent(host, eventType);
                 if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
                     if (viewHolder.messageBody().hasSelection()) {
@@ -1792,6 +1738,142 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         });
         return viewHolder.root();
     }
+
+    private void reactionsPopup(
+            final Message message,
+            final BubbleMessageItemViewHolder viewHolder) {
+
+        // new reactions popup
+        Consumer<Collection<String>> callback = reactions -> activity.xmppConnectionService.sendReactions(message, reactions);
+        ReactionsConfig config = new ReactionsConfigBuilder(activity)
+                .withReactions(new int[]{
+                        R.drawable.heart,
+                        R.drawable.thumbs_up,
+                        R.drawable.thumbs_down,
+                        R.drawable.tears_of_joy,
+                        R.drawable.astonished,
+                        R.drawable.crying,
+                        R.drawable.ic_more_horiz_24dp
+                })
+                .withPopupAlpha(255)
+                .withPopupColor(MaterialColors.getColor(viewHolder.messageBox(), com.google.android.material.R.attr.colorSurface))
+                .build();
+        ReactionPopup popup = new ReactionPopup(activity, config, (positionPopup) -> {
+            if (positionPopup.equals(0)) {
+                final var aggregated = message.getAggregatedReactions();
+                if (aggregated.ourReactions.contains("\u2764\uFE0F")) {
+                    callback.accept(aggregated.ourReactions);
+                } else {
+                    final ImmutableSet.Builder<String> reactionBuilder =
+                            new ImmutableSet.Builder<>();
+                    reactionBuilder.addAll(aggregated.ourReactions);
+                    reactionBuilder.add("\u2764\uFE0F");
+                    callback.accept(reactionBuilder.build());
+                }
+            } else if (positionPopup.equals(1)) {
+                final var aggregated = message.getAggregatedReactions();
+                if (aggregated.ourReactions.contains("\uD83D\uDC4D")) {
+                    callback.accept(aggregated.ourReactions);
+                } else {
+                    final ImmutableSet.Builder<String> reactionBuilder =
+                            new ImmutableSet.Builder<>();
+                    reactionBuilder.addAll(aggregated.ourReactions);
+                    reactionBuilder.add("\uD83D\uDC4D");
+                    callback.accept(reactionBuilder.build());
+                }
+            } else if (positionPopup.equals(2)) {
+                final var aggregated = message.getAggregatedReactions();
+                if (aggregated.ourReactions.contains("\uD83D\uDC4E")) {
+                    callback.accept(aggregated.ourReactions);
+                } else {
+                    final ImmutableSet.Builder<String> reactionBuilder =
+                            new ImmutableSet.Builder<>();
+                    reactionBuilder.addAll(aggregated.ourReactions);
+                    reactionBuilder.add("\uD83D\uDC4E");
+                    callback.accept(reactionBuilder.build());
+                }
+            } else if (positionPopup.equals(3)) {
+                final var aggregated = message.getAggregatedReactions();
+                if (aggregated.ourReactions.contains("\uD83D\uDE02")) {
+                    callback.accept(aggregated.ourReactions);
+                } else {
+                    final ImmutableSet.Builder<String> reactionBuilder =
+                            new ImmutableSet.Builder<>();
+                    reactionBuilder.addAll(aggregated.ourReactions);
+                    reactionBuilder.add("\uD83D\uDE02");
+                    callback.accept(reactionBuilder.build());
+                }
+            } else if (positionPopup.equals(4)) {
+                final var aggregated = message.getAggregatedReactions();
+                if (aggregated.ourReactions.contains("\uD83D\uDE32")) {
+                    callback.accept(aggregated.ourReactions);
+                } else {
+                    final ImmutableSet.Builder<String> reactionBuilder =
+                            new ImmutableSet.Builder<>();
+                    reactionBuilder.addAll(aggregated.ourReactions);
+                    reactionBuilder.add("\uD83D\uDE32");
+                    callback.accept(reactionBuilder.build());
+                }
+            } else if (positionPopup.equals(5)) {
+                final var aggregated = message.getAggregatedReactions();
+                if (aggregated.ourReactions.contains("\uD83D\uDE22")) {
+                    callback.accept(aggregated.ourReactions);
+                } else {
+                    final ImmutableSet.Builder<String> reactionBuilder =
+                            new ImmutableSet.Builder<>();
+                    reactionBuilder.addAll(aggregated.ourReactions);
+                    reactionBuilder.add("\uD83D\uDE22");
+                    callback.accept(reactionBuilder.build());
+                }
+            } else if (positionPopup.equals(6)) {
+                final var intent = new Intent(activity, AddReactionActivity.class);
+                intent.putExtra("conversation", message.getConversation().getUuid());
+                intent.putExtra("message", message.getUuid());
+                activity.startActivity(intent);
+            }
+            return true; // true is closing popup, false is requesting a new selection
+        });
+
+        // Single click to show reaction. Don't show reactions popup When it is a link
+        LinkClickDetector.setupLinkClickDetector(viewHolder.messageBody());
+        final boolean showError =
+                message.getStatus() == Message.STATUS_SEND_FAILED
+                        && message.getErrorMessage() != null
+                        && !Message.ERROR_MESSAGE_CANCELLED.equals(message.getErrorMessage());
+        final Conversational conversational = message.getConversation();
+        if (conversational instanceof Conversation c) {
+            if (!showError
+                    && !message.isPrivateMessage()
+                    && (message.getEncryption() == Message.ENCRYPTION_NONE
+                    || activity.getBooleanPreference("allow_unencrypted_reactions", R.bool.allow_unencrypted_reactions))
+                    && !message.isDeleted()
+                    && (c.getMode() == Conversational.MODE_SINGLE
+                    || (c.getMucOptions().occupantId()
+                    && c.getMucOptions().participating()))) {
+                viewHolder.messageBox().setOnTouchListener((v, event) -> {
+                    if (event.getAction() == MotionEvent.ACTION_UP) {
+                        if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
+                            popup.setFocusable(false);
+                            popup.onTouch(v, event);
+                        }
+                    }
+                    return false;
+                });
+
+                viewHolder.messageBody().setOnTouchListener((v, event) -> {
+                    boolean isLink = LinkClickDetector.isLinkClicked(viewHolder.messageBody(), event);
+                    if (event.getAction() == MotionEvent.ACTION_UP && !isLink) {
+                        if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
+                            popup.setFocusable(false);
+                            popup.onTouch(v, event);
+                        }
+                    }
+                    return false;
+                });
+            }
+        }
+    }
+
 
     private View render(
             final Message message, final DateSeperatorMessageItemViewHolder viewHolder) {
@@ -1912,16 +1994,18 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             final boolean showAvatar) {
         final ViewGroup.MarginLayoutParams layoutParams =
                 (ViewGroup.MarginLayoutParams) messageBox.getLayoutParams();
-        if (false) { // no need for space since the shape has space inside it for tails
+        if (showAvatar) {
             final var resources = messageBox.getResources();
             if (clazz == StartBubbleMessageItemViewHolder.class) {
-                layoutParams.setMarginStart(
-                        resources.getDimensionPixelSize(R.dimen.bubble_avatar_distance));
-                layoutParams.setMarginEnd(0);
-            } else if (clazz == EndBubbleMessageItemViewHolder.class) {
                 layoutParams.setMarginStart(0);
                 layoutParams.setMarginEnd(
-                        resources.getDimensionPixelSize(R.dimen.bubble_avatar_distance));
+                        resources.getDimensionPixelSize(R.dimen.bubble_avatar_distance)
+                );
+            } else if (clazz == EndBubbleMessageItemViewHolder.class) {
+                layoutParams.setMarginStart(
+                        resources.getDimensionPixelSize(R.dimen.bubble_avatar_distance)
+                );
+                layoutParams.setMarginEnd(0);
             } else {
                 throw new AssertionError("Avatar distances are not available on this view type");
             }
@@ -2134,7 +2218,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     }
 
     public void updatePreferences() {
-        final AppSettings appSettings = new AppSettings(activity);
         this.bubbleDesign =
                 new BubbleDesign(
                         appSettings.isColorfulChatBubbles(),
@@ -2193,8 +2276,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         ImageViewCompat.setImageTintList(
                 imageView,
                 ColorStateList.valueOf(
-                        MaterialColors.getColor(
-                                imageView, com.google.android.material.R.attr.colorError)));
+                        MaterialColors.getColor(imageView, androidx.appcompat.R.attr.colorError)));
     }
 
     public static void setTextColor(final TextView textView, final BubbleColor bubbleColor) {
@@ -2202,8 +2284,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         textView.setTextColor(color);
         if (BubbleColor.SURFACES.contains(bubbleColor)) {
             textView.setLinkTextColor(
-                    MaterialColors.getColor(
-                            textView, com.google.android.material.R.attr.colorPrimary));
+                    MaterialColors.getColor(textView, androidx.appcompat.R.attr.colorPrimary));
         } else {
             textView.setLinkTextColor(color);
         }
@@ -2281,11 +2362,12 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
     }
 
-    private abstract static class MessageItemViewHolder /*extends RecyclerView.ViewHolder*/ {
+    private abstract static class MessageItemViewHolder extends RecyclerView.ViewHolder {
 
-        private View itemView;
+        private final View itemView;
 
         private MessageItemViewHolder(@NonNull View itemView) {
+            super(itemView);
             this.itemView = itemView;
         }
     }
@@ -2676,7 +2758,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
                     try {
                         new BobTransfer(BobTransfer.uri(cid), account, counterpart, activity.xmppConnectionService).start();
-                    } catch (final NoSuchAlgorithmException | URISyntaxException e) { }
+                    } catch (final NoSuchAlgorithmException | URISyntaxException ignored) { }
                     return null;
                 }
 
@@ -2712,6 +2794,18 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         protected void onPostExecute(final Drawable[] d) {
             if (isCancelled()) return;
             activity.xmppConnectionService.updateConversationUi();
+        }
+    }
+
+    private Conversation wrap(Conversational conversational) {
+        if (conversational instanceof Conversation) {
+            return (Conversation) conversational;
+        } else {
+            return activity.xmppConnectionService.findOrCreateConversation(conversational.getAccount(),
+                    conversational.getJid(),
+                    conversational.getMode() == Conversational.MODE_MULTI,
+                    true,
+                    true);
         }
     }
 }

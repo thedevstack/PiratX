@@ -23,9 +23,11 @@ import androidx.databinding.DataBindingUtil;
 import androidx.viewpager.widget.PagerAdapter;
 import androidx.viewpager.widget.ViewPager;
 
+import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.List;
 import java.util.HashSet;
+import java.util.UUID;
 
 import de.monocles.chat.RegisterMonoclesActivity;
 import eu.siacs.conversations.Config;
@@ -33,6 +35,7 @@ import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivityWelcomeBinding;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.utils.CryptoHelper;
 import eu.siacs.conversations.utils.Compatibility;
 import eu.siacs.conversations.utils.InstallReferrerUtils;
 import eu.siacs.conversations.utils.SignupUtils;
@@ -43,6 +46,7 @@ import static eu.siacs.conversations.AppSettings.ALLOW_SCREENSHOTS;
 import static eu.siacs.conversations.AppSettings.BROADCAST_LAST_ACTIVITY;
 import static eu.siacs.conversations.AppSettings.CONFIRM_MESSAGES;
 import static eu.siacs.conversations.AppSettings.DANE_ENFORCED;
+import static eu.siacs.conversations.AppSettings.LOAD_PROVIDERS_EXTERNAL;
 import static eu.siacs.conversations.AppSettings.SECURE_TLS;
 import static eu.siacs.conversations.AppSettings.SHOW_LINK_PREVIEWS;
 import static eu.siacs.conversations.AppSettings.SHOW_MAPS_INSIDE;
@@ -59,6 +63,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     private static final int REQUEST_IMPORT_BACKUP = 0x63fb;
 
     // Default settings screen
+    static final int LOADPROVIDERSEXTERNAL = 0;
     static final int ALLOWSCREENSHOTS = 1;
     static final int SHOWWEBLINKS = 2;
     static final int SHOWMAPPREVIEW = 3;
@@ -121,7 +126,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
 
         Intent intent = new Intent(this, StartConversationActivity.class);
         intent.putExtra("init", true);
-        intent.putExtra(EXTRA_ACCOUNT, onboardingAccount.getJid().asBareJid().toEscapedString());
+        intent.putExtra(EXTRA_ACCOUNT, onboardingAccount.getJid().asBareJid().toString());
         onboardingAccount = null;
         startActivity(intent);
         finish();
@@ -173,7 +178,9 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
         binding.slideshowPager.setAdapter(new WelcomePagerAdapter(binding.slideshowPager));
         binding.dotsIndicator.setViewPager(binding.slideshowPager);
         binding.slideshowPager.addOnPageChangeListener(new ViewPager.OnPageChangeListener() {
-            public void onPageScrollStateChanged(int state) { }
+            public void onPageScrollStateChanged(int state) {
+                setSettings();
+            }
             public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) { }
 
             public void onPageSelected(int position) {
@@ -203,7 +210,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
             } else {
                 binding.registerNewAccount.setText("Working...");
                 binding.registerNewAccount.setEnabled(false);
-                onboardingAccount = new Account(Jid.ofLocalAndDomain(UUID.randomUUID().toString(), Config.ONBOARDING_DOMAIN.toEscapedString()), CryptoHelper.createPassword(new SecureRandom()));
+                onboardingAccount = new Account(Jid.ofLocalAndDomain(UUID.randomUUID().toString(), Config.ONBOARDING_DOMAIN.toString()), CryptoHelper.createPassword(new SecureRandom()));
                 onboardingAccount.setOption(Account.OPTION_REGISTER, true);
                 onboardingAccount.setOption(Account.OPTION_FIXED_USERNAME, true);
                 xmppConnectionService.createAccount(onboardingAccount);
@@ -248,6 +255,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     }
 
     private void createInfoMenu() {
+        this.binding.actionInfoLoadProvidersListExternal.setOnClickListener(string -> showInfo(LOADPROVIDERSEXTERNAL));
         this.binding.actionInfoAllowScreenshots.setOnClickListener(string -> showInfo(ALLOWSCREENSHOTS));
         this.binding.actionInfoShowWeblinks.setOnClickListener(string -> showInfo(SHOWWEBLINKS));
         this.binding.actionInfoShowMapPreviews.setOnClickListener(string -> showInfo(SHOWMAPPREVIEW));
@@ -261,6 +269,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     }
 
     private void getDefaults() {
+        this.binding.switchLoadProvidersListExternal.setChecked(getResources().getBoolean(R.bool.load_providers_list_external));
         this.binding.allowScreenshots.setChecked(getResources().getBoolean(R.bool.allow_screenshots));
         this.binding.showLinks.setChecked(getResources().getBoolean(R.bool.show_link_previews));
         this.binding.showMappreview.setChecked(getResources().getBoolean(R.bool.show_maps_inside));
@@ -278,6 +287,10 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
         String title;
         String message;
         switch (setting) {
+            case LOADPROVIDERSEXTERNAL:
+                title = getString(R.string.pref_load_providers_list_external);
+                message = getString(R.string.pref_load_providers_list_external_summary);
+                break;
             case ALLOWSCREENSHOTS:
                 title = getString(R.string.pref_allow_screenshots);
                 message = getString(R.string.pref_allow_screenshots_summary);
@@ -333,6 +346,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
 
     private void setSettings() {
         final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        preferences.edit().putBoolean(LOAD_PROVIDERS_EXTERNAL, this.binding.switchLoadProvidersListExternal.isChecked()).apply();
         preferences.edit().putBoolean(ALLOW_SCREENSHOTS, this.binding.allowScreenshots.isChecked()).apply();
         preferences.edit().putBoolean(SHOW_LINK_PREVIEWS, this.binding.showLinks.isChecked()).apply();
         preferences.edit().putBoolean(SHOW_MAPS_INSIDE, this.binding.showMappreview.isChecked()).apply();
@@ -391,7 +405,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     @Override
     public void onAccountCreated(final Account account) {
         final Intent intent = new Intent(this, EditAccountActivity.class);
-        intent.putExtra("jid", account.getJid().asBareJid().toEscapedString());
+        intent.putExtra("jid", account.getJid().asBareJid().toString());
         intent.putExtra("init", true);
         addInviteUri(intent);
         startActivity(intent);

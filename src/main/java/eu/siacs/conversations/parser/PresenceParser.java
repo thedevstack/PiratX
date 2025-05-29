@@ -1,7 +1,12 @@
 package eu.siacs.conversations.parser;
 
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.style.RelativeSizeSpan;
 import android.util.Log;
+import android.view.View;
 
+import com.google.common.base.Strings;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.crypto.PgpEngine;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
@@ -14,51 +19,55 @@ import eu.siacs.conversations.entities.Presence;
 import eu.siacs.conversations.generator.IqGenerator;
 import eu.siacs.conversations.generator.PresenceGenerator;
 import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.utils.Emoticons;
 import eu.siacs.conversations.utils.XmppUri;
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xml.Namespace;
-import eu.siacs.conversations.xmpp.InvalidJid;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.pep.Avatar;
 import im.conversations.android.xmpp.model.occupant.OccupantId;
-
-import org.openintents.openpgp.util.OpenPgpUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import org.openintents.openpgp.util.OpenPgpUtils;
 
-public class PresenceParser extends AbstractParser implements Consumer<im.conversations.android.xmpp.model.stanza.Presence> {
+public class PresenceParser extends AbstractParser
+        implements Consumer<im.conversations.android.xmpp.model.stanza.Presence> {
 
     public PresenceParser(final XmppConnectionService service, final Account account) {
         super(service, account);
     }
 
-    public void parseConferencePresence(final im.conversations.android.xmpp.model.stanza.Presence packet, Account account) {
+    public void parseConferencePresence(
+            final im.conversations.android.xmpp.model.stanza.Presence packet, Account account) {
         final Conversation conversation =
                 packet.getFrom() == null
                         ? null
                         : mXmppConnectionService.find(account, packet.getFrom().asBareJid());
-        if (conversation != null) {
-            final MucOptions mucOptions = conversation.getMucOptions();
-            boolean before = mucOptions.online();
-            int count = mucOptions.getUserCount();
-            final List<MucOptions.User> tileUserBefore = mucOptions.getUsers(5);
-            processConferencePresence(packet, conversation);
-            final List<MucOptions.User> tileUserAfter = mucOptions.getUsers(5);
-            if (!tileUserAfter.equals(tileUserBefore)) {
-                mXmppConnectionService.getAvatarService().clear(mucOptions);
-            }
-            if (before != mucOptions.online()
-                    || (mucOptions.online() && count != mucOptions.getUserCount())) {
-                mXmppConnectionService.updateConversationUi();
-            } else if (mucOptions.online()) {
-                mXmppConnectionService.updateMucRosterUi();
-            }
+        if (conversation == null) {
+            return;
+        }
+        final MucOptions mucOptions = conversation.getMucOptions();
+        boolean before = mucOptions.online();
+        int count = mucOptions.getUserCount();
+        final List<MucOptions.User> tileUserBefore = mucOptions.getUsers(5);
+        processConferencePresence(packet, conversation);
+        final List<MucOptions.User> tileUserAfter = mucOptions.getUsers(5);
+        if (Strings.isNullOrEmpty(mucOptions.getAvatar())
+                && !tileUserAfter.equals(tileUserBefore)) {
+            mXmppConnectionService.getAvatarService().clear(mucOptions);
+        }
+        if (before != mucOptions.online()
+                || (mucOptions.online() && count != mucOptions.getUserCount())) {
+            mXmppConnectionService.updateConversationUi();
+        } else if (mucOptions.online()) {
+            mXmppConnectionService.updateMucRosterUi();
         }
     }
 
-    private void processConferencePresence(final im.conversations.android.xmpp.model.stanza.Presence packet, Conversation conversation) {
+    private void processConferencePresence(
+            final im.conversations.android.xmpp.model.stanza.Presence packet,
+            Conversation conversation) {
         final Account account = conversation.getAccount();
         final MucOptions mucOptions = conversation.getMucOptions();
         final Jid jid = conversation.getAccount().getJid();
@@ -82,13 +91,23 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
                         mucOptions.setError(MucOptions.Error.NONE);
                         MucOptions.User user = parseItem(conversation, item, from, occupantIdEl, nick == null ? null : nick.getContent(), hats);
                         final var occupant = packet.getExtension(OccupantId.class);
-                        final String occupantId = mucOptions.occupantId() && occupant != null ? occupant.getId() : null;
+                        final String occupantId =
+                                mucOptions.occupantId() && occupant != null
+                                        ? occupant.getId()
+                                        : null;
                         user.setOccupantId(occupantId);
                         if (codes.contains(MucOptions.STATUS_CODE_SELF_PRESENCE)
                                 || (codes.contains(MucOptions.STATUS_CODE_ROOM_CREATED)
-                                && jid.equals(
-                                InvalidJid.getNullForInvalid(
-                                        item.getAttributeAsJid("jid"))))) {
+                                        && jid.equals(
+                                                Jid.Invalid.getNullForInvalid(
+                                                        item.getAttributeAsJid("jid"))))) {
+                            Log.d(
+                                    Config.LOGTAG,
+                                    account.getJid().asBareJid()
+                                            + ": got self-presence from "
+                                            + user.getFullJid()
+                                            + ". occupant-id="
+                                            + occupantId);
                             if (mucOptions.setOnline()) {
                                 mXmppConnectionService.getAvatarService().clear(mucOptions);
                             }
@@ -97,7 +116,8 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
                                 Log.d(Config.LOGTAG,"role or affiliation changed");
                                 mXmppConnectionService.databaseBackend.updateConversation(conversation);
                             }
-                            final var modified = current == null || !current.equals(user.getFullJid());
+                            final var modified =
+                                    current == null || !current.equals(user.getFullJid());
                             mXmppConnectionService.persistSelfNick(user, modified);
                             invokeRenameListener(mucOptions, true);
                         }
@@ -154,9 +174,11 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
                                                     .getAccount()
                                                     .getRoster()
                                                     .getContact(user.getRealJid());
-                                    c.setAvatar(avatar);
-                                    mXmppConnectionService.syncRoster(conversation.getAccount());
-                                    mXmppConnectionService.getAvatarService().clear(c);
+                                    if (c.setAvatar(avatar)) {
+                                        mXmppConnectionService.syncRoster(
+                                                conversation.getAccount());
+                                        mXmppConnectionService.getAvatarService().clear(c);
+                                    }
                                     mXmppConnectionService.updateRosterUi(XmppConnectionService.UpdateRosterReason.AVATAR);
                                 }
                             } else if (mXmppConnectionService.isDataSaverDisabled()) {
@@ -172,7 +194,7 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
                     final Jid alternate =
                             destroy == null
                                     ? null
-                                    : InvalidJid.getNullForInvalid(
+                                    : Jid.Invalid.getNullForInvalid(
                                     destroy.getAttributeAsJid("jid"));
                     mucOptions.setError(MucOptions.Error.DESTROYED);
                     if (alternate != null) {
@@ -307,7 +329,9 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
         return codes;
     }
 
-    private void parseContactPresence(final im.conversations.android.xmpp.model.stanza.Presence packet, final Account account) {
+    private void parseContactPresence(
+            final im.conversations.android.xmpp.model.stanza.Presence packet,
+            final Account account) {
         final PresenceGenerator mPresenceGenerator = mXmppConnectionService.getPresenceGenerator();
         final Jid from = packet.getFrom();
         if (from == null || from.equals(account.getJid())) {
@@ -329,11 +353,12 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
                         mXmppConnectionService.updateConversationUi();
                         mXmppConnectionService.updateAccountUi();
                     } else {
-                        contact.setAvatar(avatar);
-                        mXmppConnectionService.syncRoster(account);
-                        mXmppConnectionService.getAvatarService().clear(contact);
-                        mXmppConnectionService.updateConversationUi();
-                        mXmppConnectionService.updateRosterUi(XmppConnectionService.UpdateRosterReason.AVATAR);
+                        if (contact.setAvatar(avatar)) {
+                            mXmppConnectionService.syncRoster(account);
+                            mXmppConnectionService.getAvatarService().clear(contact);
+                            mXmppConnectionService.updateConversationUi();
+                            mXmppConnectionService.updateRosterUi(XmppConnectionService.UpdateRosterReason.AVATAR);
+                        }
                     }
                 } else if (mXmppConnectionService.isDataSaverDisabled()) {
                     mXmppConnectionService.fetchAvatar(account, avatar);
@@ -388,6 +413,29 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
                     mXmppConnectionService.syncRoster(account);
                 }
             }
+
+
+
+            // --- BEGIN INTEGRATION for statusMessageHidden ---
+            if (getSingleStatusMessage(contact) != null) { // Only proceed if there was a status message in this presence
+                final Conversation conversation =
+                        mXmppConnectionService.findOrCreateConversation(
+                                account, contact.getJid().asBareJid(), false, false);
+                if (conversation != null) {
+                    // Assuming AbstractParser.parseTimestamp(packet) gives a relevant timestamp
+                    // for when this presence (and thus status) was received/generated.
+                    long statusTimestamp = AbstractParser.parseTimestamp(packet);
+                    if (statusTimestamp == 0) { // Fallback if packet timestamp isn't suitable
+                        statusTimestamp = System.currentTimeMillis();
+                    }
+                    conversation.onContactStatusMessageChanged(getSingleStatusMessage(contact), statusTimestamp);
+                    mXmppConnectionService.updateConversation(conversation); // Persist changes
+                    // Potentially notify UI specifically for this conversation update if needed,
+                    // though updateConversation might trigger broader UI updates.
+                }
+            }
+            // --- END INTEGRATION ---
+
             boolean online = sizeBefore < contact.getPresences().size();
             mXmppConnectionService.onContactStatusChanged.onContactStatusChanged(contact, online);
         } else if (type.equals("unavailable")) {
@@ -425,15 +473,26 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
                         mXmppConnectionService.findOrCreateConversation(
                                 account, contact.getJid().asBareJid(), false, false);
                 final String statusMessage = packet.findChildContent("status");
-                if (statusMessage != null
-                        && !statusMessage.isEmpty()
-                        && conversation.countMessages() == 0) {
-                    conversation.add(
-                            new Message(
-                                    conversation,
-                                    statusMessage,
-                                    Message.ENCRYPTION_NONE,
-                                    Message.STATUS_RECEIVED));
+                if (statusMessage != null && !statusMessage.isEmpty()) {
+                    // --- BEGIN INTEGRATION for statusMessageHidden from subscribe ---
+                    if (conversation != null) { // Should exist due to findOrCreateConversation
+                        long statusTimestamp = AbstractParser.parseTimestamp(packet);
+                        if (statusTimestamp == 0) {
+                            statusTimestamp = System.currentTimeMillis();
+                        }
+                        conversation.onContactStatusMessageChanged(statusMessage, statusTimestamp);
+                        mXmppConnectionService.updateConversation(conversation); // Persist changes
+                    }
+                    // --- END INTEGRATION ---
+
+                    if (conversation.countMessages() == 0) { // Original logic to add as a message
+                        conversation.add(
+                                new Message(
+                                        conversation,
+                                        statusMessage,
+                                        Message.ENCRYPTION_NONE,
+                                        Message.STATUS_RECEIVED));
+                    }
                 }
             }
         }
@@ -451,6 +510,34 @@ public class PresenceParser extends AbstractParser implements Consumer<im.conver
             this.parseConferencePresence(packet, account);
         } else {
             this.parseContactPresence(packet, account);
+        }
+    }
+
+    public String getSingleStatusMessage(Contact contact) {
+        List<String> statusMessages = contact.getPresences().getStatusMessages();
+        if (statusMessages.isEmpty()) {
+            return null;
+        } else if (statusMessages.size() == 1) {
+            final String message = statusMessages.get(0);
+            final Spannable span = new SpannableString(message);
+            if (Emoticons.isOnlyEmoji(message)) {
+                span.setSpan(
+                        new RelativeSizeSpan(2.0f),
+                        0,
+                        message.length(),
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            return span.toString();
+        } else {
+            StringBuilder builder = new StringBuilder();
+            int s = statusMessages.size();
+            for (int i = 0; i < s; ++i) {
+                builder.append(statusMessages.get(i));
+                if (i < s - 1) {
+                    builder.append("\n");
+                }
+            }
+            return builder.toString();
         }
     }
 }

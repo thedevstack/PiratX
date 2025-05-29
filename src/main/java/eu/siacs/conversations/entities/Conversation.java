@@ -60,6 +60,7 @@ import androidx.core.content.ContextCompat;
 import androidx.core.util.Consumer;
 import androidx.databinding.DataBindingUtil;
 import androidx.databinding.ViewDataBinding;
+import androidx.media3.common.util.Log;
 import androidx.viewpager.widget.PagerAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -236,6 +237,8 @@ public class Conversation extends AbstractEntity
     protected boolean lockThread = false;
     protected boolean userSelectedThread = false;
     protected Message replyTo = null;
+    protected Message caption = null;
+    protected Message pinnedMessage = null;
     protected HashMap<String, Thread> threads = new HashMap<>();
     protected Multimap<String, Reaction> reactions = HashMultimap.create();
     private String displayState = null;
@@ -303,8 +306,7 @@ public class Conversation extends AbstractEntity
                 cursor.getString(cursor.getColumnIndexOrThrow(NAME)),
                 cursor.getString(cursor.getColumnIndexOrThrow(CONTACT)),
                 cursor.getString(cursor.getColumnIndexOrThrow(ACCOUNT)),
-                JidHelper.parseOrFallbackToInvalid(
-                        cursor.getString(cursor.getColumnIndexOrThrow(CONTACTJID))),
+                Jid.ofOrInvalid(cursor.getString(cursor.getColumnIndexOrThrow(CONTACTJID))),
                 cursor.getLong(cursor.getColumnIndexOrThrow(CREATED)),
                 cursor.getInt(cursor.getColumnIndexOrThrow(STATUS)),
                 cursor.getInt(cursor.getColumnIndexOrThrow(MODE)),
@@ -331,7 +333,7 @@ public class Conversation extends AbstractEntity
         if (conversation.getContact().isOwnServer()) {
             return false;
         }
-        final String contact = conversation.getJid().getDomain().toEscapedString();
+        final String contact = conversation.getJid().getDomain().toString();
         final String account = conversation.getAccount().getServer();
         if (Config.OMEMO_EXCEPTIONS.matchesContactDomain(contact)
                 || Config.OMEMO_EXCEPTIONS.ACCOUNT_DOMAINS.contains(account)) {
@@ -339,7 +341,7 @@ public class Conversation extends AbstractEntity
         }
         return conversation.isSingleOrPrivateAndNonAnonymous()
                 || conversation.getBooleanAttribute(
-                        ATTRIBUTE_FORMERLY_PRIVATE_NON_ANONYMOUS, false);
+                ATTRIBUTE_FORMERLY_PRIVATE_NON_ANONYMOUS, false);
     }
 
     public boolean hasMessagesLeftOnServer() {
@@ -466,11 +468,11 @@ public class Conversation extends AbstractEntity
                 if (message.getUuid().equals(uuid)
                         && message.getEncryption() != Message.ENCRYPTION_PGP
                         && (message.isFileOrImage()
-                                || message.treatAsDownloadable()
-                                || unInitiatedButKnownSize
-                                || (transferable != null
-                                        && transferable.getStatus()
-                                                != Transferable.STATUS_UPLOADING))) {
+                        || message.treatAsDownloadable()
+                        || unInitiatedButKnownSize
+                        || (transferable != null
+                        && transferable.getStatus()
+                        != Transferable.STATUS_UPLOADING))) {
                     return message;
                 }
             }
@@ -607,7 +609,7 @@ public class Conversation extends AbstractEntity
             for (Message message : this.messages) {
                 if (id.equals(message.getUuid())
                         || (message.getStatus() >= Message.STATUS_SEND
-                                && id.equals(message.getRemoteMsgId()))) {
+                        && id.equals(message.getRemoteMsgId()))) {
                     return message;
                 }
             }
@@ -1033,6 +1035,23 @@ public class Conversation extends AbstractEntity
         return this.replyTo;
     }
 
+    public void setCaption(Message m) {
+        this.caption = m;
+    }
+
+    public Message getCaption() {
+        return this.caption;
+    }
+
+    public void setPinnedMessage(Message m) {
+        this.pinnedMessage = m;
+
+    }
+
+    public Message getPinnedMessage() {
+        return this.pinnedMessage;
+    }
+
     public boolean isRead(XmppConnectionService xmppConnectionService) {
         return unreadCount(xmppConnectionService) < 1;
     }
@@ -1092,7 +1111,7 @@ public class Conversation extends AbstractEntity
                 }
             }
         } else if ((QuickConversationsService.isConversations()
-                        || !Config.QUICKSY_DOMAIN.equals(contactJid.getDomain()))
+                || !Config.QUICKSY_DOMAIN.equals(contactJid.getDomain()))
                 && isWithStranger()) {
             return contactJid;
         } else {
@@ -1493,8 +1512,8 @@ public class Conversation extends AbstractEntity
     public boolean alwaysNotify() {
         return mode == MODE_SINGLE
                 || getBooleanAttribute(
-                        ATTRIBUTE_ALWAYS_NOTIFY,
-                        Config.ALWAYS_NOTIFY_BY_DEFAULT || isPrivateAndNonAnonymous());
+                ATTRIBUTE_ALWAYS_NOTIFY,
+                Config.ALWAYS_NOTIFY_BY_DEFAULT || isPrivateAndNonAnonymous());
     }
 
     public boolean notifyReplies() {
@@ -1509,7 +1528,7 @@ public class Conversation extends AbstractEntity
         if ("cache".equals(getAttribute("storeMedia"))) return true;
         if ("shared".equals(getAttribute("storeMedia"))) return false;
         if (mode == Conversation.MODE_MULTI && !mucOptions.isPrivateAndNonAnonymous()) return true;
-        return false;
+        return xmppConnectionService != null && xmppConnectionService.getBooleanPreference("default_store_media_in_cache", R.bool.default_store_media_in_cache);
     }
 
     public boolean setAttribute(String key, boolean value) {
@@ -1645,7 +1664,7 @@ public class Conversation extends AbstractEntity
                     anyMatchSpam = true;
                     return;
                 }
-            } catch (final java.util.regex.PatternSyntaxException ignored) {  } // Not supported on old android
+            } catch (final java.util.regex.PatternSyntaxException e) {  } // Not supported on old android
             if (body.length() > 500 || !m.getLinks().isEmpty() || body.matches(".*(?:\\n.*\\n.*\\n|[Aa]\\s*d\\s*v\\s*v\\s*e\\s*r\\s*t|[Pp]romotion|[Dd][Dd][Oo][Ss]|[Ee]scrow|payout|seller|\\?OTR|write me when will be|v seti|[Pp]rii?vee?t|there\\?|online\\?|exploit).*")) {
                 anyMatchSpam = true;
                 return;
@@ -1678,7 +1697,7 @@ public class Conversation extends AbstractEntity
     public void expireOldMessages(long timestamp) {
         synchronized (this.messages) {
             for (ListIterator<Message> iterator = this.messages.listIterator();
-                    iterator.hasNext(); ) {
+                 iterator.hasNext(); ) {
                 if (iterator.next().getTimeSent() < timestamp) {
                     iterator.remove();
                 }
@@ -2115,7 +2134,7 @@ public class Conversation extends AbstractEntity
                 return pg2;
             }
 
-            if (position-2 > sessions.size()) return null;
+            if (position-2 >= sessions.size()) return null;
             ConversationPage session = sessions.get(position-2);
             View v = session.inflateUi(container.getContext(), (s) -> removeSession(s));
             if (v != null && v.getParent() != null) {
@@ -2375,7 +2394,7 @@ public class Conversation extends AbstractEntity
 
                     if (field.getType().equals(Optional.of("jid-single")) || field.getType().equals(Optional.of("jid-multi"))) {
                         binding.values.setOnItemClickListener((arg0, arg1, pos, id) -> {
-                            new FixedURLSpan("xmpp:" + Uri.encode(Jid.ofEscaped(values.getItem(pos).getValue()).toEscapedString(), "@/+"), account).onClick(binding.values);
+                            new FixedURLSpan("xmpp:" + Uri.encode(Jid.of(values.getItem(pos).getValue()).toString(), "@/+"), account).onClick(binding.values);
                         });
                     } else if ("xs:anyURI".equals(datatype)) {
                         binding.values.setOnItemClickListener((arg0, arg1, pos, id) -> {
@@ -2414,7 +2433,7 @@ public class Conversation extends AbstractEntity
                         String value = formatValue(datatype, cell.el.findChildContent("value", "jabber:x:data"), true);
                         SpannableStringBuilder text = new SpannableStringBuilder(value == null ? "" : value);
                         if (cell.reported.getType().equals(Optional.of("jid-single"))) {
-                            text.setSpan(new FixedURLSpan("xmpp:" + Jid.ofEscaped(text.toString()).toEscapedString(), account), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            text.setSpan(new FixedURLSpan("xmpp:" + Jid.of(text.toString()).toString(), account), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                         } else if ("xs:anyURI".equals(datatype)) {
                             text.setSpan(new FixedURLSpan(text.toString(), account), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                         } else if ("html:tel".equals(datatype)) {
@@ -2532,7 +2551,7 @@ public class Conversation extends AbstractEntity
                     if (field.error != null) {
                         binding.desc.setVisibility(View.VISIBLE);
                         binding.desc.setText(field.error);
-                        binding.desc.setTextColor(com.google.android.material.R.attr.colorError);
+                        binding.desc.setTextColor(androidx.appcompat.R.attr.colorError);
                     } else {
                         binding.desc.setTextColor(textColor);
                     }
@@ -2552,9 +2571,10 @@ public class Conversation extends AbstractEntity
                     binding.list.setOnItemClickListener((parent, view, position, id) -> {
                         Set<String> values = new HashSet<>();
                         if (multi) {
+                            final var optionValues = options.stream().map(o -> o.getValue()).collect(Collectors.toSet());
                             values.addAll(field.getValues());
                             for (final String value : field.getValues()) {
-                                if (filteredValues.contains(value)) {
+                                if (filteredValues.contains(value) || (!open && !optionValues.contains(value))) {
                                     values.remove(value);
                                 }
                             }
@@ -2631,7 +2651,7 @@ public class Conversation extends AbstractEntity
                     if (field.error != null) {
                         binding.desc.setVisibility(View.VISIBLE);
                         binding.desc.setText(field.error);
-                        binding.desc.setTextColor(com.google.android.material.R.attr.colorError);
+                        binding.desc.setTextColor(androidx.appcompat.R.attr.colorError);
                     } else {
                         binding.desc.setTextColor(textColor);
                     }
@@ -2650,7 +2670,7 @@ public class Conversation extends AbstractEntity
                     float screenWidth = binding.getRoot().getContext().getResources().getDisplayMetrics().widthPixels;
                     TextPaint paint = ((TextView) LayoutInflater.from(binding.getRoot().getContext()).inflate(R.layout.radio_grid_item, null)).getPaint();
                     float maxColumnWidth = theOptions.stream().map((x) ->
-                        StaticLayout.getDesiredWidth(x.toString(), paint)
+                            StaticLayout.getDesiredWidth(x.toString(), paint)
                     ).max(Float::compare).orElse(new Float(0.0));
                     if (maxColumnWidth * theOptions.size() < 0.90 * screenWidth) {
                         binding.radios.setNumColumns(theOptions.size());
@@ -2743,22 +2763,22 @@ public class Conversation extends AbstractEntity
 
                             final SVG icon = getItem(position).getIcon();
                             if (icon != null) {
-                                 final Element iconEl = getItem(position).getIconEl();
-                                 if (height < 1) {
-                                     v.measure(0, 0);
-                                     height = v.getMeasuredHeight();
-                                 }
-                                 if (height < 1) return v;
-                                 if (mediaSelector) {
-                                     final Drawable d = getDrawableForSVG(icon, iconEl, height * 4);
-                                     if (d != null) {
-                                         final int boundsHeight = 35 + (int)((height * 4) / xmppConnectionService.getResources().getDisplayMetrics().density);
-                                         d.setBounds(0, 0, d.getIntrinsicWidth(), boundsHeight);
-                                     }
-                                     v.setCompoundDrawables(null, d, null, null);
-                                 } else {
-                                     v.setCompoundDrawablesRelativeWithIntrinsicBounds(getDrawableForSVG(icon, iconEl, height), null, null, null);
-                                 }
+                                final Element iconEl = getItem(position).getIconEl();
+                                if (height < 1) {
+                                    v.measure(0, 0);
+                                    height = v.getMeasuredHeight();
+                                }
+                                if (height < 1) return v;
+                                if (mediaSelector) {
+                                    final Drawable d = getDrawableForSVG(icon, iconEl, height * 4);
+                                    if (d != null) {
+                                        final int boundsHeight = 35 + (int)((height * 4) / xmppConnectionService.getResources().getDisplayMetrics().density);
+                                        d.setBounds(0, 0, d.getIntrinsicWidth(), boundsHeight);
+                                    }
+                                    v.setCompoundDrawables(null, d, null, null);
+                                } else {
+                                    v.setCompoundDrawablesRelativeWithIntrinsicBounds(getDrawableForSVG(icon, iconEl, height), null, null, null);
+                                }
                             }
 
                             return v;
@@ -2781,7 +2801,7 @@ public class Conversation extends AbstractEntity
                     if (field.error != null) {
                         binding.desc.setVisibility(View.VISIBLE);
                         binding.desc.setText(field.error);
-                        binding.desc.setTextColor(com.google.android.material.R.attr.colorError);
+                        binding.desc.setTextColor(androidx.appcompat.R.attr.colorError);
                     } else {
                         binding.desc.setTextColor(textColor);
                     }
@@ -2846,9 +2866,9 @@ public class Conversation extends AbstractEntity
 
                         final SVG defaultIcon = defaultOption.getIcon();
                         if (defaultIcon != null) {
-                             DisplayMetrics display = mPager.get().getContext().getResources().getDisplayMetrics();
-                             int height = (int)(display.heightPixels*display.density/4);
-                             binding.defaultButton.setCompoundDrawablesRelativeWithIntrinsicBounds(null, getDrawableForSVG(defaultIcon, defaultOption.getIconEl(), height), null, null);
+                            DisplayMetrics display = mPager.get().getContext().getResources().getDisplayMetrics();
+                            int height = (int)(display.heightPixels*display.density/4);
+                            binding.defaultButton.setCompoundDrawablesRelativeWithIntrinsicBounds(null, getDrawableForSVG(defaultIcon, defaultOption.getIconEl(), height), null, null);
                         }
 
                         binding.defaultButton.setText(defaultOption.toString());
@@ -3158,10 +3178,10 @@ public class Conversation extends AbstractEntity
                                 viewType = TYPE_CHECKBOX_FIELD;
                             }
                         } else if (
-                            range != null && range.getAttribute("min") != null && range.getAttribute("max") != null && (
-                                "xs:integer".equals(datatype) || "xs:int".equals(datatype) || "xs:long".equals(datatype) || "xs:short".equals(datatype) || "xs:byte".equals(datatype) ||
-                                "xs:decimal".equals(datatype) || "xs:double".equals(datatype)
-                            )
+                                range != null && range.getAttribute("min") != null && range.getAttribute("max") != null && (
+                                        "xs:integer".equals(datatype) || "xs:int".equals(datatype) || "xs:long".equals(datatype) || "xs:short".equals(datatype) || "xs:byte".equals(datatype) ||
+                                                "xs:decimal".equals(datatype) || "xs:double".equals(datatype)
+                                )
                         ) {
                             // has a range and is numeric, use a slider
                             viewType = TYPE_SLIDER_FIELD;
@@ -3392,8 +3412,8 @@ public class Conversation extends AbstractEntity
                             eu.siacs.conversations.xmpp.forms.Field fillableField = null;
                             for (eu.siacs.conversations.xmpp.forms.Field field : form.getFields()) {
                                 if ((field.getType() == null || (!field.getType().equals("hidden") && !field.getType().equals("fixed"))) && field.getFieldName() != null && !field.getFieldName().equals("http://jabber.org/protocol/commands#actions")) {
-                                   final var validate = field.findChild("validate", "http://jabber.org/protocol/xdata-validate");
-                                   final var range = validate == null ? null : validate.findChild("range", "http://jabber.org/protocol/xdata-validate");
+                                    final var validate = field.findChild("validate", "http://jabber.org/protocol/xdata-validate");
+                                    final var range = validate == null ? null : validate.findChild("range", "http://jabber.org/protocol/xdata-validate");
                                     fillableField = range == null ? field : null;
                                     fillableFieldCount++;
                                 }
@@ -3482,8 +3502,8 @@ public class Conversation extends AbstractEntity
                 Data dataForm = null;
                 if (responseElement != null && responseElement.getName().equals("x") && responseElement.getNamespace().equals("jabber:x:data")) dataForm = Data.parse(responseElement);
                 if (mNode.equals("jabber:iq:register") &&
-                    xmppConnectionService.getPreferences().contains("onboarding_action") &&
-                    dataForm != null && dataForm.getFieldByName("gateway-jid") != null) {
+                        xmppConnectionService.getPreferences().contains("onboarding_action") &&
+                        dataForm != null && dataForm.getFieldByName("gateway-jid") != null) {
 
 
                     dataForm.put("gateway-jid", xmppConnectionService.getPreferences().getString("onboarding_action", ""));
@@ -3572,8 +3592,8 @@ public class Conversation extends AbstractEntity
                                             if (el.getName().equals("item")) {
                                                 for (Element subel : el.getChildren()) {
                                                     if (subel.getAttribute("var").equals(reportedField.getVar())) {
-                                                       itemField = subel;
-                                                       break;
+                                                        itemField = subel;
+                                                        break;
                                                     }
                                                 }
                                             }
@@ -3734,11 +3754,11 @@ public class Conversation extends AbstractEntity
 
                 String formType = responseElement == null ? null : responseElement.getAttribute("type");
                 if (!action.equals("cancel") &&
-                    !action.equals("prev") &&
-                    responseElement != null &&
-                    responseElement.getName().equals("x") &&
-                    responseElement.getNamespace().equals("jabber:x:data") &&
-                    formType != null && formType.equals("form")) {
+                        !action.equals("prev") &&
+                        responseElement != null &&
+                        responseElement.getName().equals("x") &&
+                        responseElement.getNamespace().equals("jabber:x:data") &&
+                        formType != null && formType.equals("form")) {
 
                     Data form = Data.parse(responseElement);
                     eu.siacs.conversations.xmpp.forms.Field actionList = form.getFieldByName("http://jabber.org/protocol/commands#actions");
@@ -3817,9 +3837,9 @@ public class Conversation extends AbstractEntity
                     float screenWidth = ctx.getResources().getDisplayMetrics().widthPixels;
                     TextPaint paint = ((TextView) LayoutInflater.from(mPager.get().getContext()).inflate(R.layout.command_result_cell, null)).getPaint();
                     float tableHeaderWidth = reported.stream().reduce(
-                        0f,
-                        (total, field) -> total + StaticLayout.getDesiredWidth(field.getLabel().or("--------") + "\t", paint),
-                        (a, b) -> a + b
+                            0f,
+                            (total, field) -> total + StaticLayout.getDesiredWidth(field.getLabel().or("--------") + "\t", paint),
+                            (a, b) -> a + b
                     );
 
                     spanCount = tableHeaderWidth > 0.59 * screenWidth ? 1 : this.reported.size();
@@ -3911,11 +3931,11 @@ public class Conversation extends AbstractEntity
             }
 
             private Drawable getDrawableForSVG(SVG svg, Element svgElement, int size) {
-               if (svgElement != null && svgElement.getChildren().size() == 1 && svgElement.getChildren().get(0).getName().equals("image"))  {
-                   return getDrawableForUrl(svgElement.getChildren().get(0).getAttribute("href"));
-               } else {
-                   return xmppConnectionService.getFileBackend().drawSVG(svg, size);
-               }
+                if (svgElement != null && svgElement.getChildren().size() == 1 && svgElement.getChildren().get(0).getName().equals("image"))  {
+                    return getDrawableForUrl(svgElement.getChildren().get(0).getAttribute("href"));
+                } else {
+                    return xmppConnectionService.getFileBackend().drawSVG(svg, size);
+                }
             }
 
             private Drawable getDrawableForUrl(final String url) {
@@ -4031,8 +4051,8 @@ public class Conversation extends AbstractEntity
                     final var packet = new Iq(Iq.Type.SET);
                     packet.setTo(response.getFrom());
                     final Element form = packet
-                        .addChild("query", "http://jabber.org/protocol/muc#owner")
-                        .addChild("x", "jabber:x:data");
+                            .addChild("query", "http://jabber.org/protocol/muc#owner")
+                            .addChild("x", "jabber:x:data");
                     form.setAttribute("type", "cancel");
                     xmppConnectionService.sendIqPacket(getAccount(), packet, null);
                     return true;
@@ -4045,14 +4065,14 @@ public class Conversation extends AbstractEntity
 
                 String formType = responseElement == null ? null : responseElement.getAttribute("type");
                 if (responseElement != null &&
-                    responseElement.getName().equals("x") &&
-                    responseElement.getNamespace().equals("jabber:x:data") &&
-                    formType != null && formType.equals("form")) {
+                        responseElement.getName().equals("x") &&
+                        responseElement.getNamespace().equals("jabber:x:data") &&
+                        formType != null && formType.equals("form")) {
 
                     responseElement.setAttribute("type", "submit");
                     packet
-                        .addChild("query", "http://jabber.org/protocol/muc#owner")
-                        .addChild(responseElement);
+                            .addChild("query", "http://jabber.org/protocol/muc#owner")
+                            .addChild(responseElement);
                 }
 
                 executing = true;
@@ -4103,5 +4123,61 @@ public class Conversation extends AbstractEntity
 
             return last.getTimeSent();
         }
+    }
+
+    public void hideStatusMessage() {
+        String statusTs = this.getAttribute("statusTs");
+
+        if (statusTs == null) {
+            this.setAttribute("statusTs", String.valueOf(System.currentTimeMillis() - 1));
+        }
+
+        this.setAttribute("statusHideTs", String.valueOf(System.currentTimeMillis()));
+    }
+
+    public boolean statusMessageHidden() {
+        String statusTs = this.getAttribute("statusTs");
+        String statusHideTs = this.getAttribute("statusHideTs");
+
+        if (statusTs == null) {
+            return false;
+        }
+        if (statusHideTs == null) {
+            return false;
+        }
+        try {
+            return Long.parseLong(statusHideTs) >= Long.parseLong(statusTs);
+        } catch (NumberFormatException e) {
+            Log.w(Config.LOGTAG, "NumberFormatException parsing status timestamps for " + getJid() + ": statusTs=" + statusTs + ", statusHideTs=" + statusHideTs);
+            return false; // Default to not hidden if timestamps are corrupt
+        }
+    }
+
+    /**
+     * Call this method when a contact's XMPP status message
+     * has been updated. This will update the status timestamp and ensure
+     * that any previously hidden status message for this conversation is made visible again.
+     *
+     * @param newStatusMessageText The text of the new status message (can be used if you store it).
+     * @param newStatusTimestamp The timestamp (in milliseconds) of when the new status was set/received.
+     */
+    public void onContactStatusMessageChanged(String newStatusMessageText, long newStatusTimestamp) {
+        this.setAttribute("statusTs", String.valueOf(newStatusTimestamp));
+
+        // To make statusMessageHidden() return false, we ensure statusHideTs is less than statusTs.
+        // Set to an older value:
+        // this.setAttribute("statusHideTs", "0");
+        // or
+        this.setAttribute("statusHideTs", String.valueOf(newStatusTimestamp - 1));
+
+        // If you also store the status message text directly in Conversation attributes:
+        // if (newStatusMessageText != null) {
+        //     this.setAttribute(Conversation.ATTRIBUTE_LAST_STATUS_MESSAGE, newStatusMessageText);
+        // } else {
+        //     this.removeAttribute(Conversation.ATTRIBUTE_LAST_STATUS_MESSAGE);
+        // }
+
+        Log.d(Config.LOGTAG, "Updated status timestamps for conversation " + getJid() +
+                ". statusTs=" + newStatusTimestamp + ", statusHideTs is now removed/older.");
     }
 }

@@ -455,7 +455,7 @@
     <string name="download_failed_could_not_write_file">Загрузка не удалась: ошибка записи файла</string>
     <string name="account_status_tor_unavailable">Сеть Tor недоступна</string>
     <string name="account_status_bind_failure">Ошибка связывания</string>
-    <string name="account_status_host_unknown">Сервер не ответственен за этот домен</string>
+    <string name="account_status_host_unknown">Не несет ответственности за домен</string>
     <string name="server_info_broken">Повреждено</string>
     <string name="pref_presence_settings">Доступность</string>
     <string name="pref_away_when_screen_off">\"Отошёл\" когда экран заблокирован</string>
@@ -532,7 +532,7 @@
     <string name="no_application_to_share_uri">Не найдено приложения для передачи URI</string>
     <string name="share_uri_with">Отправить URI…</string>
     <string name="agree_and_continue">Согласиться и продолжить</string>
-    <string name="magic_create_text">Вы сможете общаться с пользователями других провайдеров, предоставив им свой полный идентификатор XMPP.</string>
+    <string name="magic_create_text">Мы проведем вас через процесс создания учетной записи со случайным паролем, который вы можете использовать или изменить свой собственный пароль на следующей странице. \\ Nthen вы сможете общаться с пользователями этого и других поставщиков, предоставив им свой полный XMPP-Address.</string>
     <string name="your_full_jid_will_be">Ваш полный XMPP-адрес будет: %s</string>
     <string name="create_account">Создать аккаунт</string>
     <string name="use_own_provider">Использовать свой провайдер</string>
@@ -1162,7 +1162,7 @@
     <string name="encryption">Шифрование</string>
     <string name="choose_widget">Выбрать виджет</string>
     <string name="pref_show_mappreview_inside">Показать предварительный просмотр карт</string>
-    <string name="pref_show_mappreview_inside_summary">Загрузить предварительный просмотр карт для общего местоположения в чате</string>
+    <string name="pref_show_mappreview_inside_summary">Показывать предварительный просмотр карты непосредственно в окне чата, будет установлено соединение с сервером monocles.</string>
     <string name="pref_show_own_accounts_summary">Показывает используемый аккаунт в обзоре сообщений и подробностях</string>
     <string name="pref_show_show_nav_drawer">Навигационный ящик</string>
     <string name="show_link_previews">Показать предварительные просмотры ссылок</string>
@@ -1456,8 +1456,8 @@
     <string name="pref_export_plain_text_logs_summary">Экспортируйте сообщения в незашифрованном виде в виде обычного текста, читаемого человеком</string>
     <string name="pref_allow_unencrypted_reactions">Реакции в чатах E2EE</string>
     <string name="pref_allow_unencrypted_reactions_summary">Разрешить использование незашифрованных реакций в чатах со сквозным шифрованием</string>
-    <string name="pref_show_muc_pm_summary">Разрешить запуск полуприватных чатов внутри канала</string>
-    <string name="pref_show_muc_pm_title">Показать канал в личке</string>
+    <string name="pref_show_muc_pm_summary">Разрешить личные сообщения в конференции</string>
+    <string name="pref_show_muc_pm_title">Приватные сообщения в конференции</string>
     <string name="pref_swipe_to_archive_title">Свайп в архив</string>
     <string name="pref_swipe_to_archive_summary">Свайп влево или вправо в обзоре чатов, чтобы архивировать чат</string>
     <string name="set_preferences_title">Установить настройки</string>
@@ -1466,6 +1466,34 @@
     <string name="monocles_account_introduction">Зарегистрируйтесь сейчас, и <b> Получите безопасную учетную запись Monocles, оснащенную регенеративными энергиями </b>, чтобы напрямую начать чат.</string>
     <string name="monocles_account_details">Это включает в себя:\n● Один месяц временного хранения чата\n● Электронная почта с хранением 2 ГБ\n\n необязательно: \n● 5 ГБ облачного хранилища (NextCloud)\n● Календарь и контакт синхронизации\n● Безопасный инструмент конференции \n и подробнее о <a href="https://monocles.eu/more/"> https://monocles.eu/more/ </a></string>
     <string name="create_monocles_account">Зарегистрироваться</string>
-    <string name="or_use_another">… или выберите еще один ниже</string>
+    <string name="or_use_another">… или выберите еще один</string>
     <string name="use_monocles">Я предпочитаю монокли</string>
+    <string name="account_status_connection_timeout">Тайм-аут подключения</string>
+    <string name="pref_align_start">Слева от сообщения</string>
+    <string name="custom_notifications">Пользовательские уведомления</string>
+    <string name="custom_notifications_enable">Включить настройки уведомлений (важность, звук, вибрация) для этого разговора?</string>
+    <string name="clients_may_not_support_av">Клиент XMPP вашего контакта может не поддерживать аудио/видео звонки.</string>
+    <string name="pref_align_start_summary">Отображайте все сообщения, в том числе отправленные, с левой стороны для единого макета чата.</string>
+    <string name="pref_disable_reactions_fallback_summary">Отключает отзыв реакций для клиентов, которые еще не поддерживают реакцию</string>
+    <string name="pref_disable_reactions_fallback_title">Отключить реакции</string>
+    <string name="pin_to_top">Закрепить вверху</string>
+    <string name="switch_to_new_thread">Переключение на новую ветку</string>
+    <string name="cleared_thread">Очищенная тема</string>
+    <string name="pref_plain_text_links_title">Ссылки на простые адреса чата</string>
+    <string name="pref_plain_text_links_summary">Показать полные ссылки на адреса чатов</string>
+    <string name="remove_bookmark_text">Хотите удалить %s из закладок? Разговор, связанный с этой закладкой, не будет удален.</string>
+    <string name="your_server">Ваш провайдер</string>
+    <string name="change_password_in_next_step">Вы можете изменить сгенерированный пароль на следующем шаге по своему усмотрению.</string>
+    <string name="choose_your_server">Выберите своего провайдера XMPP</string>
+    <string name="server_hint">Выбрать провайдера</string>
+    <string name="enter_domain">Введите домен</string>
+    <string name="add_to_contact_list">Добавить в список контактов</string>
+    <string name="action_end_conversation_muc">Покинуть комнату</string>
+    <string name="action_end_conversation_channel">Покинуть канал</string>
+    <string name="leave_conference_warning">Вы действительно хотите покинуть эту комнату? Вы больше не будете получать уведомления о новых сообщениях, пока не присоединитесь к комнате снова.</string>
+    <string name="pref_load_providers_list_external">Загрузить поставщиков внешнего чата</string>
+    <string name="pref_load_providers_list_external_summary">Загрузите список поставщиков чата с сервера XMPP.net для альтернативной регистрации в приложении</string>
+    <string name="external_providers_list">Список загруженных поставщиков чата с сервера</string>
+    <string name="local_providers_list">Использует список местных поставщиков чата</string>
+    <string name="error_loading_chat_providers">Ошибка загрузки провайдеров чата</string>
 </resources>

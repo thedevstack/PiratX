@@ -146,6 +146,7 @@ import im.conversations.android.xmpp.model.sm.StreamManagement;
 import im.conversations.android.xmpp.model.stanza.Iq;
 import im.conversations.android.xmpp.model.stanza.Presence;
 import im.conversations.android.xmpp.model.stanza.Stanza;
+import im.conversations.android.xmpp.model.streams.Features;
 import im.conversations.android.xmpp.model.streams.StreamError;
 import im.conversations.android.xmpp.model.tls.Proceed;
 import im.conversations.android.xmpp.model.tls.StartTls;
@@ -309,6 +310,7 @@ public class XmppConnection implements Runnable {
             mXmppConnectionService.resetSendingToWaiting(account);
         }
         Log.d(Config.LOGTAG, account.getJid().asBareJid().toString() + ": connecting");
+        this.streamFeatures = null;
         this.pendingResumeId.clear();
         this.loginInfo = null;
         this.features.encryptionEnabled = false;
@@ -324,10 +326,12 @@ public class XmppConnection implements Runnable {
             Socket localSocket;
             shouldAuthenticate = !account.isOptionSet(Account.OPTION_REGISTER);
             this.changeStatus(Account.State.CONNECTING);
-            final boolean useTor = mXmppConnectionService.useTorToConnect() || account.isOnion();
-            final boolean extended = mXmppConnectionService.showExtendedConnectionOptions();
+            final boolean useTorSetting = appSettings.isUseTor();
+            final boolean extended = appSettings.isExtendedConnectionOptions();
+            final boolean useTor = useTorSetting || account.isOnion();
+            final boolean useI2P = mXmppConnectionService.useI2PToConnect() || account.isI2P();
             // TODO collapse Tor usage into normal connection code path
-            if (useTor) {
+            if (useTor && !useI2P) {
                 final var seeOtherHost = this.seeOtherHostResolverResult;
                 final var hostname = account.getHostname().trim();
                 final var port = account.getPort();
@@ -343,7 +347,15 @@ public class XmppConnection implements Runnable {
                                     Resolver.fromHardCoded(
                                             account.getServer(), Resolver.XMPP_PORT_STARTTLS));
                 } else {
-                    viaTor = Iterables.getOnlyElement(Resolver.fromHardCoded(hostname, port));
+                    if (useTorSetting || extended) {
+                        // if the hostname configuration is showing we can take it
+                        viaTor = Iterables.getOnlyElement(Resolver.fromHardCoded(hostname, port));
+                    } else {
+                        viaTor =
+                                Iterables.getOnlyElement(
+                                        Resolver.fromHardCoded(
+                                                account.getServer(), Resolver.XMPP_PORT_STARTTLS));
+                    }
                     this.verifiedHostname = hostname;
                 }
 
@@ -371,6 +383,43 @@ public class XmppConnection implements Runnable {
                     return;
                 } catch (final Exception e) {
                     throw new IOException("Could not start stream", e);
+                }
+            } else if (useI2P) {
+                String destination;
+                if (account.getHostname().isEmpty() || account.isI2P()) {
+                    destination = account.getServer();
+                } else {
+                    destination = account.getHostname();
+                    this.verifiedHostname = destination;
+                }
+
+                final int port = account.getPort();
+                final boolean directTls = Resolver.useDirectTls(port);
+
+                Log.d(
+                        Config.LOGTAG,
+                        account.getJid().asBareJid()
+                                + ": connect to "
+                                + destination
+                                + " via I2P. directTls="
+                                + directTls);
+                localSocket = SocksSocketFactory.createSocketOverI2P(destination, port);
+
+                if (directTls) {
+                    localSocket = upgradeSocketToTls(localSocket);
+                    features.encryptionEnabled = true;
+                }
+
+                try {
+                    startXmpp(localSocket);
+                } catch (InterruptedException e) {
+                    Log.d(
+                            Config.LOGTAG,
+                            account.getJid().asBareJid()
+                                    + ": thread was interrupted before beginning stream");
+                    return;
+                } catch (Exception e) {
+                    throw new IOException(e.getMessage());
                 }
             } else {
                 final var hostname = account.getHostname().trim();
@@ -524,7 +573,11 @@ public class XmppConnection implements Runnable {
                        | SocksSocketFactory.HostNotFoundException e) {
             this.changeStatus(Account.State.SERVER_NOT_FOUND);
         } catch (final SocksSocketFactory.SocksProxyNotFoundException e) {
-            this.changeStatus(Account.State.TOR_NOT_AVAILABLE);
+            if (account.isI2P() || mXmppConnectionService.getBooleanPreference("use_i2p", R.bool.use_i2p)) {
+                this.changeStatus(Account.State.I2P_NOT_AVAILABLE);
+            } else {
+                this.changeStatus(Account.State.TOR_NOT_AVAILABLE);
+            }
         } catch (final IOException | XmlPullParserException e) {
             Log.d(Config.LOGTAG, account.getJid().asBareJid().toString() + ": " + e.getMessage());
             this.changeStatus(Account.State.OFFLINE);
@@ -637,6 +690,9 @@ public class XmppConnection implements Runnable {
             } else if (nextTag.isStart("features", Namespace.STREAMS)) {
                 processStreamFeatures(nextTag);
             } else if (nextTag.isStart("proceed", Namespace.TLS)) {
+                if (this.socket instanceof SSLSocket) {
+                    throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
+                }
                 switchOverToTls(nextTag);
             } else if (nextTag.isStart("failure", Namespace.TLS)) {
                 throw new StateChangingException(Account.State.TLS_ERROR);
@@ -797,7 +853,9 @@ public class XmppConnection implements Runnable {
             throws IOException, XmlPullParserException {
         final LoginInfo currentLoginInfo = this.loginInfo;
         final SaslMechanism currentSaslMechanism = LoginInfo.mechanism(currentLoginInfo);
-        if (currentLoginInfo == null || currentSaslMechanism == null) {
+        if (currentLoginInfo == null
+                || LoginInfo.isSuccess(currentLoginInfo)
+                || currentSaslMechanism == null) {
             throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
         }
         final SaslMechanism.Version version;
@@ -1009,9 +1067,15 @@ public class XmppConnection implements Runnable {
         } catch (final IllegalArgumentException e) {
             throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
         }
+
+        final LoginInfo currentLoginInfo = this.loginInfo;
+        if (currentLoginInfo == null || LoginInfo.isSuccess(currentLoginInfo)) {
+            throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
+        }
+
         Log.d(Config.LOGTAG, failure.toString());
         Log.d(Config.LOGTAG, account.getJid().asBareJid() + ": login failure " + version);
-        if (SaslMechanism.hashedToken(LoginInfo.mechanism(this.loginInfo))) {
+        if (SaslMechanism.hashedToken(LoginInfo.mechanism(currentLoginInfo))) {
             Log.d(Config.LOGTAG, account.getJid().asBareJid() + ": resetting token");
             account.resetFastToken();
             mXmppConnectionService.databaseBackend.updateAccount(account);
@@ -1048,12 +1112,13 @@ public class XmppConnection implements Runnable {
                 }
             }
         }
-        if (SaslMechanism.hashedToken(LoginInfo.mechanism(this.loginInfo))) {
+        if (SaslMechanism.hashedToken(LoginInfo.mechanism(currentLoginInfo))) {
             Log.d(
                     Config.LOGTAG,
                     account.getJid().asBareJid()
                             + ": fast authentication failed. falling back to regular"
                             + " authentication");
+            this.loginInfo = null;
             authenticate();
         } else {
             throw new StateChangingException(Account.State.UNAUTHORIZED);
@@ -1296,7 +1361,10 @@ public class XmppConnection implements Runnable {
                     account.getJid().asBareJid() + "Not processing iq. Thread was interrupted");
             return;
         }
-        if (packet.hasExtension(Jingle.class) && packet.getType() == Iq.Type.SET && isBound) {
+        if (packet.hasExtension(Jingle.class)
+                && packet.getType() == Iq.Type.SET
+                && isBound
+                && LoginInfo.isSuccess(this.loginInfo)) {
             if (this.jingleListener != null) {
                 this.jingleListener.onJinglePacketReceived(account, packet);
             }
@@ -1326,7 +1394,7 @@ public class XmppConnection implements Runnable {
         final boolean isRequest =
                 stanza.getType() == Iq.Type.GET || stanza.getType() == Iq.Type.SET;
         if (isRequest) {
-            if (isBound) {
+            if (isBound && LoginInfo.isSuccess(this.loginInfo)) {
                 return new Pair<>(this.unregisteredIqListener, null);
             } else {
                 throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
@@ -1485,13 +1553,33 @@ public class XmppConnection implements Runnable {
     }
 
     private void processStreamFeatures(final Tag currentTag) throws IOException {
-        this.streamFeatures =
+        final var streamFeatures =
                 tagReader.readElement(
                         currentTag, im.conversations.android.xmpp.model.streams.Features.class);
         final boolean isSecure = isSecure();
+        if (streamFeatures.hasExtension(StartTls.class) && !features.encryptionEnabled) {
+            sendStartTLS();
+            return;
+        }
+        if (isSecure) {
+            processSecureStreamFeatures(streamFeatures);
+        } else {
+            Log.d(
+                    Config.LOGTAG,
+                    account.getJid().asBareJid()
+                            + ": STARTTLS not available "
+                            + XmlHelper.printElementNames(streamFeatures));
+            throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
+        }
+    }
+
+    private void processSecureStreamFeatures(
+            final im.conversations.android.xmpp.model.streams.Features streamFeatures)
+            throws IOException {
+        this.streamFeatures = streamFeatures;
         final boolean needsBinding = !isBound && !account.isOptionSet(Account.OPTION_REGISTER);
         if (this.quickStartInProgress) {
-            if (this.streamFeatures.hasStreamFeature(Authentication.class)) {
+            if (streamFeatures.hasStreamFeature(Authentication.class)) {
                 Log.d(
                         Config.LOGTAG,
                         account.getJid().asBareJid()
@@ -1518,33 +1606,21 @@ public class XmppConnection implements Runnable {
             mXmppConnectionService.databaseBackend.updateAccount(account);
             throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
         }
-        if (this.streamFeatures.hasExtension(StartTls.class) && !features.encryptionEnabled) {
-            sendStartTLS();
-        } else if (this.streamFeatures.hasChild("register", Namespace.REGISTER_STREAM_FEATURE)
+        if (streamFeatures.hasChild("register", Namespace.REGISTER_STREAM_FEATURE)
                 && account.isOptionSet(Account.OPTION_REGISTER)) {
-            if (isSecure) {
-                register();
-            } else {
-                Log.d(
-                        Config.LOGTAG,
-                        account.getJid().asBareJid()
-                                + ": unable to find STARTTLS for registration process "
-                                + XmlHelper.printElementNames(this.streamFeatures));
-                throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
-            }
-        } else if (!this.streamFeatures.hasChild("register", Namespace.REGISTER_STREAM_FEATURE)
+            register();
+        } else if (!streamFeatures.hasChild("register", Namespace.REGISTER_STREAM_FEATURE)
                 && account.isOptionSet(Account.OPTION_REGISTER)) {
             throw new StateChangingException(Account.State.REGISTRATION_NOT_SUPPORTED);
-        } else if (this.streamFeatures.hasStreamFeature(Authentication.class)
+        } else if (streamFeatures.hasStreamFeature(Authentication.class)
                 && shouldAuthenticate
-                && isSecure) {
+                && this.loginInfo == null) {
             authenticate(SaslMechanism.Version.SASL_2);
-        } else if (this.streamFeatures.hasStreamFeature(Mechanisms.class)
+        } else if (streamFeatures.hasStreamFeature(Mechanisms.class)
                 && shouldAuthenticate
-                && isSecure) {
+                && this.loginInfo == null) {
             authenticate(SaslMechanism.Version.SASL);
-        } else if (this.streamFeatures.streamManagement()
-                && isSecure
+        } else if (streamFeatures.streamManagement()
                 && LoginInfo.isSuccess(loginInfo)
                 && streamId != null
                 && !inSmacksSession) {
@@ -1561,7 +1637,6 @@ public class XmppConnection implements Runnable {
             this.tagWriter.writeStanzaAsync(resume);
         } else if (needsBinding) {
             if (this.streamFeatures.hasChild("bind", Namespace.BIND)
-                    && isSecure
                     && LoginInfo.isSuccess(loginInfo)) {
                 sendBindRequest();
             } else {
@@ -1593,10 +1668,15 @@ public class XmppConnection implements Runnable {
     }
 
     private boolean isSecure() {
-        return features.encryptionEnabled || Config.ALLOW_NON_TLS_CONNECTIONS || account.isOnion();
+        return (features.encryptionEnabled && this.socket instanceof SSLSocket)
+                || Config.ALLOW_NON_TLS_CONNECTIONS
+                || account.isDirectToOnion();
     }
 
     private void authenticate(final SaslMechanism.Version version) throws IOException {
+        if (this.loginInfo != null) {
+            throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
+        }
         final AuthenticationStreamFeature authElement;
         if (version == SaslMechanism.Version.SASL) {
             authElement = this.streamFeatures.getExtension(Mechanisms.class);
@@ -1738,7 +1818,7 @@ public class XmppConnection implements Runnable {
                 return;
             }
             Log.d(Config.LOGTAG, account.getJid() + ": server did not offer channel binding");
-            throw new StateChangingException(Account.State.INCOMPATIBLE_SERVER);
+            throw new StateChangingException(Account.State.CHANNEL_BINDING);
         }
     }
 
@@ -1897,15 +1977,16 @@ public class XmppConnection implements Runnable {
                                 is = null;
                             }
                         } else {
-                            final boolean useTor =
-                                    mXmppConnectionService.useTorToConnect() || account.isOnion();
+                            final boolean useTor = this.appSettings.isUseTor() || account.isOnion();
+                            final boolean useI2P = mXmppConnectionService.useI2PToConnect() || account.isI2P();
+
                             try {
                                 final String url = data.getValue("url");
                                 final String fallbackUrl = data.getValue("captcha-fallback-url");
                                 if (url != null) {
-                                    is = HttpConnectionManager.open(url, useTor);
+                                    is = HttpConnectionManager.open(url, useTor, useI2P);
                                 } else if (fallbackUrl != null) {
-                                    is = HttpConnectionManager.open(fallbackUrl, useTor);
+                                    is = HttpConnectionManager.open(fallbackUrl, useTor, useI2P);
                                 } else {
                                     is = null;
                                 }
@@ -2371,7 +2452,7 @@ public class XmppConnection implements Runnable {
                         for (final Element element : elements) {
                             if (element.getName().equals("item")) {
                                 final Jid jid =
-                                        InvalidJid.getNullForInvalid(
+                                        Jid.Invalid.getNullForInvalid(
                                                 element.getAttributeAsJid("jid"));
                                 if (jid != null && !jid.equals(account.getDomain())) {
                                     items.add(jid);
@@ -2536,7 +2617,7 @@ public class XmppConnection implements Runnable {
         final Tag stream = Tag.start("stream:stream");
         stream.setAttribute("to", account.getServer());
         if (from) {
-            stream.setAttribute("from", account.getJid().asBareJid().toEscapedString());
+            stream.setAttribute("from", account.getJid().asBareJid().toString());
         }
         stream.setAttribute("version", "1.0");
         stream.setAttribute("xml:lang", LocalizedContent.STREAM_LANGUAGE);
@@ -2773,7 +2854,7 @@ public class XmppConnection implements Runnable {
 
     public List<String> getMucServersWithholdAccount() {
         final List<String> servers = getMucServers();
-        servers.remove(account.getDomain().toEscapedString());
+        servers.remove(account.getDomain().toString());
         return servers;
     }
 
@@ -2983,6 +3064,9 @@ public class XmppConnection implements Runnable {
 
         public void success(final String challenge, final SSLSocket sslSocket)
                 throws SaslMechanism.AuthenticationException {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new SaslMechanism.AuthenticationException("Race condition during auth");
+            }
             final var response = this.saslMechanism.getResponse(challenge, sslSocket);
             if (!Strings.isNullOrEmpty(response)) {
                 throw new SaslMechanism.AuthenticationException(

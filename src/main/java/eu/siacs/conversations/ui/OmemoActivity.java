@@ -7,8 +7,7 @@ import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.Toast;
-
-import androidx.appcompat.app.AlertDialog;
+import androidx.annotation.NonNull;
 import androidx.databinding.DataBindingUtil;
 
 import com.google.android.material.color.MaterialColors;
@@ -26,7 +25,7 @@ import eu.siacs.conversations.utils.XmppUri;
 public abstract class OmemoActivity extends XmppActivity {
 
 	private Account mSelectedAccount;
-	private String mSelectedFingerprint;
+	protected String mSelectedFingerprint;
 
 	protected XmppUri mPendingFingerprintVerificationUri = null;
 
@@ -52,25 +51,27 @@ public abstract class OmemoActivity extends XmppActivity {
 				}
 				distrust.setVisible(status.isVerified() || (!status.isActive() && status.isTrusted()));
 			}
+			// TODO can we rework this into using Intents?
 			this.mSelectedAccount = (Account) account;
 			this.mSelectedFingerprint = (String) fingerprint;
 		}
 	}
 
 	@Override
-	public boolean onContextItemSelected(MenuItem item) {
-		switch (item.getItemId()) {
-			case R.id.distrust_key:
-				showPurgeKeyDialog(mSelectedAccount, mSelectedFingerprint);
-				break;
-			case R.id.copy_omemo_key:
-				copyOmemoFingerprint(mSelectedFingerprint);
-				break;
-			case R.id.verify_scan:
-				ScanActivity.scan(this);
-				break;
+	public boolean onContextItemSelected(final MenuItem item) {
+		final var itemId = item.getItemId();
+		if (itemId == R.id.distrust_key) {
+			showPurgeKeyDialog(mSelectedAccount, mSelectedFingerprint);
+			return true;
+		} else if (itemId == R.id.copy_omemo_key) {
+			copyOmemoFingerprint(mSelectedFingerprint);
+			return true;
+		} else if (itemId == R.id.verify_scan) {
+			ScanActivity.scan(this);
+			return true;
+		} else {
+			return super.onContextItemSelected(item);
 		}
-		return true;
 	}
 
 	@Override
@@ -203,9 +204,12 @@ public abstract class OmemoActivity extends XmppActivity {
 		builder.create().show();
 	}
 
-	@Override
-	public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-		super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-		ScanActivity.onRequestPermissionResult(this, requestCode, grantResults);
-	}
+    @Override
+    public void onRequestPermissionsResult(
+            final int requestCode,
+            @NonNull final String[] permissions,
+            @NonNull final int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        ScanActivity.onRequestPermissionResult(this, requestCode, grantResults);
+    }
 }

@@ -10,22 +10,21 @@ import android.os.AsyncTask;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
 import android.widget.ImageView;
-
 import androidx.annotation.DimenRes;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.core.widget.ImageViewCompat;
 import androidx.databinding.DataBindingUtil;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.google.android.material.color.MaterialColors;
 import com.google.common.base.Strings;
-
+import com.google.common.collect.ImmutableList;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ItemMediaBinding;
 import eu.siacs.conversations.ui.XmppActivity;
 import eu.siacs.conversations.ui.util.Attachment;
 import eu.siacs.conversations.ui.util.ViewUtil;
+import eu.siacs.conversations.utils.MimeUtils;
 import eu.siacs.conversations.worker.ExportBackupWorker;
 
 import java.io.File;
@@ -38,13 +37,27 @@ import java.util.concurrent.RejectedExecutionException;
 public class MediaAdapter extends RecyclerView.Adapter<MediaAdapter.MediaViewHolder> {
 
     public static final List<String> DOCUMENT_MIMES =
+            new ImmutableList.Builder<String>()
+                    .add("application/pdf")
+                    .add("text/x-tex")
+                    .add("text/plain")
+                    .addAll(MimeUtils.WORD_DOCUMENT_MIMES)
+                    .build();
+    public static final List<String> SPREAD_SHEET_MIMES =
             Arrays.asList(
-                    "application/pdf",
-                    "application/vnd.oasis.opendocument.text",
-                    "application/msword",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "text/x-tex",
-                    "text/plain");
+                    "text/comma-separated-values",
+                    "application/vnd.ms-excel",
+                    "application/vnd.stardivision.calc",
+                    "application/vnd.oasis.opendocument.spreadsheet",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+    public static final List<String> SLIDE_SHOW_MIMES =
+            Arrays.asList(
+                    "application/vnd.ms-powerpoint",
+                    "application/vnd.stardivision.impress",
+                    "application/vnd.oasis.opendocument.presentation",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    "application/vnd.openxmlformats-officedocument.presentationml.slideshow");
 
     private static final List<String> ARCHIVE_MIMES =
             Arrays.asList(
@@ -112,6 +125,10 @@ public class MediaAdapter extends RecyclerView.Adapter<MediaAdapter.MediaViewHol
             return R.drawable.ic_backup_48dp;
         } else if (DOCUMENT_MIMES.contains(mime)) {
             return R.drawable.ic_description_48dp;
+        } else if (SPREAD_SHEET_MIMES.contains(mime)) {
+            return R.drawable.ic_table_48dp;
+        } else if (SLIDE_SHOW_MIMES.contains(mime)) {
+            return R.drawable.ic_slideshow_48dp;
         } else if (mime.equals("application/gpx+xml")) {
             return R.drawable.ic_tour_48dp;
         } else if (mime.startsWith("image/")) {

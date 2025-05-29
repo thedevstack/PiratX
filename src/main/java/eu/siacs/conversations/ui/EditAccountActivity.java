@@ -32,13 +32,11 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.databinding.DataBindingUtil;
 import androidx.lifecycle.Lifecycle;
-
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputLayout;
@@ -100,7 +98,8 @@ import static eu.siacs.conversations.utils.PermissionUtils.allGranted;
 import static eu.siacs.conversations.utils.PermissionUtils.writeGranted;
 
 import okhttp3.HttpUrl;
-
+import okhttp3.HttpUrl;
+import org.openintents.openpgp.util.OpenPgpUtils;
 import org.openintents.openpgp.util.OpenPgpUtils;
 
 import java.util.Arrays;
@@ -110,12 +109,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class EditAccountActivity extends OmemoActivity
         implements OnAccountUpdate,
-                OnUpdateBlocklist,
-                OnKeyStatusUpdated,
-                OnCaptchaRequested,
-                KeyChainAliasCallback,
-                XmppConnectionService.OnShowErrorToast,
-                XmppConnectionService.OnMamPreferencesFetched {
+        OnUpdateBlocklist,
+        OnKeyStatusUpdated,
+        OnCaptchaRequested,
+        KeyChainAliasCallback,
+        XmppConnectionService.OnShowErrorToast,
+        XmppConnectionService.OnMamPreferencesFetched {
 
     public static final String EXTRA_OPENED_FROM_NOTIFICATION = "opened_from_notification";
     public static final String EXTRA_FORCE_REGISTER = "force_register";
@@ -165,8 +164,7 @@ public class EditAccountActivity extends OmemoActivity
                                 new Intent(
                                         getApplicationContext(),
                                         PublishProfilePictureActivity.class);
-                        intent.putExtra(
-                                EXTRA_ACCOUNT, mAccount.getJid().asBareJid().toEscapedString());
+                        intent.putExtra(EXTRA_ACCOUNT, mAccount.getJid().asBareJid().toString());
                         startActivity(intent);
                     }
                 }
@@ -178,6 +176,7 @@ public class EditAccountActivity extends OmemoActivity
     private boolean mSavedInstanceInit = false;
     private XmppUri pendingUri = null;
     private boolean mUseTor;
+    private boolean mUseI2P;
     private ActivityEditAccountBinding binding;
     private final OnClickListener mSaveButtonClickListener =
             new OnClickListener() {
@@ -199,7 +198,7 @@ public class EditAccountActivity extends OmemoActivity
                     }
                     if (mAccount != null
                             && Arrays.asList(Account.State.DISABLED, Account.State.LOGGED_OUT)
-                                    .contains(mAccount.getStatus())
+                            .contains(mAccount.getStatus())
                             && !accountInfoEdited) {
                         mAccount.setOption(Account.OPTION_SOFT_DISABLED, false);
                         mAccount.setOption(Account.OPTION_DISABLED, false);
@@ -232,6 +231,9 @@ public class EditAccountActivity extends OmemoActivity
                     final boolean startOrbot =
                             mAccount != null
                                     && mAccount.getStatus() == Account.State.TOR_NOT_AVAILABLE;
+                    final boolean startI2P =
+                            mAccount != null
+                                    && mAccount.getStatus() == Account.State.I2P_NOT_AVAILABLE;
                     if (startOrbot) {
                         if (TorServiceUtils.isOrbotInstalled(EditAccountActivity.this)) {
                             TorServiceUtils.startOrbot(EditAccountActivity.this, REQUEST_ORBOT);
@@ -239,6 +241,11 @@ public class EditAccountActivity extends OmemoActivity
                             TorServiceUtils.downloadOrbot(EditAccountActivity.this, REQUEST_ORBOT);
                         }
                         return;
+                    }
+
+
+                    if (startI2P) {
+                        return; // just exit
                     }
 
                     if (inNeedOfSaslAccept()) {
@@ -285,12 +292,12 @@ public class EditAccountActivity extends OmemoActivity
                     try {
                         if (mUsernameMode) {
                             jid =
-                                    Jid.ofEscaped(
+                                    Jid.of(
                                             binding.accountJid.getText().toString(),
                                             getUserModeDomain(),
                                             null);
                         } else {
-                            jid = Jid.ofEscaped(binding.accountJid.getText().toString());
+                            jid = Jid.ofUserInput(binding.accountJid.getText().toString());
                             Resolver.checkDomain(jid);
                         }
                     } catch (final NullPointerException | IllegalArgumentException e) {
@@ -564,14 +571,13 @@ public class EditAccountActivity extends OmemoActivity
                                         getApplicationContext(), StartConversationActivity.class);
                         intent.putExtra("init", true);
                         intent.putExtra(
-                                EXTRA_ACCOUNT, mAccount.getJid().asBareJid().toEscapedString());
+                                EXTRA_ACCOUNT, mAccount.getJid().asBareJid().toString());
                     } else {
                         intent =
                                 new Intent(
                                         getApplicationContext(),
                                         PublishProfilePictureActivity.class);
-                        intent.putExtra(
-                                EXTRA_ACCOUNT, mAccount.getJid().asBareJid().toEscapedString());
+                        intent.putExtra(EXTRA_ACCOUNT, mAccount.getJid().asBareJid().toString());
                         intent.putExtra("setup", true);
                     }
                     if (wasFirstAccount) {
@@ -646,8 +652,8 @@ public class EditAccountActivity extends OmemoActivity
             this.binding.saveButton.setEnabled(true);
         } else if (mAccount != null
                 && (mAccount.getStatus() == Account.State.CONNECTING
-                        || mAccount.getStatus() == Account.State.REGISTRATION_SUCCESSFUL
-                        || mFetchingAvatar)) {
+                || mAccount.getStatus() == Account.State.REGISTRATION_SUCCESSFUL
+                || mFetchingAvatar)) {
             this.binding.saveButton.setEnabled(false);
             this.binding.saveButton.setText(R.string.account_status_connecting);
         } else if (mAccount != null
@@ -674,8 +680,8 @@ public class EditAccountActivity extends OmemoActivity
                             mAccount == null ? null : mAccount.getXmppConnection();
                     HttpUrl url =
                             connection != null
-                                            && mAccount.getStatus()
-                                                    == Account.State.PAYMENT_REQUIRED
+                                    && mAccount.getStatus()
+                                    == Account.State.PAYMENT_REQUIRED
                                     ? connection.getRedirectionUrl()
                                     : null;
                     if (url != null) {
@@ -720,20 +726,20 @@ public class EditAccountActivity extends OmemoActivity
         ColorDrawable previewColor = (ColorDrawable) binding.colorPreview.getBackground();
         return jidEdited()
                 || !this.mAccount
-                        .getPassword()
-                        .equals(this.binding.accountPassword.getText().toString())
+                .getPassword()
+                .equals(this.binding.accountPassword.getText().toString())
                 || !this.mAccount.getHostname().equals(this.binding.hostname.getText().toString())
                 || this.mAccount.getColor(isDark()) != (previewColor == null ? 0 : previewColor.getColor())
                 || !String.valueOf(this.mAccount.getPort())
-                        .equals(this.binding.port.getText().toString());
+                .equals(this.binding.port.getText().toString());
     }
 
     protected boolean jidEdited() {
         final String unmodified;
         if (mUsernameMode) {
-            unmodified = this.mAccount.getJid().getEscapedLocal();
+            unmodified = this.mAccount.getJid().getLocal();
         } else {
-            unmodified = this.mAccount.getJid().asBareJid().toEscapedString();
+            unmodified = this.mAccount.getJid().asBareJid().toString();
         }
         return !unmodified.equals(this.binding.accountJid.getText().toString());
     }
@@ -790,10 +796,10 @@ public class EditAccountActivity extends OmemoActivity
         });
         binding.quietHoursStartBox.setOnClickListener((v) -> {
             final var picker = new com.google.android.material.timepicker.MaterialTimePicker.Builder()
-                .setTitleText("Quiet Hours Start")
-                .setHour((int)(preferences.getLong("quiet_hours_start:" + mAccount.getUuid(), 1320) / 60))
-                .setMinute((int)(preferences.getLong("quiet_hours_start:" + mAccount.getUuid(), 1320) % 60))
-                .build();
+                    .setTitleText("Quiet Hours Start")
+                    .setHour((int)(preferences.getLong("quiet_hours_start:" + mAccount.getUuid(), 1320) / 60))
+                    .setMinute((int)(preferences.getLong("quiet_hours_start:" + mAccount.getUuid(), 1320) % 60))
+                    .build();
             picker.addOnPositiveButtonClickListener((v2) -> {
                 preferences.edit().putLong("quiet_hours_start:" + mAccount.getUuid(), (picker.getHour() * 60) + picker.getMinute()).apply();
                 updateAccountInformation(false);
@@ -802,10 +808,10 @@ public class EditAccountActivity extends OmemoActivity
         });
         binding.quietHoursEndBox.setOnClickListener((v) -> {
             final var picker = new com.google.android.material.timepicker.MaterialTimePicker.Builder()
-                .setTitleText("Quiet Hours End")
-                .setHour((int)(preferences.getLong("quiet_hours_end:" + mAccount.getUuid(), 1320) / 60))
-                .setMinute((int)(preferences.getLong("quiet_hours_end:" + mAccount.getUuid(), 1320) % 60))
-                .build();
+                    .setTitleText("Quiet Hours End")
+                    .setHour((int)(preferences.getLong("quiet_hours_end:" + mAccount.getUuid(), 1320) / 60))
+                    .setMinute((int)(preferences.getLong("quiet_hours_end:" + mAccount.getUuid(), 1320) % 60))
+                    .build();
             picker.addOnPositiveButtonClickListener((v2) -> {
                 preferences.edit().putLong("quiet_hours_end:" + mAccount.getUuid(), (picker.getHour() * 60) + picker.getMinute()).apply();
                 updateAccountInformation(false);
@@ -890,7 +896,7 @@ public class EditAccountActivity extends OmemoActivity
         final Intent intent = getIntent();
         if (intent != null) {
             try {
-                this.jidToEdit = Jid.ofEscaped(intent.getStringExtra("jid"));
+                this.jidToEdit = Jid.of(intent.getStringExtra("jid"));
             } catch (final IllegalArgumentException | NullPointerException ignored) {
                 this.jidToEdit = null;
             }
@@ -940,7 +946,8 @@ public class EditAccountActivity extends OmemoActivity
         }
         SharedPreferences preferences = getPreferences();
         mUseTor = preferences.getBoolean("use_tor", getResources().getBoolean(R.bool.use_tor));
-        this.mShowOptions = mUseTor || preferences.getBoolean("show_connection_options", getResources().getBoolean(R.bool.show_connection_options));
+        mUseI2P = preferences.getBoolean("use_i2p", getResources().getBoolean(R.bool.use_i2p));
+        this.mShowOptions = mUseTor || mUseI2P || preferences.getBoolean("show_connection_options", getResources().getBoolean(R.bool.show_connection_options));
         this.binding.namePort.setVisibility(mShowOptions ? View.VISIBLE : View.GONE);
         if (mForceRegister != null) {
             this.binding.accountRegisterNew.setVisibility(View.GONE);
@@ -990,8 +997,7 @@ public class EditAccountActivity extends OmemoActivity
     @Override
     public void onSaveInstanceState(@NonNull final Bundle savedInstanceState) {
         if (mAccount != null) {
-            savedInstanceState.putString(
-                    "account", mAccount.getJid().asBareJid().toEscapedString());
+            savedInstanceState.putString("account", mAccount.getJid().asBareJid().toString());
             savedInstanceState.putBoolean("initMode", mInitMode);
             savedInstanceState.putBoolean(
                     "showMoreTable", binding.serverInfoMore.getVisibility() == View.VISIBLE);
@@ -1004,8 +1010,7 @@ public class EditAccountActivity extends OmemoActivity
         if (mSavedInstanceAccount != null) {
             try {
                 this.mAccount =
-                        xmppConnectionService.findAccountByJid(
-                                Jid.ofEscaped(mSavedInstanceAccount));
+                        xmppConnectionService.findAccountByJid(Jid.of(mSavedInstanceAccount));
                 this.mInitMode = mSavedInstanceInit;
                 init = false;
             } catch (IllegalArgumentException e) {
@@ -1071,7 +1076,7 @@ public class EditAccountActivity extends OmemoActivity
                 break;
             case R.id.action_show_block_list:
                 final Intent showBlocklistIntent = new Intent(this, BlocklistActivity.class);
-                showBlocklistIntent.putExtra(EXTRA_ACCOUNT, mAccount.getJid().toEscapedString());
+                showBlocklistIntent.putExtra(EXTRA_ACCOUNT, mAccount.getJid().toString());
                 startActivity(showBlocklistIntent);
                 break;
             case R.id.action_server_info_show_more:
@@ -1146,7 +1151,7 @@ public class EditAccountActivity extends OmemoActivity
 
     private void openChangePassword(boolean didUnlock) {
         final Intent changePasswordIntent = new Intent(this, ChangePasswordActivity.class);
-        changePasswordIntent.putExtra(EXTRA_ACCOUNT, mAccount.getJid().toEscapedString());
+        changePasswordIntent.putExtra(EXTRA_ACCOUNT, mAccount.getJid().toString());
         changePasswordIntent.putExtra("did_unlock", didUnlock);
         startActivity(changePasswordIntent);
     }
@@ -1264,15 +1269,12 @@ public class EditAccountActivity extends OmemoActivity
         if (init) {
             this.binding.accountJid.getEditableText().clear();
             if (mUsernameMode) {
-                this.binding
-                        .accountJid
-                        .getEditableText()
-                        .append(this.mAccount.getJid().getEscapedLocal());
+                this.binding.accountJid.getEditableText().append(this.mAccount.getJid().getLocal());
             } else {
                 this.binding
                         .accountJid
                         .getEditableText()
-                        .append(this.mAccount.getJid().asBareJid().toEscapedString());
+                        .append(this.mAccount.getJid().asBareJid().toString());
             }
             this.binding.accountPassword.getEditableText().clear();
             this.binding.accountPassword.getEditableText().append(this.mAccount.getPassword());
@@ -1295,13 +1297,13 @@ public class EditAccountActivity extends OmemoActivity
         }
 
         final var startTime = preferences.getLong("quiet_hours_start:" + mAccount.getUuid(), 1320);
-		final DateFormat dateFormat = android.text.format.DateFormat.getTimeFormat(this);
-		final Date date = TimePreference.minutesToCalender(startTime).getTime();
+        final DateFormat dateFormat = android.text.format.DateFormat.getTimeFormat(this);
+        final Date date = TimePreference.minutesToCalender(startTime).getTime();
         binding.quietHoursStart.setText(dateFormat.format(date.getTime()));
 
         final var endTime = preferences.getLong("quiet_hours_end:" + mAccount.getUuid(), 480);
-		final DateFormat dateFormatE = android.text.format.DateFormat.getTimeFormat(this);
-		final Date dateE = TimePreference.minutesToCalender(endTime).getTime();
+        final DateFormat dateFormatE = android.text.format.DateFormat.getTimeFormat(this);
+        final Date dateE = TimePreference.minutesToCalender(endTime).getTime();
         binding.quietHoursEnd.setText(dateFormat.format(dateE.getTime()));
 
         if (!mInitMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -1477,6 +1479,13 @@ public class EditAccountActivity extends OmemoActivity
                     this.mAccount.getAxolotlService().getOwnFingerprint();
             if (ownAxolotlFingerprint != null && Config.supportOmemo()) {
                 this.binding.axolotlFingerprintBox.setVisibility(View.VISIBLE);
+                this.binding.axolotlFingerprintBox.setOnCreateContextMenuListener(
+                        (menu, v, menuInfo) -> {
+                            getMenuInflater().inflate(R.menu.omemo_key_context, menu);
+                            menu.findItem(R.id.verify_scan).setVisible(false);
+                            menu.findItem(R.id.distrust_key).setVisible(false);
+                            this.mSelectedFingerprint = ownAxolotlFingerprint;
+                        });
                 if (ownAxolotlFingerprint.equals(messageFingerprint)) {
                     this.binding.ownFingerprintDesc.setTextColor(
                             MaterialColors.getColor(
@@ -1552,9 +1561,9 @@ public class EditAccountActivity extends OmemoActivity
             final var status = this.mAccount.getStatus();
             if (status.isError()
                     || Arrays.asList(
-                                    Account.State.NO_INTERNET,
-                                    Account.State.MISSING_INTERNET_PERMISSION)
-                            .contains(status)) {
+                            Account.State.NO_INTERNET,
+                            Account.State.MISSING_INTERNET_PERMISSION)
+                    .contains(status)) {
                 if (status == Account.State.UNAUTHORIZED
                         || status == Account.State.DOWNGRADE_ATTACK) {
                     errorLayout = this.binding.accountPasswordLayout;

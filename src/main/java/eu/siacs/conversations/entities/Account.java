@@ -45,6 +45,7 @@ import eu.siacs.conversations.crypto.sasl.HashedTokenSha512;
 import eu.siacs.conversations.crypto.sasl.SaslMechanism;
 import eu.siacs.conversations.services.AvatarService;
 import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.utils.Resolver;
 import eu.siacs.conversations.utils.UIHelper;
 import eu.siacs.conversations.utils.XmppUri;
 import eu.siacs.conversations.xml.Element;
@@ -138,7 +139,7 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
                 null,
                 null,
                 null,
-                5222,
+                Resolver.XMPP_PORT_STARTTLS,
                 Presence.Status.ONLINE,
                 null,
                 null,
@@ -169,13 +170,7 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
         this.password = password;
         this.options = options;
         this.rosterVersion = rosterVersion;
-        JSONObject tmp;
-        try {
-            tmp = new JSONObject(keys);
-        } catch (JSONException e) {
-            tmp = new JSONObject();
-        }
-        this.keys = tmp;
+        this.keys = parseKeys(keys);
         this.avatar = avatar;
         this.displayName = displayName;
         this.hostname = hostname;
@@ -186,6 +181,17 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
         this.pinnedChannelBinding = pinnedChannelBinding;
         this.fastMechanism = fastMechanism;
         this.fastToken = fastToken;
+    }
+
+    public static JSONObject parseKeys(final String keys) {
+        if (Strings.isNullOrEmpty(keys)) {
+            return new JSONObject();
+        }
+        try {
+            return new JSONObject(keys);
+        } catch (final JSONException e) {
+            return new JSONObject();
+        }
     }
 
     public static Account fromCursor(final Cursor cursor) {
@@ -269,8 +275,8 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
         if (color != null) return color.intValue();
 
         return ColorUtils.setAlphaComponent(
-            getAvatarBackgroundColor(),
-            dark ? 25 : 20
+                getAvatarBackgroundColor(),
+                dark ? 25 : 20
         );
     }
 
@@ -315,7 +321,7 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
     }
 
     public String getUsername() {
-        return jid.getEscapedLocal();
+        return jid.getLocal();
     }
 
     public boolean setJid(final Jid next) {
@@ -339,7 +345,7 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
     }
 
     public String getServer() {
-        return jid.getDomain().toEscapedString();
+        return jid.getDomain().toString();
     }
 
     public String getPassword() {
@@ -362,6 +368,16 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
     public boolean isOnion() {
         final String server = getServer();
         return server != null && server.endsWith(".onion");
+    }
+
+    public boolean isI2P() {
+        final String server = getServer();
+        return server != null && server.endsWith(".i2p");
+    }
+
+    public boolean isDirectToOnion() {
+        final var hostname = Strings.nullToEmpty(this.hostname).trim();
+        return isOnion() && (hostname.isEmpty() || hostname.endsWith(".onion"));
     }
 
     public int getPort() {
@@ -555,7 +571,7 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
         final ContentValues values = new ContentValues();
         values.put(UUID, uuid);
         values.put(USERNAME, jid.getLocal());
-        values.put(SERVER, jid.getDomain().toEscapedString());
+        values.put(SERVER, jid.getDomain().toString());
         values.put(PASSWORD, password);
         values.put(OPTIONS, options);
         synchronized (this.keys) {
@@ -802,23 +818,23 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
 
     public String getShareableUri() {
         List<XmppUri.Fingerprint> fingerprints = this.getFingerprints();
-        String uri = "xmpp:" + Uri.encode(getJid().asBareJid().toEscapedString(), "@/+");
-        if (fingerprints.size() > 0) {
-            return XmppUri.getFingerprintUri(uri, fingerprints, ';');
-        } else {
+        final String uri = "xmpp:" + Uri.encode(this.getJid().asBareJid().toString(), "@/+");
+        if (fingerprints.isEmpty()) {
             return uri;
+        } else {
+            return XmppUri.getFingerprintUri(uri, fingerprints, ';');
         }
     }
 
     public String getShareableLink() {
         List<XmppUri.Fingerprint> fingerprints = this.getFingerprints();
         String uri =
-                "https://monocles.chat/"
-                        + XmppUri.lameUrlEncode(this.getJid().asBareJid().toEscapedString());
-        if (fingerprints.size() > 0) {
-            return XmppUri.getFingerprintUri(uri, fingerprints, '&');
-        } else {
+                "https://conversations.im/i/"
+                        + XmppUri.lameUrlEncode(this.getJid().asBareJid().toString());
+        if (fingerprints.isEmpty()) {
             return uri;
+        } else {
+            return XmppUri.getFingerprintUri(uri, fingerprints, '&');
         }
     }
 
@@ -901,9 +917,11 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
         REGISTRATION_PASSWORD_TOO_WEAK(true, false),
         TLS_ERROR,
         TLS_ERROR_DOMAIN,
+        CHANNEL_BINDING,
         INCOMPATIBLE_SERVER,
         INCOMPATIBLE_CLIENT,
         TOR_NOT_AVAILABLE,
+        I2P_NOT_AVAILABLE,
         DOWNGRADE_ATTACK,
         SESSION_FAILURE,
         BIND_FAILURE,
@@ -980,8 +998,12 @@ public class Account extends AbstractEntity implements AvatarService.Avatarable 
                     return R.string.account_status_incompatible_server;
                 case INCOMPATIBLE_CLIENT:
                     return R.string.account_status_incompatible_client;
+                case CHANNEL_BINDING:
+                    return R.string.account_status_channel_binding;
                 case TOR_NOT_AVAILABLE:
                     return R.string.account_status_tor_unavailable;
+                case I2P_NOT_AVAILABLE:
+                    return R.string.account_status_i2p_unavailable;
                 case BIND_FAILURE:
                     return R.string.account_status_bind_failure;
                 case SESSION_FAILURE:

@@ -3,8 +3,8 @@ package eu.siacs.conversations.ui.fragment.settings;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.preference.EditTextPreference;
@@ -19,9 +19,12 @@ import java.io.File;
 import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
+import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.services.QuickConversationsService;
 import eu.siacs.conversations.ui.activity.SettingsActivity;
 import eu.siacs.conversations.utils.ChatBackgroundHelper;
+import eu.siacs.conversations.utils.Resolver;
+import java.util.Arrays;
 
 public class ConnectionSettingsFragment extends XmppPreferenceFragment {
 
@@ -88,9 +91,42 @@ public class ConnectionSettingsFragment extends XmppPreferenceFragment {
                 reconnectAccounts();
                 requireService().reinitializeMuclumbusService();
             }
+            case AppSettings.USE_I2P -> {
+                final var appSettings = new AppSettings(requireContext());
+                if (appSettings.isUseI2P()) {
+                    runOnUiThread(
+                            () ->
+                                    Toast.makeText(
+                                                    requireActivity(),
+                                                    R.string.audio_video_disabled_i2p,
+                                                    Toast.LENGTH_LONG)
+                                            .show());
+                }
+                reconnectAccounts();
+                requireService().reinitializeMuclumbusService();
+            }
             case AppSettings.SHOW_CONNECTION_OPTIONS, AppSettings.PREFER_IPV6 -> {
                 reconnectAccounts();
             }
+        }
+        if (Arrays.asList(AppSettings.USE_TOR, AppSettings.SHOW_CONNECTION_OPTIONS).contains(key)) {
+            final var appSettings = new AppSettings(requireContext());
+            if (appSettings.isUseTor() || appSettings.isExtendedConnectionOptions()) {
+                return;
+            }
+            resetUserDefinedHostname();
+        }
+    }
+
+    private void resetUserDefinedHostname() {
+        final var service = requireService();
+        for (final Account account : service.getAccounts()) {
+            Log.d(
+                    Config.LOGTAG,
+                    account.getJid().asBareJid() + ": resetting hostname and port to defaults");
+            account.setHostname(null);
+            account.setPort(Resolver.XMPP_PORT_STARTTLS);
+            service.databaseBackend.updateAccount(account);
         }
     }
 

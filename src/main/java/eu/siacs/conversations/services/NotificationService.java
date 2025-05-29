@@ -122,6 +122,7 @@ public class NotificationService {
     private final HashMap<Conversation, AtomicInteger> mBacklogMessageCounter = new HashMap<>();
     private final LinkedHashMap<Conversational, MissedCallsInfo> mMissedCalls =
             new LinkedHashMap<>();
+    private final Map<String, Message> possiblyMissedCalls = new HashMap<>();
     private Conversation mOpenConversation;
     private boolean mIsInForeground;
     private long mLastNotification;
@@ -489,6 +490,12 @@ public class NotificationService {
                 updateNotification(count > 0, conversations);
             }
         }
+        synchronized (possiblyMissedCalls) {
+            for (final var entry : possiblyMissedCalls.entrySet()) {
+                pushFromBacklog(entry.getValue());
+            }
+            possiblyMissedCalls.clear();
+        }
         synchronized (mMissedCalls) {
             updateMissedCallNotifications(mMissedCalls.keySet());
         }
@@ -507,8 +514,8 @@ public class NotificationService {
     private int getBacklogMessageCount(Account account) {
         int count = 0;
         for (Iterator<Map.Entry<Conversation, AtomicInteger>> it =
-                        mBacklogMessageCounter.entrySet().iterator();
-                it.hasNext(); ) {
+             mBacklogMessageCounter.entrySet().iterator();
+             it.hasNext(); ) {
             Map.Entry<Conversation, AtomicInteger> entry = it.next();
             if (entry.getKey().getAccount() == account) {
                 count += entry.getValue().get();
@@ -632,9 +639,8 @@ public class NotificationService {
         final Intent fullScreenIntent =
                 new Intent(mXmppConnectionService, RtpSessionActivity.class);
         fullScreenIntent.putExtra(
-                RtpSessionActivity.EXTRA_ACCOUNT,
-                id.account.getJid().asBareJid().toEscapedString());
-        fullScreenIntent.putExtra(RtpSessionActivity.EXTRA_WITH, id.with.toEscapedString());
+                RtpSessionActivity.EXTRA_ACCOUNT, id.account.getJid().asBareJid().toString());
+        fullScreenIntent.putExtra(RtpSessionActivity.EXTRA_WITH, id.with.toString());
         fullScreenIntent.putExtra(RtpSessionActivity.EXTRA_SESSION_ID, id.sessionId);
         fullScreenIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         fullScreenIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -821,8 +827,8 @@ public class NotificationService {
                 new NotificationCompat.Builder(mXmppConnectionService, "ongoing_calls");
         final Contact contact = id.account.getRoster().getContact(id.with);
         NotificationCompat.CallStyle style = NotificationCompat.CallStyle.forOngoingCall(
-            getPerson(contact),
-            createCallAction(id.sessionId, XmppConnectionService.ACTION_END_CALL, 104)
+                getPerson(contact),
+                createCallAction(id.sessionId, XmppConnectionService.ACTION_END_CALL, 104)
         );
         if (ongoingCall.media.contains(Media.VIDEO)) {
             style.setIsVideo(true);
@@ -853,10 +859,10 @@ public class NotificationService {
         builder.setOngoing(true);
         builder.addAction(
                 new NotificationCompat.Action.Builder(
-                                R.drawable.ic_call_end_24dp,
-                                mXmppConnectionService.getString(R.string.hang_up),
-                                createCallAction(
-                                        id.sessionId, XmppConnectionService.ACTION_END_CALL, 104))
+                        R.drawable.ic_call_end_24dp,
+                        mXmppConnectionService.getString(R.string.hang_up),
+                        createCallAction(
+                                id.sessionId, XmppConnectionService.ACTION_END_CALL, 104))
                         .build());
         builder.setLocalOnly(true);
         return builder.build();
@@ -868,9 +874,8 @@ public class NotificationService {
                 new Intent(mXmppConnectionService, RtpSessionActivity.class);
         fullScreenIntent.setAction(action);
         fullScreenIntent.putExtra(
-                RtpSessionActivity.EXTRA_ACCOUNT,
-                id.account.getJid().asBareJid().toEscapedString());
-        fullScreenIntent.putExtra(RtpSessionActivity.EXTRA_WITH, id.with.toEscapedString());
+                RtpSessionActivity.EXTRA_ACCOUNT, id.account.getJid().asBareJid().toString());
+        fullScreenIntent.putExtra(RtpSessionActivity.EXTRA_WITH, id.with.toString());
         fullScreenIntent.putExtra(RtpSessionActivity.EXTRA_SESSION_ID, id.sessionId);
         return PendingIntent.getActivity(
                 mXmppConnectionService,
@@ -952,6 +957,12 @@ public class NotificationService {
             mMissedCalls.put(conversation, new MissedCallsInfo(message.getTimeSent()));
         } else {
             info.newMissedCall(message.getTimeSent());
+        }
+    }
+
+    public void possiblyMissedCall(final String sessionId, final Message message) {
+        synchronized (possiblyMissedCalls) {
+            possiblyMissedCalls.put(sessionId, message);
         }
     }
 
@@ -1063,10 +1074,10 @@ public class NotificationService {
     private void setNotificationColor(final Builder mBuilder, Account account) {
         int color;
         if (account != null && mXmppConnectionService.getAccounts().size() > 1) {
-		      color = account.getColor(false);
+            color = account.getColor(false);
         } else {
             TypedValue typedValue = new TypedValue();
-            mXmppConnectionService.getTheme().resolveAttribute(com.google.android.material.R.attr.colorPrimary, typedValue, true);
+            mXmppConnectionService.getTheme().resolveAttribute(androidx.appcompat.R.attr.colorPrimary, typedValue, true);
             color = typedValue.data;
         }
         mBuilder.setColor(color);
@@ -1095,7 +1106,7 @@ public class NotificationService {
                 notify
                         && conversations != null
                         && conversations.size()
-                                == 1; // if this check is changed to > 0 catchup messages will
+                        == 1; // if this check is changed to > 0 catchup messages will
         // create one notification per conversation
 
         if (notifications.isEmpty()) {
@@ -1201,8 +1212,8 @@ public class NotificationService {
         mBuilder.setPriority(
                 notify
                         ? (headsup
-                                ? NotificationCompat.PRIORITY_HIGH
-                                : NotificationCompat.PRIORITY_DEFAULT)
+                        ? NotificationCompat.PRIORITY_HIGH
+                        : NotificationCompat.PRIORITY_DEFAULT)
                         : NotificationCompat.PRIORITY_LOW);
         setNotificationColor(mBuilder, account);
         mBuilder.setDefaults(0);
@@ -1253,17 +1264,17 @@ public class NotificationService {
                 (totalCalls == 1)
                         ? mXmppConnectionService.getString(R.string.missed_call)
                         : (mMissedCalls.size() == 1)
-                                ? mXmppConnectionService
-                                        .getResources()
-                                        .getQuantityString(
-                                                R.plurals.n_missed_calls, totalCalls, totalCalls)
-                                : mXmppConnectionService
-                                        .getResources()
-                                        .getQuantityString(
-                                                R.plurals.n_missed_calls_from_m_contacts,
-                                                mMissedCalls.size(),
-                                                totalCalls,
-                                                mMissedCalls.size());
+                        ? mXmppConnectionService
+                        .getResources()
+                        .getQuantityString(
+                                R.plurals.n_missed_calls, totalCalls, totalCalls)
+                        : mXmppConnectionService
+                        .getResources()
+                        .getQuantityString(
+                                R.plurals.n_missed_calls_from_m_contacts,
+                                mMissedCalls.size(),
+                                totalCalls,
+                                mMissedCalls.size());
         builder.setContentTitle(title);
         builder.setTicker(title);
         if (!publicVersion) {
@@ -1299,11 +1310,11 @@ public class NotificationService {
                 (info.getNumberOfCalls() == 1)
                         ? mXmppConnectionService.getString(R.string.missed_call)
                         : mXmppConnectionService
-                                .getResources()
-                                .getQuantityString(
-                                        R.plurals.n_missed_calls,
-                                        info.getNumberOfCalls(),
-                                        info.getNumberOfCalls());
+                        .getResources()
+                        .getQuantityString(
+                                R.plurals.n_missed_calls,
+                                info.getNumberOfCalls(),
+                                info.getNumberOfCalls());
         builder.setContentTitle(title);
         if (mXmppConnectionService.getBooleanPreference("app_lock_enabled", R.bool.app_lock_enabled)) {
             final String name = mXmppConnectionService.getString(R.string.action_open);
@@ -1863,7 +1874,7 @@ public class NotificationService {
                         new NotificationCompat.BigTextStyle().bigText(getMergedBodies(messages)));
                 final CharSequence preview =
                         UIHelper.getMessagePreview(
-                                        mXmppConnectionService, messages.get(messages.size() - 1))
+                                mXmppConnectionService, messages.get(messages.size() - 1))
                                 .first;
                 builder.setContentText(preview);
                 builder.setTicker(preview);
@@ -2143,11 +2154,11 @@ public class NotificationService {
     }
 
     private boolean wasReplyToMe(final Message message) {
-       final Element reply = message.getReply();
-       if (reply == null || reply.getAttribute("id") == null) return false;
-       final Message parent = ((Conversation) message.getConversation()).findMessageWithRemoteIdAndCounterpart(reply.getAttribute("id"), null);
-       if (parent == null) return false;
-       return parent.getStatus() >= Message.STATUS_SEND;
+        final Element reply = message.getReply();
+        if (reply == null || reply.getAttribute("id") == null) return false;
+        final Message parent = ((Conversation) message.getConversation()).findMessageWithRemoteIdAndCounterpart(reply.getAttribute("id"), null);
+        if (parent == null) return false;
+        return parent.getStatus() >= Message.STATUS_SEND;
     }
 
     public void setOpenConversation(final Conversation conversation) {
@@ -2257,7 +2268,7 @@ public class NotificationService {
             if (account.hasErrorStatus()
                     && account.showErrorNotification()
                     && (showAllErrors
-                            || account.getLastErrorStatus() == Account.State.UNAUTHORIZED)) {
+                    || account.getLastErrorStatus() == Account.State.UNAUTHORIZED)) {
                 errors.add(account);
                 torNotAvailable |= account.getStatus() == Account.State.TOR_NOT_AVAILABLE;
             }
@@ -2279,7 +2290,7 @@ public class NotificationService {
         } else if (errors.size() == 1) {
             mBuilder.setContentTitle(
                     mXmppConnectionService.getString(R.string.problem_connecting_to_account));
-            mBuilder.setContentText(errors.get(0).getJid().asBareJid().toEscapedString());
+            mBuilder.setContentText(errors.get(0).getJid().asBareJid().toString());
         } else {
             mBuilder.setContentTitle(
                     mXmppConnectionService.getString(R.string.problem_connecting_to_accounts));
@@ -2313,7 +2324,7 @@ public class NotificationService {
                                 TorServiceUtils.LAUNCH_INTENT,
                                 s()
                                         ? PendingIntent.FLAG_IMMUTABLE
-                                                | PendingIntent.FLAG_UPDATE_CURRENT
+                                        | PendingIntent.FLAG_UPDATE_CURRENT
                                         : PendingIntent.FLAG_UPDATE_CURRENT));
             } else {
                 mBuilder.addAction(
@@ -2325,7 +2336,7 @@ public class NotificationService {
                                 TorServiceUtils.INSTALL_INTENT,
                                 s()
                                         ? PendingIntent.FLAG_IMMUTABLE
-                                                | PendingIntent.FLAG_UPDATE_CURRENT
+                                        | PendingIntent.FLAG_UPDATE_CURRENT
                                         : PendingIntent.FLAG_UPDATE_CURRENT));
             }
         }
@@ -2338,7 +2349,7 @@ public class NotificationService {
             intent = new Intent(mXmppConnectionService, AccountUtils.MANAGE_ACCOUNT_ACTIVITY);
         } else {
             intent = new Intent(mXmppConnectionService, EditAccountActivity.class);
-            intent.putExtra("jid", errors.get(0).getJid().asBareJid().toEscapedString());
+            intent.putExtra("jid", errors.get(0).getJid().asBareJid().toString());
             intent.putExtra(EditAccountActivity.EXTRA_OPENED_FROM_NOTIFICATION, true);
         }
         mBuilder.setContentIntent(
@@ -2386,7 +2397,7 @@ public class NotificationService {
 
     private void notify(final String tag, final int id, final Notification notification) {
         if (ActivityCompat.checkSelfPermission(
-                        mXmppConnectionService, Manifest.permission.POST_NOTIFICATIONS)
+                mXmppConnectionService, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
             return;
         }
@@ -2401,7 +2412,7 @@ public class NotificationService {
 
     public void notify(final int id, final Notification notification) {
         if (ActivityCompat.checkSelfPermission(
-                        mXmppConnectionService, Manifest.permission.POST_NOTIFICATIONS)
+                mXmppConnectionService, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
             return;
         }

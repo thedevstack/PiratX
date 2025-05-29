@@ -2,11 +2,6 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
 
     <item
-        android:id="@+id/action_add_reaction"
-        android:title="@string/add_reaction"
-        android:visible="false" />
-
-    <item
         android:id="@+id/action_report_and_block"
         android:title="@string/report_spam"
         android:visible="false" />
@@ -19,6 +14,11 @@
     <item
         android:id="@+id/share_with"
         android:title="@string/share_with"
+        android:visible="false" />
+
+    <item
+        android:id="@+id/pin_message_to_top"
+        android:title="@string/pin_to_top"
         android:visible="false" />
 
     <item
@@ -76,6 +76,10 @@
     <item
         android:id="@+id/send_again"
         android:title="@string/send_again"
+        android:visible="false" />
+    <item
+        android:id="@+id/send_again_as_p2p"
+        android:title="@string/retry_with_p2p"
         android:visible="false" />
     <item
         android:id="@+id/download_file"
