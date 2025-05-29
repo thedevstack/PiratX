@@ -7,7 +7,8 @@ buildscript {
         }
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.3.2'
+        classpath 'com.android.tools.build:gradle:8.5.2'
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:7.0.2"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.21"
     }
 }
@@ -44,24 +45,20 @@ configurations {
 }
 
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     implementation 'org.junit.jupiter:junit-jupiter:5.8.1'
     implementation 'junit:junit:4.13.2'
-    androidTestImplementation 'tools.fastlane:screengrab:2.1.1'
     androidTestImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test:runner:1.6.2'
-    androidTestImplementation 'androidx.test:rules:1.6.1'
-    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
 
     implementation "androidx.core:core:1.13.1"
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.2'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
 
     implementation project(':libs:annotation')
     annotationProcessor project(':libs:annotation-processor')
 
     implementation 'androidx.viewpager:viewpager:1.0.0'
 
-    playstoreImplementation('com.google.firebase:firebase-messaging:24.1.0') {
+    playstoreImplementation('com.google.firebase:firebase-messaging:24.1.1') {
         exclude group: 'com.google.firebase', module: 'firebase-core'
         exclude group: 'com.google.firebase', module: 'firebase-analytics'
         exclude group: 'com.google.firebase', module: 'firebase-measurement-connector'
@@ -69,23 +66,22 @@ dependencies {
     monocleschatPlaystoreImplementation("com.android.installreferrer:installreferrer:2.2")
     monocleschatPlaystoreImplementation 'com.github.singpolyma:play-licensing:1c637ea03c'
     conversationsPlaystoreImplementation("com.android.installreferrer:installreferrer:2.2")
-    quicksyPlaystoreImplementation 'com.google.android.gms:play-services-auth-api-phone:18.1.0'
+    quicksyPlaystoreImplementation 'com.google.android.gms:play-services-auth-api-phone:18.2.0'
     implementation 'com.github.open-keychain.open-keychain:openpgp-api:v5.7.1'
     implementation("com.github.CanHub:Android-Image-Cropper:2.2.0")
     implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'androidx.exifinterface:exifinterface:1.3.7'
+    implementation 'androidx.exifinterface:exifinterface:1.4.0'
     implementation 'androidx.cardview:cardview:1.0.0'
     implementation "androidx.preference:preference:1.2.1"
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-    implementation 'com.google.android.material:material:1.13.0-alpha09'
+    implementation 'com.google.android.material:material:1.13.0-alpha12'
     implementation 'androidx.work:work-runtime:2.9.1'
 
     implementation "androidx.emoji2:emoji2:1.5.0"
     piratxImplementation "androidx.emoji2:emoji2-bundled:1.5.0"
     implementation "androidx.emoji2:emoji2-emojipicker:1.5.0"
 
-    implementation 'org.bouncycastle:bcmail-jdk18on:1.79'
-    implementation 'org.bouncycastle:bcpg-jdk18on:1.79'
+    implementation 'org.bouncycastle:bcmail-jdk18on:1.80'
     implementation 'com.google.zxing:core:3.5.3'
     implementation 'me.leolin:ShortcutBadger:1.1.22@aar'
     implementation 'org.whispersystems:signal-protocol-java:2.6.2'
@@ -98,7 +94,7 @@ dependencies {
     implementation 'org.jxmpp:jxmpp-stringprep-libidn:1.0.3'
     implementation 'org.osmdroid:osmdroid-android:6.1.16'
     implementation 'org.hsluv:hsluv:0.2'
-    implementation 'org.conscrypt:conscrypt-android:2.5.2'
+    implementation 'org.conscrypt:conscrypt-android:2.5.3'
     implementation 'me.drakeet.support:toastcompat:1.1.0'
     implementation "com.leinardi.android:speed-dial:3.3.0"
 
@@ -106,8 +102,8 @@ dependencies {
     implementation "com.squareup.retrofit2:converter-gson:2.11.0"
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
 
-    implementation 'com.google.guava:guava:33.0.0-android'
-    implementation 'io.michaelrocks:libphonenumber-android:8.13.35'
+    implementation 'com.google.guava:guava:33.4.0-android'
+    implementation 'io.michaelrocks:libphonenumber-android:8.13.52'
     implementation 'im.conversations.webrtc:webrtc-android:129.0.0'
     implementation 'io.github.nishkarsh:android-permissions:2.1.6'
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
@@ -128,9 +124,7 @@ dependencies {
     implementation 'net.fellbaum:jemoji:1.4.1'
     implementation "com.daimajia.swipelayout:library:1.2.0@aar"
     implementation 'com.github.bumptech.glide:glide:4.15.1' // For photo editor compatibility
-    implementation 'com.google.android.exoplayer:exoplayer-core:2.19.1'
-    implementation 'com.google.android.exoplayer:exoplayer-ui:2.19.1'
-    implementation 'com.google.android.exoplayer:extension-mediasession:2.19.1'
+
     implementation 'com.github.natario1:Autocomplete:v1.1.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'com.github.inusedname:AndroidPhotoFilters:1.0.7.2'
@@ -138,6 +132,10 @@ dependencies {
     implementation 'com.mikepenz:materialdrawer:9.0.1'
     implementation 'org.jitsi:org.otr4j:0.23'
     implementation "com.github.pgreze:android-reactions:1.6"
+    // Add Media3
+    implementation "androidx.media3:media3-exoplayer:1.3.1"
+    implementation "androidx.media3:media3-ui:1.3.1"
+    implementation "androidx.media3:media3-session:1.3.1"
 }
 
 ext {
