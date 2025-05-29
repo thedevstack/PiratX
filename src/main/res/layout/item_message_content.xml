@@ -121,12 +121,14 @@
             android:layout_marginVertical="4dp"
             android:visibility="gone">
 
-            <ImageButton
+            <com.google.android.material.button.MaterialButton
+                style="?attr/materialIconButtonOutlinedStyle"
                 android:id="@+id/play_pause"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_centerVertical="true"
-                android:background="?android:selectableItemBackgroundBorderless" />
+                app:iconSize="26dp"
+                app:icon="@drawable/rounded_play_arrow_36" />
 
             <TextView
                 android:id="@+id/runtime"
@@ -137,28 +139,14 @@
                 android:layout_marginBottom="16dp"
                 android:textAppearance="?textAppearanceBodySmall" />
 
-            <TextView
-                android:id="@+id/title"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:maxWidth="160dp"
-                android:layout_marginBottom="16dp"
-                android:layout_alignParentStart="true"
-                android:layout_marginStart="36dp"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:scrollHorizontally="true"
-                android:textAppearance="?textAppearanceBodySmall" />
-
             <SeekBar
                 android:id="@+id/progress"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_below="@+id/title"
+                android:layout_below="@+id/runtime"
                 android:layout_centerVertical="true"
                 android:layout_toEndOf="@+id/play_pause"
                 android:progress="100" />
-
         </RelativeLayout>
 
     </merge>

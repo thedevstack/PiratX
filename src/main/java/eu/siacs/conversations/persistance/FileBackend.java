@@ -578,6 +578,8 @@ public class FileBackend {
             return new DownloadableFile(getLegacyStorageLocation("Images"), filename);
         } else if (mime.startsWith("video/")) {
             return new DownloadableFile(getLegacyStorageLocation("Videos"), filename);
+        } else if (mime.startsWith("audio/")) {
+            return new DownloadableFile(getLegacyStorageLocation("Audios"), filename);
         } else {
             return new DownloadableFile(getLegacyStorageLocation("Files"), filename);
         }
@@ -692,10 +694,6 @@ public class FileBackend {
 
     public boolean useImageAsIs(final Uri uri) {
         try {
-            for (Cid cid : calculateCids(uri)) {
-                if (mXmppConnectionService.getUrlForCid(cid) != null) return true;
-            }
-
             long fsize = getUriSize(uri);
             if (fsize == 0 || fsize >= mXmppConnectionService.getResources().getInteger(R.integer.auto_accept_filesize)) {
                 return false;
@@ -1132,6 +1130,8 @@ public class FileBackend {
             parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/pictures");
         } else if (mime.startsWith("video/")) {
             parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/videos");
+        } else if (mime.startsWith("audio/")) {
+            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/audios");
         } else if (MediaAdapter.DOCUMENT_MIMES.contains(mime)) {
             parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/documents");
         } else {
@@ -1152,17 +1152,23 @@ public class FileBackend {
         final var picturesNomedia = new File(new File(String.valueOf(pictures)), ".nomedia");
         final var movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/videos");
         final var moviesNomedia = new File(new File(String.valueOf(movies)), ".nomedia");
+        final var audios = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/audios");
+        final var audiosNomedia = new File(new File(String.valueOf(audios)), ".nomedia");
+
         var rescan = false;
         if (nomedia) {
             rescan = rescan || picturesNomedia.mkdir();
             rescan = rescan || moviesNomedia.mkdir();
+            rescan = rescan || audiosNomedia.mkdir();
         } else {
             rescan = rescan || picturesNomedia.delete();
             rescan = rescan || moviesNomedia.delete();
+            rescan = rescan || audiosNomedia.delete();
         }
         if (rescan) {
             updateMediaScanner(new File(String.valueOf(pictures)));
             updateMediaScanner(new File(String.valueOf(movies)));
+            updateMediaScanner(new File(String.valueOf(audios)));
         }
     }
 
@@ -2074,15 +2080,7 @@ public class FileBackend {
             cids = calculateCids(new FileInputStream(file));
             fileParams.setCids(List.of(cids));
         } catch (final IOException | NoSuchAlgorithmException e) { }
-        if (url == null) {
-            for (Cid cid : cids) {
-                url = mXmppConnectionService.getUrlForCid(cid);
-                if (url != null) {
-                    fileParams.url = url;
-                    break;
-                }
-            }
-        } else {
+        if (url != null) {
             fileParams.url = url;
         }
         if (fileParams.getName() == null) fileParams.setName(file.getName());

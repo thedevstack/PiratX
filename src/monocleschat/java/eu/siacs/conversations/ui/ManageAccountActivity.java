@@ -49,7 +49,7 @@ import static eu.siacs.conversations.utils.PermissionUtils.writeGranted;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
-public class ManageAccountActivity extends XmppActivity implements OnAccountUpdate, KeyChainAliasCallback, XmppConnectionService.OnAccountCreated, AccountAdapter.OnTglAccountState {
+public class ManageAccountActivity extends XmppActivity implements XmppConnectionService.OnConversationUpdate, OnAccountUpdate, KeyChainAliasCallback, XmppConnectionService.OnAccountCreated, AccountAdapter.OnTglAccountState {
 
     private final String STATE_SELECTED_ACCOUNT = "selected_account";
 
@@ -73,13 +73,27 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
     }
 
     @Override
+    public void onConversationUpdate() {
+        refreshUi();
+    }
+
+    @Override
     protected void refreshUiReal() {
         synchronized (this.accountList) {
             accountList.clear();
             accountList.addAll(xmppConnectionService.getAccounts());
         }
         ActionBar actionBar = getSupportActionBar();
-        boolean showNavBar = findViewById(R.id.bottom_navigation).getVisibility() == VISIBLE;
+
+        // Show badge for unread message in bottom nav
+        int unreadCount = xmppConnectionService.unreadCount();
+        BottomNavigationView bottomnav = findViewById(R.id.bottom_navigation);
+        var bottomBadge = bottomnav.getOrCreateBadge(R.id.chats);
+        bottomBadge.setNumber(unreadCount);
+        bottomBadge.setVisible(unreadCount > 0);
+        bottomBadge.setHorizontalOffset(20);
+
+        boolean showNavBar = bottomnav.getVisibility() == VISIBLE;
         if (actionBar != null) {
             actionBar.setHomeButtonEnabled(!this.accountList.isEmpty() && !showNavBar);
             actionBar.setDisplayHomeAsUpEnabled(!this.accountList.isEmpty() && !showNavBar);
@@ -91,7 +105,7 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
         findViewById(R.id.phone_accounts).setOnClickListener((View v) -> {
             mMicIntent = new Intent();
             mMicIntent.setComponent(new ComponentName("com.android.server.telecom",
-                "com.android.server.telecom.settings.EnableAccountPreferenceActivity"));
+                    "com.android.server.telecom.settings.EnableAccountPreferenceActivity"));
             requestMicPermission();
         });
         findViewById(R.id.phone_accounts_settings).setOnClickListener((View v) -> {
@@ -125,7 +139,7 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
             String jid = savedInstanceState.getString(STATE_SELECTED_ACCOUNT);
             if (jid != null) {
                 try {
-                    this.selectedAccountJid = Jid.ofEscaped(jid);
+                    this.selectedAccountJid = Jid.of(jid);
                 } catch (IllegalArgumentException e) {
                     this.selectedAccountJid = null;
                 }
@@ -195,7 +209,7 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
     @Override
     public void onSaveInstanceState(final Bundle savedInstanceState) {
         if (selectedAccount != null) {
-            savedInstanceState.putString(STATE_SELECTED_ACCOUNT, selectedAccount.getJid().asBareJid().toEscapedString());
+            savedInstanceState.putString(STATE_SELECTED_ACCOUNT, selectedAccount.getJid().asBareJid().toString());
         }
         super.onSaveInstanceState(savedInstanceState);
     }
@@ -215,7 +229,7 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
             menu.findItem(R.id.mgmt_account_announce_pgp).setVisible(false);
             menu.findItem(R.id.mgmt_account_publish_avatar).setVisible(false);
         }
-        menu.setHeaderTitle(this.selectedAccount.getJid().asBareJid().toEscapedString());
+        menu.setHeaderTitle(this.selectedAccount.getJid().asBareJid().toString());
     }
 
     @Override
@@ -407,7 +421,7 @@ public class ManageAccountActivity extends XmppActivity implements OnAccountUpda
     private void publishAvatar(Account account) {
         Intent intent = new Intent(getApplicationContext(),
                 PublishProfilePictureActivity.class);
-        intent.putExtra(EXTRA_ACCOUNT, account.getJid().asBareJid().toEscapedString());
+        intent.putExtra(EXTRA_ACCOUNT, account.getJid().asBareJid().toString());
         startActivity(intent);
     }
 

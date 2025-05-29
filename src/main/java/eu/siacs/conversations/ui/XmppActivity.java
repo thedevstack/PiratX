@@ -23,6 +23,7 @@ import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Point;
@@ -36,12 +37,15 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
+import android.text.Editable;
 import android.text.Html;
 import android.text.InputType;
+import android.text.Spannable;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Pair;
@@ -67,6 +71,7 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.databinding.DataBindingUtil;
+import androidx.recyclerview.widget.RecyclerView.Adapter;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.common.base.Strings;
@@ -133,6 +138,7 @@ public abstract class XmppActivity extends ActionBarActivity {
     protected static final int REQUEST_BATTERY_OP = 0x49ff;
     protected static final int REQUEST_POST_NOTIFICATION = 0x50ff;
     public XmppConnectionService xmppConnectionService;
+    public static XmppConnectionService staticXmppConnectionService;
     public boolean xmppConnectionServiceBound = false;
 
     protected static final String FRAGMENT_TAG_DIALOG = "dialog";
@@ -144,6 +150,7 @@ public abstract class XmppActivity extends ActionBarActivity {
     protected HashMap<Integer,Integer> mCustomColors;
     protected boolean mUsingEnterKey = false;
     protected boolean mUseTor = false;
+    protected boolean mUseI2P = false;
     protected Toast mToast;
     public Runnable onOpenPGPKeyPublished =
             () ->
@@ -154,7 +161,7 @@ public abstract class XmppActivity extends ActionBarActivity {
                             .show();
     protected ConferenceInvite mPendingConferenceInvite = null;
     protected PriorityQueue<Pair<Integer, ValueCallback<Uri[]>>> activityCallbacks =
-        Build.VERSION.SDK_INT >= 24 ? new PriorityQueue<>((x, y) -> y.first.compareTo(x.first)) : new PriorityQueue<>();
+            Build.VERSION.SDK_INT >= 24 ? new PriorityQueue<>((x, y) -> y.first.compareTo(x.first)) : new PriorityQueue<>();
     protected ServiceConnection mConnection =
             new ServiceConnection() {
 
@@ -162,6 +169,7 @@ public abstract class XmppActivity extends ActionBarActivity {
                 public void onServiceConnected(ComponentName className, IBinder service) {
                     XmppConnectionBinder binder = (XmppConnectionBinder) service;
                     xmppConnectionService = binder.getService();
+                    staticXmppConnectionService = binder.getService();
                     xmppConnectionServiceBound = true;
                     registerListeners();
                     onBackendConnected();
@@ -271,6 +279,7 @@ public abstract class XmppActivity extends ActionBarActivity {
         }
         this.mUsingEnterKey = usingEnterKey();
         this.mUseTor = useTor();
+        this.mUseI2P = useI2P();
     }
 
     public void connectToBackend() {
@@ -451,21 +460,21 @@ public abstract class XmppActivity extends ActionBarActivity {
                                                                         postDelete.run();
                                                                     }
                                                                     if (xmppConnectionService
-                                                                                            .getAccounts()
-                                                                                            .size()
-                                                                                    == 0
+                                                                            .getAccounts()
+                                                                            .size()
+                                                                            == 0
                                                                             && Config
-                                                                                            .MAGIC_CREATE_DOMAIN
-                                                                                    != null) {
+                                                                            .MAGIC_CREATE_DOMAIN
+                                                                            != null) {
                                                                         final Intent intent =
                                                                                 SignupUtils
                                                                                         .getSignUpIntent(
                                                                                                 this);
                                                                         intent.setFlags(
                                                                                 Intent
-                                                                                                .FLAG_ACTIVITY_NEW_TASK
+                                                                                        .FLAG_ACTIVITY_NEW_TASK
                                                                                         | Intent
-                                                                                                .FLAG_ACTIVITY_CLEAR_TASK);
+                                                                                        .FLAG_ACTIVITY_CLEAR_TASK);
                                                                         startActivity(intent);
                                                                     }
                                                                 } else {
@@ -695,7 +704,7 @@ public abstract class XmppActivity extends ActionBarActivity {
             return cm != null
                     && cm.isActiveNetworkMetered()
                     && Compatibility.getRestrictBackgroundStatus(cm)
-                            == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED;
+                    == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED;
         } else {
             return false;
         }
@@ -707,6 +716,10 @@ public abstract class XmppActivity extends ActionBarActivity {
 
     private boolean useTor() {
         return getBooleanPreference("use_tor", R.bool.use_tor);
+    }
+
+    private boolean useI2P() {
+        return getBooleanPreference("use_i2p", R.bool.use_i2p);
     }
 
     protected SharedPreferences getPreferences() {
@@ -812,8 +825,8 @@ public abstract class XmppActivity extends ActionBarActivity {
     public void switchToContactDetails(Contact contact, String messageFingerprint) {
         Intent intent = new Intent(this, ContactDetailsActivity.class);
         intent.setAction(ContactDetailsActivity.ACTION_VIEW_CONTACT);
-        intent.putExtra(EXTRA_ACCOUNT, contact.getAccount().getJid().asBareJid().toEscapedString());
-        intent.putExtra("contact", contact.getJid().toEscapedString());
+        intent.putExtra(EXTRA_ACCOUNT, contact.getAccount().getJid().asBareJid().toString());
+        intent.putExtra("contact", contact.getJid().toString());
         intent.putExtra("fingerprint", messageFingerprint);
         startActivity(intent);
     }
@@ -828,7 +841,7 @@ public abstract class XmppActivity extends ActionBarActivity {
 
     public void switchToAccount(Account account, boolean init, String fingerprint) {
         Intent intent = new Intent(this, EditAccountActivity.class);
-        intent.putExtra("jid", account.getJid().asBareJid().toEscapedString());
+        intent.putExtra("jid", account.getJid().asBareJid().toString());
         intent.putExtra("init", init);
         if (init) {
             intent.setFlags(
@@ -1024,12 +1037,12 @@ public abstract class XmppActivity extends ActionBarActivity {
 
     @SuppressLint("InflateParams")
     protected void quickEdit(final String previousValue,
-                           final OnValueEdited callback,
-                           final @StringRes int hint,
-                           boolean password,
-                           boolean permitEmpty,
-                           boolean alwaysCallback,
-                           boolean startSelected) {
+                             final OnValueEdited callback,
+                             final @StringRes int hint,
+                             boolean password,
+                             boolean permitEmpty,
+                             boolean alwaysCallback,
+                             boolean startSelected) {
         final MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
         final DialogQuickeditBinding binding =
                 DataBindingUtil.inflate(
@@ -1229,7 +1242,7 @@ public abstract class XmppActivity extends ActionBarActivity {
         final AtomicReference<Account> selectedAccount = new AtomicReference<>(accounts.get(0));
         final MaterialAlertDialogBuilder alertDialogBuilder = new MaterialAlertDialogBuilder(this);
         alertDialogBuilder.setTitle(R.string.choose_account);
-        final String[] asStrings = Collections2.transform(accounts, a -> a.getJid().asBareJid().toEscapedString()).toArray(new String[0]);
+        final String[] asStrings = Collections2.transform(accounts, a -> a.getJid().asBareJid().toString()).toArray(new String[0]);
         alertDialogBuilder.setSingleChoiceItems(asStrings, 0, (dialog, which) -> selectedAccount.set(accounts.get(which)));
         alertDialogBuilder.setNegativeButton(R.string.cancel, null);
         alertDialogBuilder.setPositiveButton(R.string.ok, (dialog, which) -> showQrCode(selectedAccount.get().getShareableUri()));
@@ -1280,7 +1293,7 @@ public abstract class XmppActivity extends ActionBarActivity {
     protected Account extractAccount(Intent intent) {
         final String jid = intent != null ? intent.getStringExtra(EXTRA_ACCOUNT) : null;
         try {
-            return jid != null ? xmppConnectionService.findAccountByJid(Jid.ofEscaped(jid)) : null;
+            return jid != null ? xmppConnectionService.findAccountByJid(Jid.of(jid)) : null;
         } catch (IllegalArgumentException e) {
             return null;
         }

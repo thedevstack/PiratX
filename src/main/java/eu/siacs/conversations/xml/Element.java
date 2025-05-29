@@ -1,29 +1,30 @@
 package eu.siacs.conversations.xml;
 
 import androidx.annotation.NonNull;
-
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.base.Strings;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
-
+import eu.siacs.conversations.utils.XmlHelper;
+import eu.siacs.conversations.xmpp.Jid;
+import im.conversations.android.xmpp.model.stanza.Message;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Map;
 import java.util.Hashtable;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import eu.siacs.conversations.utils.XmlHelper;
-import eu.siacs.conversations.xmpp.InvalidJid;
 import eu.siacs.conversations.xmpp.Jid;
 import im.conversations.android.xmpp.model.stanza.Message;
 
 public class Element implements Node {
 	private final String name;
 	private Hashtable<String, String> attributes = new Hashtable<>();
-	private List<Element> children = new ArrayList<>();
+	protected List<Element> children = new ArrayList<>();
 	private List<Node> childNodes = new ArrayList<>();
 
 	public Element(String name) {
@@ -188,9 +189,9 @@ public class Element implements Node {
 		final String jid = this.getAttribute(name);
 		if (jid != null && !jid.isEmpty()) {
 			try {
-				return Jid.ofEscaped(jid);
+				return Jid.of(jid);
 			} catch (final IllegalArgumentException e) {
-				return InvalidJid.of(jid, this instanceof Message);
+				return Jid.ofOrInvalid(jid, this instanceof Message);
 			}
 		}
 		return null;
@@ -205,7 +206,7 @@ public class Element implements Node {
 
 	public Element setAttribute(String name, Jid value) {
 		if (name != null && value != null) {
-			this.attributes.put(name, value.toEscapedString());
+			this.attributes.put(name, value.toString());
 		}
 		return this;
 	}
@@ -214,31 +215,34 @@ public class Element implements Node {
 		return toString(ImmutableMap.of());
 	}
 
-	public String toString(final ImmutableMap<String, String> parentNS) {
-		final var mutns = new Hashtable<>(parentNS);
-		final StringBuilder elementOutput = new StringBuilder();
+	public void appendToBuilder(final Map<String, String> parentNS, final StringBuilder elementOutput, final int skipEnd) {
+		final var mutns = new CopyOnWriteMap<>(parentNS);
 		if (childNodes.size() == 0) {
 			final var attr = getSerializableAttributes(mutns);
 			Tag emptyTag = Tag.empty(name);
 			emptyTag.setAttributes(attr);
-			elementOutput.append(emptyTag.toString());
+			emptyTag.appendToBuilder(elementOutput);
 		} else {
-			final var ns = ImmutableMap.copyOf(mutns);
 			final var startTag = startTag(mutns);
-			elementOutput.append(startTag);
+			startTag.appendToBuilder(elementOutput);
 			for (Node child : ImmutableList.copyOf(childNodes)) {
-				elementOutput.append(child.toString(ns));
+				child.appendToBuilder(mutns.toMap(), elementOutput, Math.max(0, skipEnd - 1));
 			}
-			elementOutput.append(endTag());
+			if (skipEnd < 1) endTag().appendToBuilder(elementOutput);
 		}
+	}
+
+	public String toString(final ImmutableMap<String, String> parentNS) {
+		final StringBuilder elementOutput = new StringBuilder();
+		appendToBuilder(parentNS, elementOutput, 0);
 		return elementOutput.toString();
 	}
 
 	public Tag startTag() {
-		return startTag(new Hashtable<>());
+		return startTag(new CopyOnWriteMap<>(new Hashtable<>()));
 	}
 
-	public Tag startTag(final Hashtable<String, String> mutns) {
+	public Tag startTag(final CopyOnWriteMap<String, String> mutns) {
 		final var attr = getSerializableAttributes(mutns);
 		final var startTag = Tag.start(name);
 		startTag.setAttributes(attr);
@@ -249,8 +253,8 @@ public class Element implements Node {
 		return Tag.end(name);
 	}
 
-	protected Hashtable<String, String> getSerializableAttributes(Hashtable<String, String> ns) {
-		final var result = new Hashtable<String, String>();
+	protected Hashtable<String, String> getSerializableAttributes(CopyOnWriteMap<String, String> ns) {
+		final var result = new Hashtable<String, String>(attributes.size());
 		for (final var attr : attributes.entrySet()) {
 			if (attr.getKey().charAt(0) == '{') {
 				final var uriIdx = attr.getKey().indexOf('}');
@@ -314,5 +318,37 @@ public class Element implements Node {
 
 	public String getNamespace() {
 		return getAttribute("xmlns");
+	}
+
+	static class CopyOnWriteMap<K,V> {
+		protected final Map<K,V> original;
+		protected Hashtable<K,V> mut = null;
+
+		public CopyOnWriteMap(Map<K,V> original) {
+			this.original = original;
+		}
+
+		public int size() {
+			return mut == null ? original.size() : mut.size();
+		}
+
+		public boolean containsKey(K k) {
+			return mut == null ? original.containsKey(k) : mut.containsKey(k);
+		}
+
+		public V get(K k) {
+			return mut == null ? original.get(k) : mut.get(k);
+		}
+
+		public void put(K k, V v) {
+			if (mut == null) {
+				mut = new Hashtable<>(original);
+			}
+			mut.put(k, v);
+		}
+
+		public Map<K, V> toMap() {
+			return mut == null ? original : mut;
+		}
 	}
 }

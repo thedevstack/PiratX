@@ -44,9 +44,9 @@ import eu.siacs.conversations.xmpp.Jid;
 
 public class ChannelDiscoveryActivity extends XmppActivity
         implements MenuItem.OnActionExpandListener,
-                TextView.OnEditorActionListener,
-                ChannelDiscoveryService.OnChannelSearchResultsFound,
-                ChannelSearchResultAdapter.OnChannelSearchResultSelected {
+        TextView.OnEditorActionListener,
+        ChannelDiscoveryService.OnChannelSearchResultsFound,
+        ChannelSearchResultAdapter.OnChannelSearchResultSelected {
 
     private static final String CHANNEL_DISCOVERY_OPT_IN = "channel_discovery_opt_in";
 
@@ -311,7 +311,7 @@ public class ChannelDiscoveryActivity extends XmppActivity
     }
 
     public void joinChannelSearchResult(final String selectedAccount, final Room result) {
-        final Jid jid = Jid.ofEscaped(selectedAccount);
+        final Jid jid = Jid.of(selectedAccount);
         final Account account = xmppConnectionService.findAccountByJid(jid);
         final Conversation conversation =
                 xmppConnectionService.findOrCreateConversation(

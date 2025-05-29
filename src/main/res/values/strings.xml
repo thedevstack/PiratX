@@ -172,7 +172,8 @@
     <string name="account_status_incompatible_client">Incompatible client</string>
     <string name="account_status_stream_error">Stream error</string>
     <string name="account_status_stream_opening_error">Stream opening error</string>
-    <string name="encryption_choice_unencrypted">TLS</string>
+    <string name="account_status_channel_binding">Channel binding unavailable</string>
+    <string name="encryption_choice_unencrypted">None</string>
     <string name="encryption_choice_otr">OTR</string>
     <string name="encryption_choice_pgp">OpenPGP</string>
     <string name="encryption_choice_omemo">OMEMO</string>
@@ -316,6 +317,7 @@
     <string name="paste_as_quote">Paste as quote</string>
     <string name="copy_original_url">Copy original URL</string>
     <string name="send_again">Send again</string>
+    <string name="retry_with_p2p">Retry with P2P</string>
     <string name="file_url">File URL</string>
     <string name="url_copied_to_clipboard">Copied URL to clipboard</string>
     <string name="jabber_id_copied_to_clipboard">Copied Jabber ID to clipboard</string>
@@ -420,6 +422,7 @@
     <string name="vector_graphic">vector graphic</string>
     <string name="multimedia_file">multimedia file</string>
     <string name="pdf_document">PDF document</string>
+    <string name="word_document">Word document</string>
     <string name="apk">Android App</string>
     <string name="audiobook">Audiobook</string>
     <string name="vcard">Contact</string>
@@ -849,8 +852,9 @@
     <string name="restore_backup">Restore backup</string>
     <string name="restore">Restore</string>
     <string name="enter_password_to_restore">Enter your password for the account %s to restore the backup.</string>
-    <string name="restore_warning">Do not use the restore backup feature in an attempt to clone (run simultaneously) an installation. Restoring a backup is only meant for migrations or in case you’ve lost the original device.</string>
-    <string name="restore_warning_continued">Do not attempt to restore backups that you have not created yourself!</string>
+    <string name="restore_omemo_key">Restore OMEMO keys</string>
+    <string name="restore_warning">Do not restore OMEMO keys in an attempt to clone (run simultaneously) an installation. Restoring OMEMO keys is only meant for migrations or in case you’ve lost the original device.</string>
+    <string name="restore_warning_continued">Only restore backups you’ve personally created.</string>
     <string name="unable_to_restore_backup">Could not restore backup.</string>
     <string name="unable_to_decrypt_backup">Could not decrypt backup. Is the password correct?</string>
     <string name="backup_channel_name">Backup &amp; Restore</string>
@@ -890,8 +894,8 @@
     <string name="channel_discover_opt_in_message">Channel discovery uses a third party service called &lt;a href="https://search.jabber.network"&gt;search.jabber.network&lt;/a&gt;.&lt;br&gt;&lt;br&gt;Using this feature will transmit your IP address and search terms to that service. See their &lt;a href="https://search.jabber.network/privacy"&gt;Privacy Policy&lt;/a&gt; for more information.</string>
     <string name="add_existing_account">Add existing account</string>
     <string name="register_new_account">Register new account</string>
-    <string name="this_looks_like_a_domain">This looks like a domain address</string>
-    <string name="add_anway">Add anyway</string>
+    <string name="this_looks_like_a_domain">This looks like a Space</string>
+    <string name="add_anway">Continue</string>
     <string name="this_looks_like_channel">This looks like a channel address</string>
     <string name="share_backup_files">Share backup files</string>
     <string name="conversations_backup">Conversations backup</string>
@@ -899,6 +903,7 @@
     <string name="open_backup">Open backup</string>
     <string name="not_a_backup_file">The file you selected is not a monocles chat backup file</string>
     <string name="outdated_backup_file_format">You are trying to import an outdated backup file format</string>
+    <string name="non_quicksy_backup">Quicksy can only restore backups for quicksy.im accounts</string>
     <string name="account_already_setup">This account has already been setup</string>
     <string name="please_enter_password">Please enter the password for this account</string>
     <string name="unable_to_perform_this_action">Could not perform this action</string>
@@ -1110,7 +1115,7 @@
     <string name="pref_show_thread_feature_summary">Show thread icon and use threads</string>
     <string name="pref_show_thread_feature">Thread icon</string>
     <string name="pref_show_mappreview_inside">Show maps preview</string>
-    <string name="pref_show_mappreview_inside_summary">Load a preview of maps for a share location inside the chat</string>
+    <string name="pref_show_mappreview_inside_summary">Show map previews directly inside the chat view, a connection to the monocles-Server will be established.</string>
     <string name="pref_show_own_accounts">Show own account name</string>
     <string name="pref_show_own_accounts_summary">Shows the used account on messages overview and details</string>
     <string name="pref_set_text_collapsable_summary">Collapses text longer than 8 lines</string>
@@ -1184,7 +1189,7 @@
     <string name="i_am_snikket_user">I am a Snikket user</string>
     <string name="do_you_have_an_account">Do you already have a XMPP ID? This might be the case if you are already using a different XMPP client or have used monocles chat, Conversations, or Snikket before. If not you can create a new XMPP ID right now.</string>
     <string name="server_select_text">XMPP is a provider independent instant messaging network, powered by the XMPP protocol. You can use this client with whatever XMPP service you choose.</string>
-    <string name="magic_create_text">You will be able to communicate with users of other providers by giving them your full XMPP ID.</string>
+    <string name="magic_create_text">We will guide you through the process of creating an account with a random password, which you can use or change to your own password on the next page. \\nThen you will be able to communicate with users of this and other providers by giving them your full XMPP-address.</string>
     <string name="magic_create_text_on_x">You have been invited to %1$s. We will guide you through the process of creating an account.\nWhen picking %1$s as a provider you will be able to communicate with users of other providers by giving them your full XMPP ID.</string>
     <string name="magic_create_text_fixed">You have been invited to %1$s. A username has already been picked for you. We will guide you through the process of creating an account.\nYou will be able to communicate with users of other providers by giving them your full XMPP ID.</string>
     <string name="your_server_invitation">Your server invitation</string>
@@ -1428,11 +1433,44 @@
     <string name="monocles_account_introduction">Sign up now and <b>get a secure monocles account, powered with regenerative energies</b> to directly start chatting.</string>
     <string name="monocles_account_details">This includes:\n● one month temporary chat storage\n● e-mail with 2 GB storage\n\n optionally: \n● 5 GB cloud storage (nextcloud)\n● calendar and contact sync\n● a secure conferencing tool \n and more on <a href="https://monocles.eu/more/">https://monocles.eu/more/</a></string>
     <string name="create_monocles_account">Sign up</string>
-    <string name="or_use_another">… or choose another one below</string>
+    <string name="or_use_another">… or choose another one</string>
     <string name="use_monocles">I prefer monocles</string>
     <string name="clients_may_not_support_av">Your contact’s XMPP client might not support audio/video calls.</string>
     <string name="pref_align_start">Left-aligned messages</string>
     <string name="pref_align_start_summary">Display all messages, including sent ones, on the left side for a uniform chat layout.</string>
     <string name="custom_notifications">Custom notifications</string>
     <string name="custom_notifications_enable">Enable customized notification settings (importance, sound, vibration) settings for this conversation?</string>
+    <string name="pref_disable_reactions_fallback_summary">Disables the fallback of reactions for clients that don\'t support reactions yet</string>
+    <string name="pref_disable_reactions_fallback_title">Disable reactions fallback</string>
+    <string name="pin_to_top">Pin to top</string>
+    <string name="switch_to_new_thread">Switched to new thread</string>
+    <string name="cleared_thread">Cleared thread</string>
+    <string name="pref_plain_text_links_title">Plain chat address links</string>
+    <string name="pref_plain_text_links_summary">Show complete links of chat addresses</string>
+    <string name="your_server">Your provider</string>
+    <string name="change_password_in_next_step">You can change the generated password in the next step to your needs.</string>
+    <string name="choose_your_server">Choose your XMPP provider</string>
+    <string name="server_hint">Choose provider</string>
+    <string name="enter_domain">Enter domain</string>
+    <string name="add_to_contact_list">Add to contact list</string>
+    <string name="action_end_conversation_muc">Leave room</string>
+    <string name="action_end_conversation_channel">Leave channel</string>
+    <string name="leave_conference_warning">Do you really want to leave this room? You will no longer be notified of new messages until joining the room again.</string>
+    <string name="remove_bookmark_text">Would you like to remove %s as a bookmark? The conversation associated with this bookmark will not be removed.</string>
+    <string name="pref_load_providers_list_external">Load external chat providers</string>
+    <string name="pref_load_providers_list_external_summary">Load a list of chat providers from the xmpp.net server for alternative in-app registration</string>
+    <string name="external_providers_list">Loaded chat providers list from server</string>
+    <string name="local_providers_list">Uses local chat providers list</string>
+    <string name="error_loading_chat_providers">Error loading chat providers</string>
+    <string name="audio_video_disabled_i2p">Calls are disabled when using I2P</string>
+    <string name="no_i2p_calls">Calls can’t be done via I2P</string>
+    <string name="pref_use_i2p">Connect via I2P</string>
+    <string name="pref_use_i2p_summary">Tunnel all connections through the I2P network. Requires I2P client</string>
+    <string name="account_status_i2p_unavailable">I2P network unavailable</string>
+    <string name="browse_space">Browse space</string>
+    <string name="sticker_deleted">Sticker deleted</string>
+    <string name="failed_to_delete_sticker">Failed to delete sticker</string>
+    <string name="pref_load_image_from_any_link_title">Load image links</string>
+    <string name="pref_load_image_from_any_link_summary">Automatically loads images from any image link</string>
+    <string name="pref_backup_location">Backup location</string>
 </resources>

@@ -3,10 +3,15 @@ package eu.siacs.conversations;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Environment;
 import androidx.annotation.BoolRes;
 import androidx.annotation.NonNull;
 import androidx.preference.PreferenceManager;
+import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import eu.siacs.conversations.persistance.FileBackend;
+import eu.siacs.conversations.services.QuickConversationsService;
 import java.security.SecureRandom;
 
 public class AppSettings {
@@ -24,6 +29,7 @@ public class AppSettings {
     public static final String SHOW_DYNAMIC_TAGS = "show_dynamic_tags";
     public static final String OMEMO = "omemo";
     public static final String ALLOW_SCREENSHOTS = "allow_screenshots";
+    public static final String LOAD_PROVIDERS_EXTERNAL = "load_providers_list_external";
     public static final String RINGTONE = "call_ringtone";
     public static final String BTBV = "btbv";
 
@@ -39,6 +45,7 @@ public class AppSettings {
     public static final String NOTIFICATION_LED = "led";
     public static final String SHOW_CONNECTION_OPTIONS = "show_connection_options";
     public static final String USE_TOR = "use_tor";
+    public static final String USE_I2P = "use_i2p";
     public static final String CHANNEL_DISCOVERY_METHOD = "channel_discovery_method";
     public static final String SEND_CRASH_REPORTS = "send_crash_reports";
     public static final String COLORFUL_CHAT_BUBBLES = "use_green_background";
@@ -47,6 +54,7 @@ public class AppSettings {
     public static final String SHOW_AVATARS = "show_avatars";
     public static final String CALL_INTEGRATION = "call_integration";
     public static final String ALIGN_START = "align_start";
+    public static final String BACKUP_LOCATION = "backup_location";
 
     private static final String ACCEPT_INVITES_FROM_STRANGERS = "accept_invites_from_strangers";
     private static final String INSTALLATION_ID = "im.conversations.android.install_id";
@@ -55,6 +63,9 @@ public class AppSettings {
     public static final String UNENCRYPTED_REACTIONS = "allow_unencrypted_reactions";
     public static final String USE_CACHE_STORAGE = "default_store_media_in_cache";
     public static final String SHOW_MAPS_INSIDE = "show_maps_inside";
+
+    private static final String EXTERNAL_STORAGE_AUTHORITY =
+            "com.android.externalstorage.documents";
 
     private final Context context;
 
@@ -144,7 +155,18 @@ public class AppSettings {
     }
 
     public boolean isUseTor() {
-        return getBooleanPreference(USE_TOR, R.bool.use_tor);
+        return QuickConversationsService.isConversations()
+                && getBooleanPreference(USE_TOR, R.bool.use_tor);
+    }
+
+    public boolean isExtendedConnectionOptions() {
+        return QuickConversationsService.isConversations()
+                && getBooleanPreference(
+                        AppSettings.SHOW_CONNECTION_OPTIONS, R.bool.show_connection_options);
+    }
+
+    public boolean isUseI2P() {
+        return getBooleanPreference(USE_I2P, R.bool.use_i2p);
     }
 
     private boolean getBooleanPreference(@NonNull final String name, @BoolRes int res) {
@@ -158,6 +180,50 @@ public class AppSettings {
                 PreferenceManager.getDefaultSharedPreferences(context);
         return sharedPreferences.getString(
                 OMEMO, context.getString(R.string.omemo_setting_default));
+    }
+
+    public Uri getBackupLocation() {
+        final SharedPreferences sharedPreferences =
+                PreferenceManager.getDefaultSharedPreferences(context);
+        final String location = sharedPreferences.getString(BACKUP_LOCATION, null);
+        if (Strings.isNullOrEmpty(location)) {
+            final var directory = FileBackend.getBackupDirectory(context);
+            return Uri.fromFile(directory);
+        }
+        return Uri.parse(location);
+    }
+
+    public String getBackupLocationAsPath() {
+        return asPath(getBackupLocation());
+    }
+
+    public static String asPath(final Uri uri) {
+        final var scheme = uri.getScheme();
+        final var path = uri.getPath();
+        if (path == null) {
+            return uri.toString();
+        }
+        if ("file".equalsIgnoreCase(scheme)) {
+            return path;
+        } else if ("content".equalsIgnoreCase(scheme)) {
+            if (EXTERNAL_STORAGE_AUTHORITY.equalsIgnoreCase(uri.getAuthority())) {
+                final var parts = Splitter.on(':').limit(2).splitToList(path);
+                if (parts.size() == 2 && "/tree/primary".equals(parts.get(0))) {
+                    return Joiner.on('/')
+                            .join(Environment.getExternalStorageDirectory(), parts.get(1));
+                }
+            }
+        }
+        return uri.toString();
+    }
+
+    public void setBackupLocation(final Uri uri) {
+        final SharedPreferences sharedPreferences =
+                PreferenceManager.getDefaultSharedPreferences(context);
+        sharedPreferences
+                .edit()
+                .putString(BACKUP_LOCATION, uri == null ? "" : uri.toString())
+                .apply();
     }
 
     public boolean isSendCrashReports() {

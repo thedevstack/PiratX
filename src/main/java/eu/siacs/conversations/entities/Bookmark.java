@@ -1,13 +1,15 @@
 package eu.siacs.conversations.entities;
 
 import android.content.Context;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-
+import eu.siacs.conversations.utils.StringUtils;
+import eu.siacs.conversations.utils.UIHelper;
+import eu.siacs.conversations.xml.Element;
+import eu.siacs.conversations.xml.Namespace;
+import eu.siacs.conversations.xmpp.Jid;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,13 +17,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-
-import eu.siacs.conversations.utils.StringUtils;
-import eu.siacs.conversations.utils.UIHelper;
-import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xml.Namespace;
-import eu.siacs.conversations.xmpp.InvalidJid;
-import eu.siacs.conversations.xmpp.Jid;
 
 public class Bookmark extends Element implements ListItem {
 
@@ -52,7 +47,9 @@ public class Bookmark extends Element implements ListItem {
 				final Bookmark bookmark = Bookmark.parse(item, account);
 				if (bookmark != null) {
 					final Bookmark old = bookmarks.put(bookmark.jid, bookmark);
-					if (old != null && old.getBookmarkName() != null && bookmark.getBookmarkName() == null) {
+					if (old != null
+							&& old.getBookmarkName() != null
+							&& bookmark.getBookmarkName() == null) {
 						bookmark.setBookmarkName(old.getBookmarkName());
 					}
 				}
@@ -68,7 +65,7 @@ public class Bookmark extends Element implements ListItem {
 		final Element items = pubSub.findChild("items");
 		if (items != null && Namespace.BOOKMARKS2.equals(items.getAttribute("node"))) {
 			final Map<Jid, Bookmark> bookmarks = new HashMap<>();
-			for(Element item : items.getChildren()) {
+			for (Element item : items.getChildren()) {
 				if (item.getName().equals("item")) {
 					final Bookmark bookmark = Bookmark.parseFromItem(item, account);
 					if (bookmark != null) {
@@ -85,7 +82,7 @@ public class Bookmark extends Element implements ListItem {
 		Bookmark bookmark = new Bookmark(account);
 		bookmark.setAttributes(element.getAttributes());
 		bookmark.setChildren(element.getChildren());
-		bookmark.jid = InvalidJid.getNullForInvalid(bookmark.getAttributeAsJid("jid"));
+		bookmark.jid = Jid.Invalid.getNullForInvalid(bookmark.getAttributeAsJid("jid"));
 		if (bookmark.jid == null) {
 			return null;
 		}
@@ -98,7 +95,7 @@ public class Bookmark extends Element implements ListItem {
 			return null;
 		}
 		final Bookmark bookmark = new Bookmark(account);
-		bookmark.jid = InvalidJid.getNullForInvalid(item.getAttributeAsJid("id"));
+		bookmark.jid = Jid.Invalid.getNullForInvalid(item.getAttributeAsJid("id"));
 		// TODO verify that we only use bare jids and ignore full jids
 		if (bookmark.jid == null) {
 			return null;
@@ -339,7 +336,8 @@ public class Bookmark extends Element implements ListItem {
 
 	@Override
 	public int getAvatarBackgroundColor() {
-		return UIHelper.getColorForName(jid != null ? jid.asBareJid().toString() : getDisplayName());
+		return UIHelper.getColorForName(
+				jid != null ? jid.asBareJid().toString() : getDisplayName());
 	}
 
 	@Override

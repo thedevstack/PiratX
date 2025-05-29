@@ -78,20 +78,20 @@ public class IrregularUnicodeDetector {
 	}
 
 	public static Spannable style(final Context context, Jid jid) {
-		return style(jid, MaterialColors.getColor(context, com.google.android.material.R.attr.colorError,"colorError not found"));
+		return style(jid, MaterialColors.getColor(context, androidx.appcompat.R.attr.colorError,"colorError not found"));
 	}
 
 	private static Spannable style(Jid jid, @ColorInt int color) {
-		PatternTuple patternTuple = find(jid);
-		SpannableStringBuilder builder = new SpannableStringBuilder();
-		if (jid.getEscapedLocal() != null && patternTuple.local != null) {
-			SpannableString local = new SpannableString(jid.getEscapedLocal());
+        final var  patternTuple = find(jid);
+        final var  builder = new SpannableStringBuilder();
+		if (jid.getLocal() != null && patternTuple.local != null) {
+			SpannableString local = new SpannableString(jid.getLocal());
 			colorize(local, patternTuple.local, color);
 			builder.append(local);
 			builder.append('@');
 		}
 		if (jid.getDomain() != null) {
-			String[] labels = jid.getDomain().toEscapedString().split("\\.");
+            final var labels = jid.getDomain().toString().split("\\.");
 			for (int i = 0; i < labels.length; ++i) {
 				SpannableString spannableString = new SpannableString(labels[i]);
 				if (patternTuple.domain.size() > i) {
@@ -261,12 +261,12 @@ public class IrregularUnicodeDetector {
 
 		private static PatternTuple of(Jid jid) {
 			final Pattern localPattern;
-			if (jid.getEscapedLocal() != null) {
-				localPattern = create(findIrregularCodePoints(jid.getEscapedLocal()));
+			if (jid.getLocal() != null) {
+				localPattern = create(findIrregularCodePoints(jid.getLocal()));
 			} else {
 				localPattern = null;
 			}
-			String domain = jid.getDomain().toEscapedString();
+			String domain = jid.getDomain().toString();
 			final List<Pattern> domainPatterns = new ArrayList<>();
 			if (domain != null) {
 				for (String label : domain.split("\\.")) {
