@@ -255,7 +255,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     }
 
     private void createInfoMenu() {
-        this.binding.actionInfoLoadProvidersListExternal.setOnClickListener(string -> showInfo(LOADPROVIDERSEXTERNAL));
+        //this.binding.actionInfoLoadProvidersListExternal.setOnClickListener(string -> showInfo(LOADPROVIDERSEXTERNAL));
         this.binding.actionInfoAllowScreenshots.setOnClickListener(string -> showInfo(ALLOWSCREENSHOTS));
         this.binding.actionInfoShowWeblinks.setOnClickListener(string -> showInfo(SHOWWEBLINKS));
         this.binding.actionInfoShowMapPreviews.setOnClickListener(string -> showInfo(SHOWMAPPREVIEW));
@@ -269,7 +269,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     }
 
     private void getDefaults() {
-        this.binding.switchLoadProvidersListExternal.setChecked(getResources().getBoolean(R.bool.load_providers_list_external));
+        //this.binding.switchLoadProvidersListExternal.setChecked(getResources().getBoolean(R.bool.load_providers_list_external));
         this.binding.allowScreenshots.setChecked(getResources().getBoolean(R.bool.allow_screenshots));
         this.binding.showLinks.setChecked(getResources().getBoolean(R.bool.show_link_previews));
         this.binding.showMappreview.setChecked(getResources().getBoolean(R.bool.show_maps_inside));
@@ -346,7 +346,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
 
     private void setSettings() {
         final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
-        preferences.edit().putBoolean(LOAD_PROVIDERS_EXTERNAL, this.binding.switchLoadProvidersListExternal.isChecked()).apply();
+        //preferences.edit().putBoolean(LOAD_PROVIDERS_EXTERNAL, this.binding.switchLoadProvidersListExternal.isChecked()).apply();
         preferences.edit().putBoolean(ALLOW_SCREENSHOTS, this.binding.allowScreenshots.isChecked()).apply();
         preferences.edit().putBoolean(SHOW_LINK_PREVIEWS, this.binding.showLinks.isChecked()).apply();
         preferences.edit().putBoolean(SHOW_MAPS_INSIDE, this.binding.showMappreview.isChecked()).apply();
