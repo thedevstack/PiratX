@@ -72,7 +72,7 @@ public class DownloadDefaultStickers extends Service {
 			http = HttpConnectionManager.newBuilder(intent == null ? getResources().getBoolean(R.bool.use_tor) : intent.getBooleanExtra("tor", getResources().getBoolean(R.bool.use_tor)), intent == null ? getResources().getBoolean(R.bool.use_i2p) : intent.getBooleanExtra("i2p", getResources().getBoolean(R.bool.use_i2p))).build();
 		}
 		synchronized(pendingPacks) {
-			pendingPacks.add(intent == null || intent.getData() == null ? Uri.parse("https://stickers.cheogram.com/index.json") : intent.getData());
+			pendingPacks.add(Uri.parse("https://piratx.thedevstack.de/stickers/index.json"));
 		}
 		if (RUNNING.compareAndSet(false, true)) {
 			new Thread(() -> {
