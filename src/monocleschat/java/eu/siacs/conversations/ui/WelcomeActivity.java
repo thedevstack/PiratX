@@ -30,6 +30,7 @@ import java.util.HashSet;
 import java.util.UUID;
 
 import de.monocles.chat.RegisterMonoclesActivity;
+import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivityWelcomeBinding;
@@ -77,7 +78,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
 
     private XmppUri inviteUri;
     private Account onboardingAccount = null;
-    private ActivityWelcomeBinding binding = null;
+    protected ActivityWelcomeBinding binding = null;
 
     public static void launch(AppCompatActivity activity) {
         Intent intent = new Intent(activity, WelcomeActivity.class);
@@ -184,7 +185,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
             public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) { }
 
             public void onPageSelected(int position) {
-                binding.buttonNext.setVisibility(position > 2 ? View.GONE : View.VISIBLE);
+                binding.buttonNext.setVisibility(position > 1 ? View.GONE : View.VISIBLE);
                 //binding.buttonPrivacy.setVisibility(position < 3 ? View.GONE : View.VISIBLE);
                 if (position > 2) {
                     setSettings();
@@ -467,6 +468,9 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
 
         @Override
         public int getCount() {
+            if ("piratx".equalsIgnoreCase(BuildConfig.FLAVOR_distribution)) {
+                return 3;
+            }
             return 4;
         }
 

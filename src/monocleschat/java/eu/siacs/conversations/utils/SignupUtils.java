@@ -3,6 +3,7 @@ package eu.siacs.conversations.utils;
 import android.app.Activity;
 import android.content.Intent;
 
+import de.thedevstack.piratx.ui.PiratXWelcomeActivity;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.services.XmppConnectionService;
@@ -42,7 +43,7 @@ public class SignupUtils {
         if (toServerChooser) {
             intent = new Intent(activity, PickServerActivity.class);
         } else {
-            intent = new Intent(activity, WelcomeActivity.class);
+            intent = new Intent(activity, PiratXWelcomeActivity.class);
         }
         return intent;
     }
