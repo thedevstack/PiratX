@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="omemo_setting_default">always_off</string>
+    <string name="omemo_setting_default">default_off</string>
     <bool name="send_crash_reports">false</bool>
 
     <string-array name="domains">

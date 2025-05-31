@@ -2,4 +2,5 @@
 <resources>
     <string name="mappreview_url" translatable="false">https://piratx.thedevstack.de/staticmap</string>
     <string name="example_jid">username@jabber.thedevstack.de</string>
+    <string name="pref_show_mappreview_inside_summary">Show map previews directly inside the chat view, a connection to the thedevstack-Server will be established.</string>
 </resources>

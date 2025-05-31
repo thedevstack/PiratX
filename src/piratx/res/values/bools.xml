@@ -1,0 +1,4 @@
+<?xml version="1.0" encodiung="utf-8"?>
+<resources>
+    <bool name="use_colored_muc_names">true</bool>
+</resources>

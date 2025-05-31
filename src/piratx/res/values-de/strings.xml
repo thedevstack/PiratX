@@ -18,4 +18,5 @@
     <string name="monocles_account_introduction">Melde dich jetzt an und <b>erhalte einen sicheres monocles-Konto, versorgt mit regenerativen Energien</b>, um direkt mit dem Chatten zu beginnen.</string>
     <string name="use_monocles">Ich bevorzuge monocles</string>
     <string name="monocles_account_details">Dies beinhaltet:\n● einen Monat temporärer Chatspeicher\n● E-Mail mit 2 GB Speicher\n\n optional: \n● 5 GB Cloud-Speicher (nextcloud)\n● Kalender- und Kontaktsynchronisation\n● ein sicheres Konferenztool \n und mehr auf <a href="https://monocles.eu/more/">https://monocles.eu/more/</a></string>
+    <string name="pref_show_mappreview_inside_summary">Kartenvorschau direkt in der Chat-Ansicht anzeigen, es wird eine Verbindung zum thedevstack-Server aufgebaut.</string>
 </resources>
