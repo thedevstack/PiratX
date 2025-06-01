@@ -139,7 +139,7 @@ public class ShortcutService {
 
     private static void setConversation(
             final ShortcutInfoCompat.Builder builder, @NonNull final String conversation) {
-        builder.setCategories(ImmutableSet.of("eu.siacs.conversations.category.SHARE_TARGET"));
+        builder.setCategories(ImmutableSet.of("de.monocles.chat.SHARE_TARGET"));
         final var extras = new PersistableBundle();
         extras.putString(ConversationsActivity.EXTRA_CONVERSATION, conversation);
         builder.setExtras(extras);
