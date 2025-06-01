@@ -154,6 +154,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
@@ -319,6 +321,8 @@ public class ConversationFragment extends XmppFragment
     private String[] StickerfilesNames;
     private String[] GifsfilesPaths;
     private String[] GifsfilesNames;
+
+    private final ExecutorService backgroundExecutor = Executors.newSingleThreadExecutor();
 
     private KeyboardHeightProvider.KeyboardHeightListener keyboardHeightListener = null;
     private KeyboardHeightProvider keyboardHeightProvider = null;
@@ -2001,6 +2005,14 @@ public class ConversationFragment extends XmppFragment
     }
 
     @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (backgroundExecutor != null && !backgroundExecutor.isShutdown()) {
+            backgroundExecutor.shutdownNow(); // Attempt to stop all actively executing tasks
+        }
+    }
+
+    @Override
     public void onDestroyView() {
         super.onDestroyView();
         Log.d(Config.LOGTAG, "ConversationFragment.onDestroyView()");
@@ -3279,7 +3291,7 @@ public class ConversationFragment extends XmppFragment
         try {
             startActivityForResult(intent, attachmentChoice);
         } catch (final ActivityNotFoundException e) {
-            Toast.makeText(context, R.string.no_application_found, Toast.LENGTH_LONG).show();
+            // Toast.makeText(context, R.string.no_application_found, Toast.LENGTH_LONG).show();    // TODO: Fix show toast not when record audio
         }
     }
 
@@ -4408,7 +4420,8 @@ public class ConversationFragment extends XmppFragment
         synchronized (this.messageList) {
             if (this.conversation != null) {
                 if (messageListAdapter.hasSelection()) {
-                    if (notifyConversationRead) binding.messagesView.postDelayed(this::refresh, 1000L);
+                    if (notifyConversationRead)
+                        binding.messagesView.postDelayed(this::refresh, 1000L);
                 } else {
                     conversation.populateWithMessages(this.messageList, activity == null ? null : activity.xmppConnectionService);
                     try {
@@ -4432,10 +4445,11 @@ public class ConversationFragment extends XmppFragment
                 updateEditablity();
                 conversation.refreshSessions();
 
-
+                activity.runOnUiThread(() -> {
+                // Show muc subject in conferences and show status message in one-on-one chats
                 if (conversation != null && conversation.getMode() == Conversational.MODE_MULTI) {
                     String subject = conversation.getMucOptions().getSubject();
-                    Boolean hidden = conversation.getMucOptions().subjectHidden();
+                    boolean hidden = conversation.getMucOptions().subjectHidden();
 
                     if (Bookmark.printableValue(subject) && !hidden) {
                         binding.mucSubjectText.setText(subject);
@@ -4444,45 +4458,25 @@ public class ConversationFragment extends XmppFragment
                             conversation.getMucOptions().hideSubject();
                             binding.mucSubject.setVisibility(View.GONE);
                         });
-                        if (activity != null && binding.mucSubjectIcon != null) binding.mucSubjectIcon.setImageDrawable(ContextCompat.getDrawable(activity, R.drawable.subject));
+                        if (activity != null && binding.mucSubjectIcon != null)
+                            binding.mucSubjectIcon.setImageDrawable(ContextCompat.getDrawable(activity, R.drawable.subject));
                         binding.mucSubject.setVisibility(View.VISIBLE);
                     } else {
                         binding.mucSubject.setVisibility(View.GONE);
                     }
                 } else if (conversation != null && conversation.getMode() == Conversational.MODE_SINGLE) {
-                    Boolean hidden = conversation.statusMessageHidden();
-                    List<String> statusMessages = conversation.getContact().getPresences().getStatusMessages();
+                    boolean statusChange = conversation.onContactUpdatedAndCheckStatusChange(conversation.getContact());
 
-                    if (statusMessages.size() == 1 && !hidden) {
-                        final String message = statusMessages.get(0);
+                    if (conversation.getLastProcessedStatusText() != null && (statusChange || !conversation.statusMessageHidden())) {
                         binding.mucSubject.setVisibility(View.VISIBLE);
-                        if (activity != null && binding.mucSubjectIcon != null) binding.mucSubjectIcon.setImageDrawable(ContextCompat.getDrawable(activity, R.drawable.ic_announcement_24dp));
-                        final Spannable span = new SpannableString(message);
-                        if (Emoticons.isOnlyEmoji(message)) {
-                            span.setSpan(
-                                    new RelativeSizeSpan(2.0f),
-                                    0,
-                                    message.length(),
-                                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        }
-                        binding.mucSubjectText.setText(span);
+                        if (activity != null && binding.mucSubjectIcon != null)
+                            binding.mucSubjectIcon.setImageDrawable(ContextCompat.getDrawable(activity, R.drawable.ic_announcement_24dp));
+                        binding.mucSubjectText.setText(conversation.getLastProcessedStatusText());
                         binding.mucSubject.setOnClickListener(v -> activity.switchToContactDetails(conversation.getContact()));
                         binding.mucSubjectHide.setOnClickListener(v -> {
                             conversation.hideStatusMessage();
                             binding.mucSubject.setVisibility(View.GONE);
                         });
-                    } else if (statusMessages.size() > 1 && !hidden) {
-                        StringBuilder builder = new StringBuilder();
-                        binding.mucSubject.setVisibility(View.VISIBLE);
-                        if (activity != null && binding.mucSubjectIcon != null) binding.mucSubjectIcon.setImageDrawable(ContextCompat.getDrawable(activity, R.drawable.ic_announcement_24dp));
-                        int s = statusMessages.size();
-                        for (int i = 0; i < s; ++i) {
-                            builder.append(statusMessages.get(i));
-                            if (i < s - 1) {
-                                builder.append("\n");
-                            }
-                        }
-                        binding.mucSubjectText.setText(builder);
                     } else {
                         binding.mucSubject.setVisibility(View.GONE);
                     }
@@ -4516,7 +4510,7 @@ public class ConversationFragment extends XmppFragment
                             case R.id.quote_message:
                                 quoteMessage(pinnedMessageText);
                                 break;
-                        };
+                        }
                         return true;
                     });
 
@@ -4530,6 +4524,7 @@ public class ConversationFragment extends XmppFragment
                     conversation.setPinnedMessage(null);
                     removePinnedMessage(getConversationReliable(activity).getJid().asBareJid().toString());
                 });
+            });
             }
         }
     }
@@ -6010,7 +6005,10 @@ public class ConversationFragment extends XmppFragment
         if (!dirStickers.exists()) {
             if (!dirStickers.mkdirs()) {
                 Log.e("LoadStickers", "Failed to create stickers directory: " + dirStickers.getAbsolutePath());
-                // Optionally show a toast to the user
+                // Optionally show a toast to the user on the UI thread
+                if (activity != null) {
+                    activity.runOnUiThread(() -> Toast.makeText(activity, "Failed to create stickers folder", Toast.LENGTH_SHORT).show());
+                }
                 return;
             }
         }
@@ -6019,85 +6017,111 @@ public class ConversationFragment extends XmppFragment
         collectStickersRecursively(dirStickers, allFilesList, allFilePathsList, allFileNamesList);
 
         // Update your class member arrays
-        //Gifspaths
-        File[] stickerfiles = allFilesList.toArray(new File[0]);
-        StickerfilesPaths = allFilePathsList.toArray(new String[0]);
-        StickerfilesNames = allFileNamesList.toArray(new String[0]);
+        File[] stickerfiles = allFilesList.toArray(new File[0]); // Keep for potential direct use if needed
+        final String[] finalStickerFilePaths = allFilePathsList.toArray(new String[0]);
+        final String[] finalStickerFileNames = allFileNamesList.toArray(new String[0]);
 
-        de.monocles.chat.GridView StickersGrid = binding.stickersview; // init GridView
-        // Create an object of CustomAdapter and set Adapter to GirdView
-        StickersGrid.setAdapter(new StickersAdapter(activity, StickerfilesNames, StickerfilesPaths));
-        // implement setOnItemClickListener event on GridView
-        StickersGrid.setOnItemClickListener((parent, view, position, id) -> {
-            if (activity == null || StickerfilesPaths == null || position >= StickerfilesPaths.length) return;
-            String filePath = StickerfilesPaths[position];
-            mediaPreviewAdapter.addMediaPreviews(Attachment.of(activity, Uri.fromFile(new File(filePath)), Attachment.Type.IMAGE));
-            toggleInputMethod();
-        });
+        // IMPORTANT: UI updates must happen on the main thread
+        if (activity != null) {
+            activity.runOnUiThread(() -> {
+                StickerfilesPaths = finalStickerFilePaths;
+                StickerfilesNames = finalStickerFileNames;
 
-        StickersGrid.setOnItemLongClickListener((parent, view, position, id) -> {
-            if (activity != null && StickerfilesPaths[position] != null) {
-                File file = new File(StickerfilesPaths[position]);
-                if (file.exists() && file.delete()) { // Check existence before deleting
-                    activity.runOnUiThread(this::LoadStickers);     // This will re-scan everything
-                    Toast.makeText(activity, R.string.sticker_deleted, Toast.LENGTH_LONG).show();
-                } else {
-                    Toast.makeText(activity, R.string.failed_to_delete_sticker, Toast.LENGTH_LONG).show();
-                }
-            }
-            return true;
-        });
+                de.monocles.chat.GridView StickersGrid = binding.stickersview;
+                if (StickersGrid == null) return; // Guard against null binding if fragment is destroyed
+
+                StickersGrid.setAdapter(new StickersAdapter(activity, StickerfilesNames, StickerfilesPaths));
+                StickersGrid.setOnItemClickListener((parent, view, position, id) -> {
+                    if (activity == null || StickerfilesPaths == null || position >= StickerfilesPaths.length) return;
+                    String filePath = StickerfilesPaths[position];
+                    mediaPreviewAdapter.addMediaPreviews(Attachment.of(activity, Uri.fromFile(new File(filePath)), Attachment.Type.IMAGE));
+                    toggleInputMethod();
+                });
+
+                StickersGrid.setOnItemLongClickListener((parent, view, position, id) -> {
+                    if (activity != null && StickerfilesPaths != null && position < StickerfilesPaths.length && StickerfilesPaths[position] != null) {
+                        File file = new File(StickerfilesPaths[position]);
+                        if (file.exists()) {
+                            // Deletion should also be off the main thread if it's slow,
+                            // but for simplicity here, we'll keep it as is.
+                            // For true background deletion, you'd execute another Runnable.
+                            if (file.delete()) {
+                                // Re-load stickers on the background thread after deletion
+                                backgroundExecutor.execute(this::LoadStickers);
+                                Toast.makeText(activity, R.string.sticker_deleted, Toast.LENGTH_LONG).show();
+                            } else {
+                                Toast.makeText(activity, R.string.failed_to_delete_sticker, Toast.LENGTH_LONG).show();
+                            }
+                        } else {
+                            Toast.makeText(activity, R.string.failed_to_delete_sticker_not_exist, Toast.LENGTH_LONG).show(); // Example for non-existent file
+                        }
+                    }
+                    return true;
+                });
+            });
+        }
     }
 
     public void LoadGifs() {
         if (!hasStoragePermission(activity)) return;
 
-        // Use ArrayLists to dynamically collect file information
         List<File> allFilesList = new ArrayList<>();
         List<String> allFilePathsList = new ArrayList<>();
         List<String> allFileNamesList = new ArrayList<>();
 
-        // Create the main stickers directory if it doesn't exist
-        if (!dirStickers.exists()) {
-            if (!dirStickers.mkdirs()) {
-                Log.e("LoadGifs", "Failed to create stickers directory: " + dirStickers.getAbsolutePath());
-                // Optionally show a toast to the user
+        // Assuming dirGifs is the correct directory for GIFs, not dirStickers
+        // If dirStickers is indeed used for GIFs too, then the check below is fine.
+        // Otherwise, replace dirStickers with dirGifs.
+        File gifsDirectory = dirStickers; // Or dirStickers if that's intended
+        if (!gifsDirectory.exists()) {
+            if (!gifsDirectory.mkdirs()) {
+                Log.e("LoadGifs", "Failed to create GIFs directory: " + gifsDirectory.getAbsolutePath());
+                if (activity != null) {
+                    activity.runOnUiThread(() -> Toast.makeText(activity, "Failed to create GIFs folder", Toast.LENGTH_SHORT).show());
+                }
                 return;
             }
         }
 
-        // Start the recursive search for files
-        collectGIFsRecursively(dirStickers, allFilesList, allFilePathsList, allFileNamesList);
+        collectGIFsRecursively(gifsDirectory, allFilesList, allFilePathsList, allFileNamesList); // Pass the correct directory
 
-        // Update your class member arrays
-        File[] gifsfiles = allFilesList.toArray(new File[0]);
-        GifsfilesPaths = allFilePathsList.toArray(new String[0]);
-        GifsfilesNames = allFileNamesList.toArray(new String[0]);
+        final String[] finalGifsFilePaths = allFilePathsList.toArray(new String[0]);
+        final String[] finalGifsFileNames = allFileNamesList.toArray(new String[0]);
 
+        if (activity != null) {
+            activity.runOnUiThread(() -> {
+                GifsfilesPaths = finalGifsFilePaths;
+                GifsfilesNames = finalGifsFileNames;
 
-        de.monocles.chat.GridView GifsGrid = binding.gifsview; // init GridView
-        // Create an object of CustomAdapter and set Adapter to GirdView
-        GifsGrid.setAdapter(new GifsAdapter(activity, GifsfilesNames, GifsfilesPaths));
-        // implement setOnItemClickListener event on GridView
-        GifsGrid.setOnItemClickListener((parent, view, position, id) -> {
-            if (activity == null) return;
-            String filePath = GifsfilesPaths[position];
-            mediaPreviewAdapter.addMediaPreviews(Attachment.of(activity, Uri.fromFile(new File(filePath)), Attachment.Type.IMAGE));
-            toggleInputMethod();
-        });
+                de.monocles.chat.GridView GifsGrid = binding.gifsview;
+                if (GifsGrid == null) return;
 
-        GifsGrid.setOnItemLongClickListener((parent, view, position, id) -> {
-            if (activity != null && GifsfilesPaths[position] != null) {
-                File file = new File(GifsfilesPaths[position]);
-                if (file.delete()) {
-                    activity.runOnUiThread(this::LoadGifs);
-                    Toast.makeText(activity, R.string.gif_deleted, Toast.LENGTH_LONG).show();
-                } else {
-                    Toast.makeText(activity, R.string.failed_to_delete_gif, Toast.LENGTH_LONG).show();
-                }
-            }
-            return true;
-        });
+                GifsGrid.setAdapter(new GifsAdapter(activity, GifsfilesNames, GifsfilesPaths));
+                GifsGrid.setOnItemClickListener((parent, view, position, id) -> {
+                    if (activity == null || GifsfilesPaths == null || position >= GifsfilesPaths.length) return;
+                    String filePath = GifsfilesPaths[position];
+                    mediaPreviewAdapter.addMediaPreviews(Attachment.of(activity, Uri.fromFile(new File(filePath)), Attachment.Type.IMAGE));
+                    toggleInputMethod();
+                });
+
+                GifsGrid.setOnItemLongClickListener((parent, view, position, id) -> {
+                    if (activity != null && GifsfilesPaths != null && position < GifsfilesPaths.length && GifsfilesPaths[position] != null) {
+                        File file = new File(GifsfilesPaths[position]);
+                        if (file.exists()) {
+                            if (file.delete()) {
+                                backgroundExecutor.execute(this::LoadGifs); // Re-load on background thread
+                                Toast.makeText(activity, R.string.gif_deleted, Toast.LENGTH_LONG).show();
+                            } else {
+                                Toast.makeText(activity, R.string.failed_to_delete_gif, Toast.LENGTH_LONG).show();
+                            }
+                        } else {
+                            Toast.makeText(activity, R.string.failed_to_delete_gif_not_exist, Toast.LENGTH_LONG).show();
+                        }
+                    }
+                    return true;
+                });
+            });
+        }
     }
 
     /**
@@ -6227,14 +6251,18 @@ public class ConversationFragment extends XmppFragment
                 binding.pinnedMessage.setVisibility(View.VISIBLE);
             }
         }
+        try {
+            loadMediaFromBackground();
+        } catch (Exception e) {
+            Log.e(Config.LOGTAG, "loadMediaFromBackground failed", e);
+        }
+    }
 
-        // Use a Handler to post the loading methods with a delay
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (isAdded() && getActivity() != null) { // Check if fragment is still active
-                activity.runOnUiThread(this::LoadStickers);
-                activity.runOnUiThread(this::LoadGifs);
-            }
-        }, 400);
+    private void loadMediaFromBackground() {
+        backgroundExecutor.execute(() -> {
+            LoadStickers();
+            LoadGifs();
+        });
     }
 
     private void savePinnedMessageToPreferences(String conversationJid, String message) {
