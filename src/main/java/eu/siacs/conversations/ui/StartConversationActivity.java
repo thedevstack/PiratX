@@ -363,9 +363,7 @@ public class StartConversationActivity extends XmppActivity
 
         final SharedPreferences preferences = getPreferences();
 
-        this.mHideOfflineContacts =
-                QuickConversationsService.isConversations()
-                        && preferences.getBoolean("hide_offline", false);
+        this.mHideOfflineContacts = preferences.getBoolean("hide_offline", false);
 
         final boolean startSearching =
                 preferences.getBoolean(
