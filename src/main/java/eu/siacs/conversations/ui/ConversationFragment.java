@@ -1569,12 +1569,12 @@ public class ConversationFragment extends XmppFragment
 
     public void toggleInputMethod() {
         //Currently no caption possible when E2EE enabled
-        if(conversation.getNextEncryption() == Message.ENCRYPTION_NONE && mediaPreviewAdapter.getItemCount() == 1) {
-            binding.textinput.setVisibility(VISIBLE);
+        if (conversation.getNextEncryption() == Message.ENCRYPTION_NONE && mediaPreviewAdapter.getItemCount() == 1) {
+            binding.textinputLayoutNew.setVisibility(VISIBLE);
             binding.mediaPreview.setVisibility(View.VISIBLE);
         } else {
             boolean hasAttachments = mediaPreviewAdapter.hasAttachments();
-            binding.textinput.setVisibility(hasAttachments ? View.GONE : View.VISIBLE);
+            binding.textinputLayoutNew.setVisibility(hasAttachments ? View.GONE : View.VISIBLE);
             binding.mediaPreview.setVisibility(hasAttachments ? View.VISIBLE : View.GONE);
         }
         updateSendButton();
@@ -1741,7 +1741,7 @@ public class ConversationFragment extends XmppFragment
         if (appSettings.isLargeFont()) {
             binding.textinput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         } else {
-            binding.textinput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            binding.textinput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         }
         binding.textSendButton.setOnClickListener(this.mSendButtonListener);
         binding.cancelButton.setOnClickListener(this.mCancelVoiceRecord);
@@ -3279,7 +3279,7 @@ public class ConversationFragment extends XmppFragment
             case ATTACHMENT_CHOICE_RECORD_VOICE:
                 backPressedLeaveVoiceRecorder.setEnabled(true);
                 recordVoice();
-                break;
+                return;
             case ATTACHMENT_CHOICE_LOCATION:
                 intent = GeoHelper.getFetchIntent(activity);
                 break;
@@ -3291,7 +3291,7 @@ public class ConversationFragment extends XmppFragment
         try {
             startActivityForResult(intent, attachmentChoice);
         } catch (final ActivityNotFoundException e) {
-            // Toast.makeText(context, R.string.no_application_found, Toast.LENGTH_LONG).show();    // TODO: Fix show toast not when record audio
+            Toast.makeText(context, R.string.no_application_found, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -4445,7 +4445,7 @@ public class ConversationFragment extends XmppFragment
                 updateEditablity();
                 conversation.refreshSessions();
 
-                activity.runOnUiThread(() -> {
+                if (activity!= null) activity.runOnUiThread(() -> {
                 // Show muc subject in conferences and show status message in one-on-one chats
                 if (conversation != null && conversation.getMode() == Conversational.MODE_MULTI) {
                     String subject = conversation.getMucOptions().getSubject();
