@@ -2601,6 +2601,9 @@ public class ConversationFragment extends XmppFragment
             case R.id.action_refresh_feature_discovery:
                 refreshFeatureDiscovery();
                 break;
+            case R.id.action_mediabrowser:
+                MediaBrowserActivity.launch(this.getActivity(), conversation.getContact());
+                break;
             default:
                 break;
         }
