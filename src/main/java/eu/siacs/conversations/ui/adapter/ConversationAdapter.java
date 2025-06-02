@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.widget.ImageViewCompat;
 import androidx.databinding.DataBindingUtil;
@@ -272,6 +273,27 @@ public class ConversationAdapter
             viewHolder.binding.userActiveIndicator.setVisibility(View.GONE);
         }
         viewHolder.itemView.setOnClickListener(v -> listener.onConversationClick(v, conversation));
+
+        if (conversation.getMode() == Conversation.MODE_SINGLE) {
+            if (activity.xmppConnectionService.hasInternetConnection()) {
+                switch (conversation.getContact().getPresences().getShownStatus()) {
+                    case CHAT:
+                    case ONLINE:
+                        viewHolder.binding.conversationName.setTextColor(ContextCompat.getColor(activity, R.color.online));
+                        break;
+                    case AWAY:
+                        viewHolder.binding.conversationName.setTextColor(ContextCompat.getColor(activity, R.color.away));
+                        break;
+                    case XA:
+                    case DND:
+                        viewHolder.binding.conversationName.setTextColor(ContextCompat.getColor(activity, R.color.notavailable));
+                        break;
+                    case OFFLINE:
+                    default:
+                        // No need to change text color
+                }
+            }
+        }
     }
 
     @Override

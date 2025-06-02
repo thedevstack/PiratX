@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="online">#ff388e3c</color> <!-- green 700 -->
+    <color name="away">#ffff9800</color> <!-- orange 500 -->
+    <color name="notavailable">#fff44336</color> <!-- red 500 -->
+    <color name="warning_button">#ffcdd2</color>  <!-- red 100 -->
+    <color name="warning_button_dark">#ffC62828</color> <!-- red 800 -->
+</resources>
