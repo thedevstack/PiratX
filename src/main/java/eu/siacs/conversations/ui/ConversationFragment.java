@@ -1685,8 +1685,8 @@ public class ConversationFragment extends XmppFragment
                             RtpCapability.check(conversation.getContact());
                     final boolean cameraAvailable =
                             activity != null && activity.isCameraFeatureAvailable();
-                    menuCall.setVisible(true);
-                    menuVideoCall.setVisible(rtpCapability != RtpCapability.Capability.AUDIO && cameraAvailable);
+                    menuCall.setVisible(rtpCapability != RtpCapability.Capability.NONE);
+                    menuVideoCall.setVisible(rtpCapability == RtpCapability.Capability.VIDEO && cameraAvailable);
                 }
                 menuContactDetails.setVisible(!this.conversation.withSelf());
                 menuMucDetails.setVisible(false);
