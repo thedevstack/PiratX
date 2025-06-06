@@ -773,7 +773,7 @@ public class XmppConnectionService extends Service {
             message = conversation.getReplyTo().reply();
             message.setEncryption(conversation.getNextEncryption());
         }
-        if (conversation.getCaption() != null) {
+        if (conversation.getCaption() != null && !conversation.getCaption().getBody().trim().isEmpty()) {
             message.appendBody(conversation.getCaption().getBody() + " ");
             message.setEncryption(conversation.getNextEncryption());
         }
@@ -824,7 +824,7 @@ public class XmppConnectionService extends Service {
             message = conversation.getReplyTo().reply();
             message.setEncryption(conversation.getNextEncryption());
         }
-        if (conversation.getCaption() != null) {
+        if (conversation.getCaption() != null && !conversation.getCaption().getBody().trim().isEmpty()) {
             message.appendBody(conversation.getCaption().getBody() + " ");
             message.setEncryption(conversation.getNextEncryption());
         }
