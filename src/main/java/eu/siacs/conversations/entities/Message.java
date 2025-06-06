@@ -632,7 +632,8 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
         if (!result.second && aesgcm != null) {
             return body.toString().replace(aesgcm, "");
         } else if (!result.second && getOob() != null) {
-            return body.toString().replace(getOob().toString(), "");
+            // TODO: change string to replace if implementation in getOob() changes
+            return body.toString().replace(getFileParams().url, "");
         } else if (!result.second && isGeoUri()) {
             return "";
         } else {
