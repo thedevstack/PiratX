@@ -20,6 +20,7 @@ import androidx.core.app.NotificationCompat;
 
 import com.google.common.io.ByteStreams;
 
+import eu.siacs.conversations.BuildConfig;
 import io.ipfs.cid.Cid;
 
 import java.io.File;
@@ -183,7 +184,7 @@ public class DownloadDefaultStickers extends Service {
 			uri = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri));
 			return new File(FileUtils.getPath(getBaseContext(), uri));
 		} else {
-			return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + "/" + dir);
+			return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + "/" + dir);
 		}
 	}
 

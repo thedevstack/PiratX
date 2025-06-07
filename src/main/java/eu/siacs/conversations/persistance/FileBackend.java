@@ -52,6 +52,7 @@ import com.madebyevan.thumbhash.ThumbHash;
 
 import com.wolt.blurhashkt.BlurHashDecoder;
 
+import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.Conversation;
@@ -1125,17 +1126,17 @@ public class FileBackend {
     public File getStorageLocation(final Message message, final String filename, final String mime) {
         final File parentDirectory;
         if (Strings.isNullOrEmpty(mime)) {
-            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat");
+            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME);
         } else if (mime.startsWith("image/")) {
-            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/pictures");
+            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME + "/pictures");
         } else if (mime.startsWith("video/")) {
-            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/videos");
+            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME + "/videos");
         } else if (mime.startsWith("audio/")) {
-            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/audios");
+            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME + "/audios");
         } else if (MediaAdapter.DOCUMENT_MIMES.contains(mime)) {
-            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/documents");
+            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME + "/documents");
         } else {
-            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat");
+            parentDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME);
         }
         final File appDirectory =
                 new File(String.valueOf(parentDirectory));
@@ -1148,11 +1149,11 @@ public class FileBackend {
     }
 
     public void setupNomedia(final boolean nomedia) {
-        final var pictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/pictures");
+        final var pictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME + "/pictures");
         final var picturesNomedia = new File(new File(String.valueOf(pictures)), ".nomedia");
-        final var movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/videos");
+        final var movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME + "/videos");
         final var moviesNomedia = new File(new File(String.valueOf(movies)), ".nomedia");
-        final var audios = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/audios");
+        final var audios = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME + "/audios");
         final var audiosNomedia = new File(new File(String.valueOf(audios)), ".nomedia");
 
         var rescan = false;

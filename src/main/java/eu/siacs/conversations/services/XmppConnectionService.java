@@ -118,6 +118,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.Conversations;
 import eu.siacs.conversations.xmpp.jid.OtrJidHelper;
 import io.ipfs.cid.Cid;
@@ -872,7 +873,7 @@ public class XmppConnectionService extends Service {
             uri = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri));
             return new File(FileUtils.getPath(getBaseContext(), uri));
         } else {
-            return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + "/" + dir);
+            return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + "/" + dir);
         }
     }
 

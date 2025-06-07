@@ -129,6 +129,7 @@ import com.otaliastudios.autocomplete.RecyclerViewPresenter;
 import net.java.otr4j.session.SessionStatus;
 
 import eu.siacs.conversations.AppSettings;
+import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.entities.Bookmark;
 import eu.siacs.conversations.medialib.activities.EditActivity;
 import eu.siacs.conversations.ui.util.QuoteHelper;
@@ -316,7 +317,7 @@ public class ConversationFragment extends XmppFragment
     private boolean reInitRequiredOnStart = true;
     private File savingAsSticker = null;
     private EmojiSearch emojiSearch = null;
-    File dirStickers = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers");
+    File dirStickers = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers");
     private String[] StickerfilesPaths;
     private String[] StickerfilesNames;
     private String[] GifsfilesPaths;
@@ -3469,7 +3470,7 @@ public class ConversationFragment extends XmppFragment
         if (dir.startsWith("content://")) {
             intent.putExtra("android.provider.extra.INITIAL_URI", Uri.parse(dir));
         } else {
-            new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + "/" + dir + "/User Pack").mkdirs();
+            new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + "/" + dir + "/User Pack").mkdirs();
             Uri uri;
             if (Build.VERSION.SDK_INT >= 29) {
                 Intent tmp = ((StorageManager) activity.getSystemService(Context.STORAGE_SERVICE)).getPrimaryStorageVolume().createOpenDocumentTreeIntent();
@@ -5630,7 +5631,7 @@ public class ConversationFragment extends XmppFragment
             parentDirectory = new File(activity.xmppConnectionService.getCacheDir(), "/media");
         } else {
             parentDirectory =
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/monocles chat" + "/recordings");
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + "/" + BuildConfig.APP_NAME + "/recordings");
         }
         return new File(parentDirectory, filename);
     }
