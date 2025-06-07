@@ -42,6 +42,7 @@ public class HttpDownloadConnection implements Transferable {
     private final HttpConnectionManager mHttpConnectionManager;
     private final XmppConnectionService mXmppConnectionService;
     private HttpUrl mUrl;
+    private String originalUrl;
     private DownloadableFile file;
     private int mStatus = Transferable.STATUS_UNKNOWN;
     private boolean acceptedAutomatically = false;
@@ -84,12 +85,13 @@ public class HttpDownloadConnection implements Transferable {
         this.message.setTransferable(this);
         try {
             if (message.hasFileOnRemoteHost()) {
-                mUrl = AesGcmURL.of(fileParams.url);
+                originalUrl = fileParams.url;
             } else if (message.isOOb() && fileParams.url != null) {
-                mUrl = AesGcmURL.of(fileParams.url);
+                originalUrl = fileParams.url;
             } else {
-                mUrl = AesGcmURL.of(message.getRawBody().split("\n")[0]);
+                originalUrl = message.getRawBody().split("\n")[0];
             }
+            mUrl = AesGcmURL.of(originalUrl);
             final AbstractConnectionManager.Extension extension = AbstractConnectionManager.Extension.of(mUrl.encodedPath());
             if (VALID_CRYPTO_EXTENSIONS.contains(extension.main)) {
                 this.message.setEncryption(Message.ENCRYPTION_PGP);
@@ -485,7 +487,7 @@ public class HttpDownloadConnection implements Transferable {
             if (ref != null && AesGcmURL.IV_KEY.matcher(ref).matches()) {
                 url = AesGcmURL.toAesGcmUrl(mUrl);
             } else {
-                url = mUrl.toString();
+                url = originalUrl;
             }
             mXmppConnectionService.getFileBackend().updateFileParams(message, url);
             mXmppConnectionService.updateMessage(message);
