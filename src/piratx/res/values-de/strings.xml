@@ -4,7 +4,7 @@
     <string name="example_jid">username@jabber.thedevstack.de</string>
 	<string name="conversations_backup">Sicherung für PiratX</string>
     <string name="not_a_backup_file">Die von dir ausgewählte Datei ist keine Sicherungsdatei von PiratX</string>
-    <string name="invite_to_app">Einladung zu PiratX</string>
+    <string name="invite_to_app">Zu PiratX einladen</string>
     <string name="welcome_to_monocles_chat">Willkommen bei PiratX</string>
 	<string name="welcome_header_quicksy">Willkommen bei PiratX</string>
 	<string name="quicksy_wants_your_consent">Quicksy bittet dich um deine Zustimmung zur Verwendung deiner Daten</string>
