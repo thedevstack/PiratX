@@ -228,6 +228,25 @@ android {
     }
 
     buildTypes {
+        debug {
+            debuggable true
+            minifyEnabled false
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            resValue "string", "app_name", "PiratX Debug"
+        }
+
+        dev {
+            debuggable true
+            minifyEnabled false
+            applicationIdSuffix ".dev"
+            versionNameSuffix "-dev"
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
+            resValue "string", "app_name", "PiratX Dev"
+        }
+
         release {
             shrinkResources true
             minifyEnabled true
