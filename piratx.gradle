@@ -154,9 +154,7 @@ android {
         versionCode 5
         versionName "0.0.5"
 
-        def appName = "PiratX"
         def xmppDomain = "jabber.thedevstack.de"
-        buildConfigField "String", "APP_NAME", "\"$appName\""
         buildConfigField "String", "PRIVACY_POLICY", "\"https://piratx.thedevstack.de/privacy.html\""
         buildConfigField "String", "XMPP_DOMAIN", "\"$xmppDomain\""
         buildConfigField "String", "SUPPORT_JID", "\"support@$xmppDomain\""
@@ -164,7 +162,6 @@ android {
         buildConfigField "String", "ONBOARDING_URL", "\"onboarding.thedevstack.de\""
         buildConfigField "String", "CHANNEL_DISCOVERY_URL", "\"https://search.jabber.network\""
 
-        resValue "string", "app_name", appName
         resValue "string", "applicationId", applicationId
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -234,7 +231,13 @@ android {
             applicationIdSuffix ".debug"
             versionNameSuffix "-debug"
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            resValue "string", "app_name", "PiratX Debug"
+
+            def appName = "PiratX Debug"
+
+            buildConfigField "String", "APP_NAME", "\"$appName\""
+            resValue "string", "app_name", appName
+
+            resValue "string", "applicationId", "${defaultConfig.applicationId}${applicationIdSuffix}"
         }
 
         dev {
@@ -244,7 +247,12 @@ android {
             versionNameSuffix "-dev"
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
-            resValue "string", "app_name", "PiratX Dev"
+
+            def appName = "PiratX Dev"
+            buildConfigField "String", "APP_NAME", "\"$appName\""
+            resValue "string", "app_name", appName
+
+            resValue "string", "applicationId", "${defaultConfig.applicationId}${applicationIdSuffix}"
         }
 
         release {
