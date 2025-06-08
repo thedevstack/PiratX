@@ -6,6 +6,10 @@
     <string name="picture_compression">never</string>
     <string name="default_push_server">up.thedevstack.de</string>
     <integer name="auto_accept_filesize">10485760</integer>
+    <bool name="show_nav_bar">false</bool>
+    <bool name="show_qr_code_scan">false</bool>
+    <bool name="show_nav_drawer">false</bool>
+    <bool name="load_image_from_any_link">true</bool>
 
     <string-array name="domains">
         <item>jabber.thedevstack.de</item>
