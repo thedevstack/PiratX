@@ -3961,7 +3961,7 @@ public class ConversationFragment extends XmppFragment
                 conversation.showViewPager();
             }
         } else {
-            if (!delayShow) conversation.showViewPager();
+            if (!delayShow) conversation.hideViewPager();
             binding.commandsViewProgressbar.setVisibility(View.VISIBLE);
             activity.xmppConnectionService.fetchCommands(conversation.getAccount(), commandJid, (iq) -> {
                 if (activity == null) return;
@@ -3981,7 +3981,7 @@ public class ConversationFragment extends XmppFragment
                     if (commandAdapter.getCount() < 1) {
                         conversation.hideViewPager();
                     } else if (delayShow) {
-                        conversation.showViewPager();
+                        conversation.hideViewPager();
                     }
                 });
             });
