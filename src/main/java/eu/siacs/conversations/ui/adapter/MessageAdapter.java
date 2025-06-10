@@ -333,6 +333,14 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 viewHolder.indicatorReceived().setImageResource(receivedIndicator);
                 if (status == Message.STATUS_SEND_FAILED) {
                     setImageTintError(viewHolder.indicatorReceived());
+                } else if (status == Message.STATUS_SEND_DISPLAYED) {
+                    viewHolder.indicatorReceived().setImageResource(R.drawable.ic_done_all_bold_24dp);
+                    ImageViewCompat.setImageTintList(
+                            viewHolder.indicatorReceived(),
+                            ColorStateList.valueOf(
+                                    MaterialColors.getColor(
+                                            viewHolder.indicatorReceived(),
+                                            androidx.appcompat.R.attr.colorPrimary)));
                 } else {
                     setImageTint(viewHolder.indicatorReceived(), bubbleColor);
                 }
