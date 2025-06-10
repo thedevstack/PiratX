@@ -2892,9 +2892,6 @@ public class XmppConnectionService extends Service {
     }
 
     public void deleteBookmark(final Account account, final Bookmark bookmark) {
-        if (bookmark.getJid().toString().equals("support@conference.monocles.eu")) {
-            getPreferences().edit().putBoolean("monocles_support_bookmark_deleted", true).apply();
-        }
         account.removeBookmark(bookmark);
         final XmppConnection connection = account.getXmppConnection();
         if (connection == null) return;
