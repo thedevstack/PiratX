@@ -1404,7 +1404,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         final var mergeIntoTop = mergeIntoTop(position, message);
         final var mergeIntoBottom = mergeIntoBottom(position, message);
         final var showAvatar =
-                bubbleDesign.showAvatars
+                (bubbleDesign.showAvatars && received)
                         || (viewHolder instanceof StartBubbleMessageItemViewHolder
                         && message.getConversation().getMode() == Conversation.MODE_MULTI);
         setBubblePadding(viewHolder.root(), mergeIntoTop, mergeIntoBottom);
