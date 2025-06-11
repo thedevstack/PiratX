@@ -61,6 +61,9 @@ public class ConversationAdapter
             return;
         }
         CharSequence name = conversation.getName();
+        if  (conversation.withSelf()) {
+            name = viewHolder.binding.getRoot().getResources().getString(R.string.note_to_self_conversation_title, name);
+        }
         if (name instanceof Jid) {
             viewHolder.binding.conversationName.setText(
                     IrregularUnicodeDetector.style(activity, (Jid) name));

@@ -3075,7 +3075,7 @@ public class XmppConnectionService extends Service {
     }
 
     private void restoreMessages(Conversation conversation) {
-        conversation.addAll(0, databaseBackend.getMessages(conversation, Config.PAGE_SIZE));
+        conversation.addAll(0, databaseBackend.getMessages(conversation, Config.PAGE_SIZE), false);
         conversation.findUnsentTextMessages(message -> markMessage(message, Message.STATUS_WAITING));
         conversation.findMessagesAndCallsToNotify(mNotificationService::pushFromBacklog);
     }
@@ -3220,9 +3220,24 @@ public class XmppConnectionService extends Service {
         }
     }
 
+    public void jumpToMessage(final Conversation conversation, final String uuid, JumpToMessageListener listener) {
+        final Runnable runnable = () -> {
+            List<Message> messages = databaseBackend.getMessagesNearUuid(conversation, 30, uuid);
+            if (messages != null && !messages.isEmpty()) {
+                conversation.jumpToHistoryPart(messages);
+                listener.onSuccess();
+            } else {
+                listener.onNotFound();
+            }
+        };
+
+        mDatabaseReaderExecutor.execute(runnable);
+    }
+
     public void loadMoreMessages(
             final Conversation conversation,
             final long timestamp,
+            boolean isForward,
             final OnMoreMessagesLoaded callback) {
         if (XmppConnectionService.this
                 .getMessageArchiveService()
@@ -3237,15 +3252,26 @@ public class XmppConnectionService extends Service {
                         + conversation.getName()
                         + " prior to "
                         + MessageGenerator.getTimestamp(timestamp));
+
+        if (isForward) {
+            Log.d(Config.LOGTAG, "load more messages for " + conversation.getName() + " after " + MessageGenerator.getTimestamp(timestamp));
+        } else {
+            Log.d(Config.LOGTAG, "load more messages for " + conversation.getName() + " prior to " + MessageGenerator.getTimestamp(timestamp));
+        }
+
         final Runnable runnable =
                 () -> {
                     final Account account = conversation.getAccount();
-                    List<Message> messages =
-                            databaseBackend.getMessages(conversation, 50, timestamp);
+                    List<Message> messages = databaseBackend.getMessages(conversation, Config.PAGE_SIZE, timestamp, isForward);
                     if (messages.size() > 0) {
-                        conversation.addAll(0, messages);
+                        if (isForward) {
+                            conversation.addAll(-1, messages, true);
+                        } else {
+                            conversation.addAll(0, messages, true);
+                        }
                         callback.onMoreMessagesLoaded(messages.size(), conversation);
-                    } else if (conversation.hasMessagesLeftOnServer()
+                    } else if (!isForward &&
+                            conversation.hasMessagesLeftOnServer()
                             && account.isOnlineAndConnected()
                             && conversation.getLastClearHistory().getTimestamp() == 0) {
                         final boolean mamAvailable;
@@ -3568,7 +3594,7 @@ public class XmppConnectionService extends Service {
         final var singleMode = c.getMode() == Conversational.MODE_SINGLE;
         final var account = c.getAccount();
         if (loadMessagesFromDb) {
-            c.addAll(0, databaseBackend.getMessages(c, Config.PAGE_SIZE));
+            c.addAll(0, databaseBackend.getMessages(c, Config.PAGE_SIZE), false);
             updateConversationUi();
             c.messagesLoaded.set(true);
         }
@@ -7378,6 +7404,11 @@ public class XmppConnectionService extends Service {
         void onAccountCreated(Account account);
 
         void informUser(int r);
+    }
+
+    public interface JumpToMessageListener {
+        void onSuccess();
+        void onNotFound();
     }
 
     public interface OnMoreMessagesLoaded {

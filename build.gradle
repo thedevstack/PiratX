@@ -79,7 +79,7 @@ dependencies {
     freeImplementation "androidx.emoji2:emoji2-bundled:1.5.0"
     implementation "androidx.emoji2:emoji2-emojipicker:1.5.0"
 
-    implementation 'org.bouncycastle:bcmail-jdk18on:1.80'
+    implementation 'org.bouncycastle:bcmail-jdk18on:1.81'
     implementation 'com.google.zxing:core:3.5.3'
     implementation 'me.leolin:ShortcutBadger:1.1.22@aar'
     implementation 'org.whispersystems:signal-protocol-java:2.6.2'
@@ -148,8 +148,8 @@ android {
     defaultConfig {
         minSdkVersion 23
         targetSdkVersion 34
-        versionCode 185
-        versionName "2.0.8"
+        versionCode 186
+        versionName "2.0.9"
         applicationId "de.monocles.chat"
         def appName = "monocles chat"
         resValue "string", "app_name", appName
@@ -205,8 +205,8 @@ android {
         monocleschat {
             dimension "mode"
             applicationId = "de.monocles.chat"
-            versionCode 185
-            versionName "2.0.8"
+            versionCode 186
+            versionName "2.0.9"
             def appName = "monocles chat"
             resValue "string", "app_name", appName
             buildConfigField "String", "APP_NAME", "\"$appName\""
