@@ -662,7 +662,9 @@ public class NotificationService {
                         mXmppConnectionService, channelId);
         if (mXmppConnectionService.getBooleanPreference("app_lock_enabled", R.bool.app_lock_enabled)) {
             final Contact contact = id.getContact();
+            /*
             builder.addPerson(getPerson(contact));
+             */
             ShortcutInfoCompat info = mXmppConnectionService.getShortcutService().getShortcutInfo(contact);
             builder.setShortcutInfo(info);
             if (Build.VERSION.SDK_INT >= 30) {
@@ -677,21 +679,27 @@ public class NotificationService {
                     createPendingRtpSession(id, RtpSessionActivity.ACTION_ACCEPT_CALL, 103)
             );
             if (media.contains(Media.VIDEO)) {
-                // style.setIsVideo(true);
+                style.setIsVideo(true);
                 builder.setSmallIcon(R.drawable.ic_videocam_24dp);
+                /*
                 builder.setContentTitle(
                         mXmppConnectionService.getString(R.string.rtp_state_incoming_video_call));
+                 */
             } else {
-                // style.setIsVideo(false);
+                style.setIsVideo(false);
                 builder.setSmallIcon(R.drawable.ic_call_24dp);
+                /*
                 builder.setContentTitle(
                         mXmppConnectionService.getString(R.string.rtp_state_incoming_call));
+                 */
             }
-            // builder.setStyle(style);
+            builder.setStyle(style);
+            /*
             builder.setLargeIcon(FileBackend.drawDrawable(
                     mXmppConnectionService
                             .getAvatarService()
                             .get(contact, AvatarService.getSystemUiAvatarSize(mXmppConnectionService))));
+             */
             final Uri systemAccount = contact.getSystemAccount();
             if (systemAccount != null) {
                 builder.addPerson(systemAccount.toString());
@@ -705,7 +713,9 @@ public class NotificationService {
                 builder.setVibrate(CALL_PATTERN);
             }
             builder.setOnlyAlertOnce(onlyAlertOnce);
+            /*
             builder.setContentText(id.account.getRoster().getContact(id.with).getDisplayName());
+             */
             builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             builder.setPriority(NotificationCompat.PRIORITY_HIGH);
             builder.setCategory(NotificationCompat.CATEGORY_CALL);
@@ -713,6 +723,7 @@ public class NotificationService {
             builder.setFullScreenIntent(pendingIntent, true);
             builder.setContentIntent(pendingIntent); // old androids need this?
             builder.setOngoing(true);
+            /*
             builder.addAction(
                     new NotificationCompat.Action.Builder(
                             R.drawable.ic_call_end_24dp,
@@ -730,6 +741,7 @@ public class NotificationService {
                                     id, RtpSessionActivity.ACTION_ACCEPT_CALL, 103))
                             .build());
             // modifyIncomingCall(builder, id.account);
+             */
             final Notification notification = builder.build();
             notification.audioAttributes = new AudioAttributes.Builder()
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -739,15 +751,19 @@ public class NotificationService {
             notify(INCOMING_CALL_NOTIFICATION_ID, notification);
         } else {
             final Contact contact = id.getContact();
+            /*
             builder.addPerson(getPerson(contact));
+             */
             ShortcutInfoCompat info = mXmppConnectionService.getShortcutService().getShortcutInfo(contact);
             builder.setShortcutInfo(info);
             if (Build.VERSION.SDK_INT >= 30) {
                 mXmppConnectionService.getSystemService(ShortcutManager.class).pushDynamicShortcut(info.toShortcutInfo());
             }
+            /*
             if (mXmppConnectionService.getAccounts().size() > 1) {
                 builder.setSubText(contact.getAccount().getJid().asBareJid().toString());
             }
+             */
             NotificationCompat.CallStyle style = NotificationCompat.CallStyle.forIncomingCall(
                     getPerson(contact),
                     createCallAction(
@@ -759,19 +775,26 @@ public class NotificationService {
             if (media.contains(Media.VIDEO)) {
                 style.setIsVideo(true);
                 builder.setSmallIcon(R.drawable.ic_videocam_24dp);
+                /*
                 builder.setContentTitle(
                         mXmppConnectionService.getString(R.string.rtp_state_incoming_video_call));
+                 */
             } else {
                 style.setIsVideo(false);
                 builder.setSmallIcon(R.drawable.ic_call_24dp);
+                /*
                 builder.setContentTitle(
                         mXmppConnectionService.getString(R.string.rtp_state_incoming_call));
+                 */
             }
             builder.setStyle(style);
+            /*
             builder.setLargeIcon(FileBackend.drawDrawable(
                     mXmppConnectionService
                             .getAvatarService()
                             .get(contact, AvatarService.getSystemUiAvatarSize(mXmppConnectionService))));
+
+             */
             final Uri systemAccount = contact.getSystemAccount();
             if (systemAccount != null) {
                 builder.addPerson(systemAccount.toString());
@@ -785,7 +808,9 @@ public class NotificationService {
                 builder.setVibrate(CALL_PATTERN);
             }
             builder.setOnlyAlertOnce(onlyAlertOnce);
+            /*
             builder.setContentText(id.account.getRoster().getContact(id.with).getDisplayName());
+             */
             builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             builder.setPriority(NotificationCompat.PRIORITY_HIGH);
             builder.setCategory(NotificationCompat.CATEGORY_CALL);
@@ -793,6 +818,7 @@ public class NotificationService {
             builder.setFullScreenIntent(pendingIntent, true);
             builder.setContentIntent(pendingIntent); // old androids need this?
             builder.setOngoing(true);
+            /*
             builder.addAction(
                     new NotificationCompat.Action.Builder(
                             R.drawable.ic_call_end_24dp,
@@ -810,6 +836,7 @@ public class NotificationService {
                                     id, RtpSessionActivity.ACTION_ACCEPT_CALL, 103))
                             .build());
             modifyIncomingCall(builder, id.account);
+             */
             final Notification notification = builder.build();
             notification.audioAttributes = new AudioAttributes.Builder()
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -851,12 +878,15 @@ public class NotificationService {
             }
         }
         builder.setStyle(style);
+        /*
         builder.setContentText(contact.getDisplayName());
+         */
         builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
         builder.setPriority(NotificationCompat.PRIORITY_HIGH);
         builder.setCategory(NotificationCompat.CATEGORY_CALL);
         builder.setContentIntent(createPendingRtpSession(id, Intent.ACTION_VIEW, 101));
         builder.setOngoing(true);
+        /*
         builder.addAction(
                 new NotificationCompat.Action.Builder(
                         R.drawable.ic_call_end_24dp,
@@ -864,6 +894,7 @@ public class NotificationService {
                         createCallAction(
                                 id.sessionId, XmppConnectionService.ACTION_END_CALL, 104))
                         .build());
+         */
         builder.setLocalOnly(true);
         return builder.build();
     }
