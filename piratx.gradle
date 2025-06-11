@@ -236,6 +236,7 @@ android {
 
             buildConfigField "String", "APP_NAME", "\"$appName\""
             resValue "string", "app_name", appName
+            resValue "string", "git_hash", grgit.head().abbreviatedId
 
             resValue "string", "applicationId", "${defaultConfig.applicationId}${applicationIdSuffix}"
         }
@@ -251,6 +252,7 @@ android {
             def appName = "PiratX Dev"
             buildConfigField "String", "APP_NAME", "\"$appName\""
             resValue "string", "app_name", appName
+            resValue "string", "git_hash", grgit.head().abbreviatedId
 
             resValue "string", "applicationId", "${defaultConfig.applicationId}${applicationIdSuffix}"
         }

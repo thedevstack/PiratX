@@ -25,6 +25,12 @@ public class MainSettingsFragment extends PreferenceFragmentCompat {
         }
         about.setTitle(getString(R.string.title_activity_about_x, BuildConfig.APP_NAME));
         about.setSummary(
+                BuildConfig.DEBUG ?
+                String.format("%s %s @ %s",
+                        BuildConfig.APP_NAME,
+                        BuildConfig.VERSION_NAME,
+                        getString(R.string.git_hash))
+                :
                 String.format(
                         "%s %s %s @ %s · %s · %s",
                         BuildConfig.APP_NAME,
