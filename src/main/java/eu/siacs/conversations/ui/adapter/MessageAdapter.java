@@ -795,6 +795,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
 
         viewHolder.messageBody().setAutoLinkMask(0);
+        body = de.thedevstack.piratx.utils.PiratXMessageUtil.adjustBodyIfNecessary(message, body);
         viewHolder.messageBody().setText(body);
 
         // Experimental expandable text, collapse after 8 lines
@@ -1526,7 +1527,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         if (muted) {
             // Muted MUC participant
             displayInfoMessage(viewHolder, "Muted", bubbleColor);
-        } else if (unInitiatedButKnownSize || message.isDeleted() || (transferable != null && transferable.getStatus() != Transferable.STATUS_UPLOADING)) {
+        } else if (unInitiatedButKnownSize || (message.getType() > Message.TYPE_TEXT && message.isDeleted()) || (transferable != null && transferable.getStatus() != Transferable.STATUS_UPLOADING)) {
             if (unInitiatedButKnownSize || (message.isDeleted() && message.getModerated() == null) || transferable != null && transferable.getStatus() == Transferable.STATUS_OFFER) {
                 displayDownloadableMessage(viewHolder, message, activity.getString(R.string.download_x_file, UIHelper.getFileDescriptionString(activity, message)), bubbleColor);
             } else if (transferable != null && transferable.getStatus() == Transferable.STATUS_OFFER_CHECK_FILESIZE) {

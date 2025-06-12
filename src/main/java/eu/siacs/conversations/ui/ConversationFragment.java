@@ -2593,8 +2593,9 @@ public class ConversationFragment extends XmppFragment
                                 message.setInReplyTo(null);
                                 message.clearPayloads();
                             }
-                            message.setBody(" ");
+                            message.setBody(getString(R.string.retract_message_fallback));
                             message.setSubject(null);
+                            message.setDeleted(true);
                             message.putEdited(message.getUuid(), message.getServerMsgId());
                             message.setServerMsgId(null);
                             message.setUuid(UUID.randomUUID().toString());
