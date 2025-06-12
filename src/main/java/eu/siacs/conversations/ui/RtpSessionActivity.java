@@ -1140,7 +1140,7 @@ public class RtpSessionActivity extends XmppActivity
             final CallIntegration.AudioDevice selectedAudioDevice, final int numberOfChoices) {
         switch (selectedAudioDevice) {
             case EARPIECE -> {
-                this.binding.inCallActionRight.setImageResource(R.drawable.ic_volume_off_24dp);
+                this.binding.inCallActionRight.setImageResource(R.drawable.ic_phone_in_talk_24dp);
                 if (numberOfChoices >= 2) {
                     this.binding.inCallActionRight.setContentDescription(
                             getString(R.string.call_is_using_earpiece_tap_to_switch_to_speaker));
