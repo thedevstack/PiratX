@@ -22,4 +22,6 @@
     <string name="pref_export_settings_summary">Exportiere die PiratX App Einstellungen in den Backup Ordner</string>
     <string name="presence_away">Abwesend</string>
     <string name="pref_show_avatars_summary">Avatare der Kontakte in allen Chats anzeigen, nicht nur in Gruppenunterhaltungen.</string>
+    <string name="retract_message_fallback">/me hat eine vorherige Nachricht zurückgezogen, Dein Client unterstützt dies nicht.</string>
+    <string name="message_retracted">Diese Nachricht wurde zurückgezogen.</string>
 </resources>

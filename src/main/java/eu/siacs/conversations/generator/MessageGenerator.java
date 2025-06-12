@@ -3,6 +3,8 @@ package eu.siacs.conversations.generator;
 import net.java.otr4j.OtrException;
 import net.java.otr4j.session.Session;
 
+import de.thedevstack.piratx.xmpp.Fallback;
+import de.thedevstack.piratx.xmpp.Retract;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.crypto.axolotl.XmppAxolotlMessage;
@@ -75,8 +77,12 @@ public class MessageGenerator extends AbstractGenerator {
                 && !conversation.getMucOptions().stableId()) {
             packet.addExtension(new OriginId(message.getUuid()));
         }
-        if (message.edited()) {
+        if (message.edited() && !message.isDeleted()) {
             packet.addExtension(new Replace(message.getEditedIdWireFormat()));
+        }
+        if (message.isDeleted()) {
+            packet.addExtension(new Retract(message.getEditedIdWireFormat()));
+            packet.addExtension(new Fallback(Retract.NAMESPACE));
         }
         if (!legacyEncryption) {
             if (message.getSubject() != null && message.getSubject().length() > 0) packet.addChild("subject").setContent(message.getSubject());
