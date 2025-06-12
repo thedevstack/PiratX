@@ -1596,38 +1596,54 @@ public class ConversationFragment extends XmppFragment
         }
         final PresenceSelector.OnPresenceSelected callback =
                 () -> {
+                    /*
                     final Iterator<Attachment> i = attachments.iterator();
                     final Runnable next = new Runnable() {
                         @Override
                         public void run() {
                             try {
                                 if (!i.hasNext()) return;
+                     */
+                            for (Iterator<Attachment> i = attachments.iterator(); i.hasNext(); i.remove()) {
                                 final Attachment attachment = i.next();
                                 if (attachment.getType() == Attachment.Type.LOCATION) {
                                     attachLocationToConversation(conversation, attachment.getUri());
+                                    /*
                                     if (i.hasNext()) runOnUiThread(this);
+                                     */
                                 } else if (attachment.getType() == Attachment.Type.IMAGE) {
                                     Log.d(
                                             Config.LOGTAG,
                                             "ConversationsActivity.commitAttachments() - attaching image to conversations. CHOOSE_IMAGE");
+                                    /*
                                     attachImageToConversation(conversation, attachment.getUri(), attachment.getMime(), this);
+                                     */
+                                    attachImageToConversation(conversation, attachment.getUri(), attachment.getMime(), null);
                                 } else {
                                     Log.d(
                                             Config.LOGTAG,
                                             "ConversationsActivity.commitAttachments() - attaching file to conversations. CHOOSE_FILE/RECORD_VOICE/RECORD_VIDEO");
+                                    /*
                                     attachFileToConversation(conversation, attachment.getUri(), attachment.getMime(), this);
+                                     */
+                                    attachFileToConversation(conversation, attachment.getUri(), attachment.getMime(), null);
                                 }
+                                /*
                                 i.remove();
                                 if (!i.hasNext()) messageSent();
                             } catch (final java.util.ConcurrentModificationException e) {
                                 // Abort, leave any unsent attachments alone for the user to try again
                                 Toast.makeText(activity, "Sometimes went wrong with some attachments. Try again?", Toast.LENGTH_SHORT).show();
                             }
+                                 */
+                            }
                             mediaPreviewAdapter.notifyDataSetChanged();
                             toggleInputMethod();
+                            /*
                         }
                     };
                     next.run();
+                             */
                 };
         if (conversation == null
                 || conversation.getMode() == Conversation.MODE_MULTI
