@@ -895,6 +895,8 @@ public class NotificationService {
                                 id.sessionId, XmppConnectionService.ACTION_END_CALL, 104))
                         .build());
          */
+        builder.setUsesChronometer(true)
+                .setWhen(System.currentTimeMillis());
         builder.setLocalOnly(true);
         return builder.build();
     }
