@@ -12,6 +12,7 @@
     <bool name="load_image_from_any_link">true</bool>
     <bool name="away_when_screen_off">false</bool>
     <bool name="show_avatars">true</bool>
+    <bool name="app_lock_enabled">false</bool>
 
     <string-array name="domains">
         <item>jabber.thedevstack.de</item>

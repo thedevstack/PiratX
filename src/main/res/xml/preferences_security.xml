@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:android="http://schemas.android.com/apk/res/android">
     <PreferenceCategory android:title="@string/pref_category_e2ee">
         <ListPreference
             android:defaultValue="@string/omemo_setting_default"
@@ -58,6 +59,7 @@
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/pref_category_on_this_device">
         <SwitchPreferenceCompat
+            app:enabled="false"
             android:defaultValue="@bool/app_lock_enabled"
             android:key="app_lock_enabled"
             android:icon="@drawable/ic_lock_24dp"
