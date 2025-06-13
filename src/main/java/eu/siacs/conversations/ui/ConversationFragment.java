@@ -2384,7 +2384,7 @@ public class ConversationFragment extends XmppFragment
     private void populateContextMenu(final ContextMenu menu) {
         final Message m = this.selectedMessage;
         final Transferable t = m.getTransferable();
-        if (m.getType() != Message.TYPE_STATUS && m.getType() != Message.TYPE_RTP_SESSION) {
+        if (m.getType() != Message.TYPE_STATUS && m.getType() != Message.TYPE_RTP_SESSION && !de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(m)) {
 
             if (m.getEncryption() == Message.ENCRYPTION_AXOLOTL_NOT_FOR_THIS_DEVICE
                     || m.getEncryption() == Message.ENCRYPTION_AXOLOTL_FAILED) {

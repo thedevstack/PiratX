@@ -266,7 +266,9 @@ public class UIHelper {
             }
         } else {
             final String body = MessageUtils.filterLtrRtl(message.getBody());
-            if (body.startsWith(Message.ME_COMMAND)) {
+            if (de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)) {
+                return new Pair<>(context.getString(R.string.message_retracted), true);
+            } else if (body.startsWith(Message.ME_COMMAND)) {
                 return new Pair<>(
                         body.replaceAll(
                                 "^" + Message.ME_COMMAND,

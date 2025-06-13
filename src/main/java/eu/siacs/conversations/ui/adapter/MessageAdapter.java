@@ -1855,6 +1855,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     && !message.isPrivateMessage()
                     && (message.getEncryption() == Message.ENCRYPTION_NONE
                     || activity.getBooleanPreference("allow_unencrypted_reactions", R.bool.allow_unencrypted_reactions))
+                    && !de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)
                     && !message.isDeleted()
                     && (c.getMode() == Conversational.MODE_SINGLE
                     || (c.getMucOptions().occupantId()

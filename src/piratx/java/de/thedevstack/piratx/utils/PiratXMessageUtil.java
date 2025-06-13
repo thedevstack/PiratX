@@ -12,19 +12,24 @@ import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.xml.Element;
 
 public class PiratXMessageUtil {
-    public static SpannableStringBuilder adjustBodyIfNecessary(Message message, SpannableStringBuilder body) {
+
+    public static boolean isRetracted(Message message) {
         if (message.isDeleted() && message.getType() == Message.TYPE_TEXT) {
-            Log.d("Adjusting", "message is deleted");
-            body = createRetractionBody(message);
+           return true;
         } else if (null != message.getPayloads()) {
             for (Element payload : message.getPayloads()) {
-                Log.d("Adjusting", payload.toString());
                 if ("urn:xmpp:message-retract:1".equals(payload.getNamespace())) {
-                    body = createRetractionBody(message);
-
-                    break;
+                    return true;
                 }
             }
+        }
+        return false;
+    }
+
+    public static SpannableStringBuilder adjustBodyIfNecessary(Message message, SpannableStringBuilder body) {
+        if (isRetracted(message)) {
+            Log.d("Adjusting", "adjusting retracted message");
+            body = createRetractionBody(message);
         }
 
         return body;
