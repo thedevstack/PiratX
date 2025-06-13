@@ -325,7 +325,7 @@ public class ConversationFragment extends XmppFragment
     private String[] GifsfilesPaths;
     private String[] GifsfilesNames;
 
-    private LinkedList<Message> replyJumps = new LinkedList<>();
+    private Message previousClickedReply = null;
 
     private PinnedMessageRepository pinnedMessageRepository;
     private String currentDisplayedPinnedMessageUuid = null; // To track what's shown
@@ -808,19 +808,16 @@ public class ConversationFragment extends XmppFragment
                 public void onClick(View v) {
                     stopScrolling();
 
-                    if (!replyJumps.isEmpty()) {
+                    if (previousClickedReply != null) {
                         int lastVisiblePosition = binding.messagesView.getLastVisiblePosition();
                         Message lastVisibleMessage = messageListAdapter.getItem(lastVisiblePosition);
-                        if (lastVisibleMessage == null) {
-                            replyJumps.clear();
-                        } else {
-                            while (!replyJumps.isEmpty()) {
-                                Message jump = replyJumps.pop();
-                                if (jump.getTimeSent() > lastVisibleMessage.getTimeSent()) {
-                                    Runnable postSelectionRunnable = () -> highlightMessage(jump.getUuid());
-                                    updateSelection(jump.getUuid(), binding.messagesView.getHeight() / 2, postSelectionRunnable, false, false);
-                                    return;
-                                }
+                        Message jump = previousClickedReply;
+                        previousClickedReply = null;
+                        if (lastVisibleMessage != null) {
+                            if (jump.getTimeSent() > lastVisibleMessage.getTimeSent()) {
+                                Runnable postSelectionRunnable = () -> highlightMessage(jump.getUuid());
+                                updateSelection(jump.getUuid(), binding.messagesView.getHeight() / 2, postSelectionRunnable, false, false);
+                                return;
                             }
                         }
                     }
@@ -1750,7 +1747,7 @@ public class ConversationFragment extends XmppFragment
         if (pinnedMessageRepository == null && getActivity() != null) {
             pinnedMessageRepository = new PinnedMessageRepository(getActivity().getApplicationContext());
         }
-        if (savedInstanceState == null) {
+        if (savedInstanceState == null && conversation != null) {
             conversation.jumpToLatest();
         }
     }
@@ -2233,7 +2230,7 @@ public class ConversationFragment extends XmppFragment
 
         if (replyId != null) {
             Runnable postSelectionRunnable = () -> highlightMessage(replyId);
-            replyJumps.push(message);
+            previousClickedReply = message;
             updateSelection(replyId, binding.messagesView.getHeight() / 2, postSelectionRunnable, true, false);
         }
     }
@@ -4138,7 +4135,7 @@ public class ConversationFragment extends XmppFragment
             refreshCommands(false);
         }
         binding.commandsNote.setVisibility(activity.xmppConnectionService.isOnboarding() ? View.VISIBLE : View.GONE);
-        replyJumps.clear();
+        previousClickedReply = null;
         return true;
     }
 
@@ -4212,7 +4209,7 @@ public class ConversationFragment extends XmppFragment
         }
         this.binding.scrollToBottomButton.setEnabled(false);
         this.binding.scrollToBottomButton.hide();
-        replyJumps.clear();
+        previousClickedReply = null;
         this.binding.unreadCountCustomView.setVisibility(View.GONE);
     }
 
