@@ -2718,6 +2718,7 @@ public class ConversationFragment extends XmppFragment
             case R.id.attach_location:
                 handleAttachmentSelection(item);
                 break;
+            /*
             case R.id.attach_webxdc:
                 final Intent intent = new Intent(getActivity(), WebxdcStore.class);
                 startActivityForResult(intent, REQUEST_WEBXDC_STORE);
@@ -2725,6 +2726,7 @@ public class ConversationFragment extends XmppFragment
             case R.id.attach_subject:
                 binding.textinputSubject.setVisibility(binding.textinputSubject.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
                 break;
+             */
             case R.id.attach_schedule:
                 scheduleMessage();
                 break;

@@ -33,6 +33,7 @@
         app:summary="@string/pref_connection_summary_w_cd"
         app:title="@string/pref_connection_options" />
     <Preference
+        android:enabled="false"
         android:icon="@drawable/toys_and_games_24dp"
         android:key="extensions"
         app:summary="@string/pref_extensions_summary"

@@ -63,7 +63,9 @@ public class ConversationMenuConfigurator {
 		}
 		if (menuAttach != null) menuAttach.setVisible(visible);
 		// if (visible) menu.findItem(R.id.attach_record_voice).setVisible(microphoneAvailable);
+		/*
 		menu.findItem(R.id.attach_subject).setVisible(conversation.getNextEncryption() == Message.ENCRYPTION_NONE);
+		 */
 		if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N || isTextEmpty) {
 			menu.findItem(R.id.attach_schedule).setVisible(false);
 		}

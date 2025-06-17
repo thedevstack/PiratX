@@ -58,6 +58,7 @@
                 android:icon="@drawable/ic_location_pin_24dp"
                 android:title="@string/send_location" />
 
+<!--
             <item
                 android:id="@+id/attach_webxdc"
                 android:icon="@drawable/toys_and_games_24dp"
@@ -68,6 +69,7 @@
                 android:icon="@drawable/subject"
                 android:title="@string/add_subject" />
                 android:orderInCategory="2" />
+-->
 
             <item
                 android:id="@+id/attach_schedule"
