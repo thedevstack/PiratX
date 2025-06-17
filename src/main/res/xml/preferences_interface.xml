@@ -199,6 +199,7 @@
             android:summary="@string/pref_showtextformatting_sum"
             android:title="@string/pref_showtextformatting" />
         <ListPreference
+            android:enabled="false"
             android:defaultValue="@string/quick_action"
             android:dialogTitle="@string/choose_quick_action"
             android:entries="@array/quick_actions"
