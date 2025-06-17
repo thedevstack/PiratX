@@ -63,7 +63,7 @@ public class SendButtonTool {
         final boolean empty = text.isEmpty();
         final boolean conference = c.getMode() == Conversation.MODE_MULTI;
         if (c.getCorrectingMessage() != null
-		          && (empty || (text.equals(c.getCorrectingMessage().getBody()) && (subject.equals(c.getCorrectingMessage().getSubject())) && (c.getThread() == c.getCorrectingMessage().getThread() || (c.getThread() != null && c.getThread().equals(c.getCorrectingMessage().getThread())))))) {
+		          && (empty || (text.equals(c.getCorrectingMessage().getBody())))) {
             return SendButtonAction.CANCEL;
         } else if (conference && !c.getAccount().httpUploadAvailable()) {
             if (empty && c.getNextCounterpart() != null) {
