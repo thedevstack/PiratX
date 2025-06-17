@@ -4879,7 +4879,7 @@ public class ConversationFragment extends XmppFragment
             binding.threadIdenticonLayout.setVisibility(GONE);
         }
         boolean canWrite = canWrite();
-        if (!binding.textinput.getText().toString().isEmpty() || !canWrite) {
+        if (!binding.textinput.getText().toString().isEmpty() || !canWrite || c.getCorrectingMessage() != null) {
             binding.recordVoiceButton.setVisibility(GONE);
             binding.takePictureButton.setVisibility(GONE);
         } else {
