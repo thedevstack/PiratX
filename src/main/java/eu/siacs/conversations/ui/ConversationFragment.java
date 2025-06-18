@@ -102,6 +102,7 @@ import androidx.documentfile.provider.DocumentFile;
 import androidx.emoji2.emojipicker.EmojiPickerView;
 import androidx.recyclerview.widget.RecyclerView.Adapter;
 import androidx.viewpager.widget.PagerAdapter;
+import androidx.viewpager.widget.ViewPager;
 
 import com.bumptech.glide.Glide;
 
@@ -1858,6 +1859,24 @@ public class ConversationFragment extends XmppFragment
                 DataBindingUtil.inflate(inflater, R.layout.fragment_conversation, container, false);
         binding.getRoot().setOnClickListener(null); // TODO why the fuck did we do this?
 
+        // Check if we should adjust the soft keyboard
+        binding.conversationViewPager.addOnPageChangeListener(new ViewPager.OnPageChangeListener() {
+            public void onPageScrollStateChanged(int state) {}
+            public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {}
+
+            public void onPageSelected(int position) {
+                if (position == 0) {
+                    if (activity != null) {
+                        activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+                    }
+                } else {
+                    if (activity != null) {
+                        activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                    }
+                }
+            }
+        });
+
         backPressedLeaveEmojiPicker.setEnabled(binding.emojisStickerLayout.getHeight() > 100);
 
         binding.textinput.setOnEditorActionListener(mEditorActionListener);
@@ -1872,6 +1891,10 @@ public class ConversationFragment extends XmppFragment
             binding.textinput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         }
         binding.textSendButton.setOnClickListener(this.mSendButtonListener);
+        binding.textSendButton.setPadding(0, 0, 10, 0);
+        binding.mucSubjectIcon.setPadding(0, 0, 10, 0);
+        binding.statusMessageIcon.setPadding(0, 0, 10, 0);
+
         binding.cancelButton.setOnClickListener(this.mCancelVoiceRecord);
         binding.shareButton.setOnClickListener(this.mShareVoiceRecord);
         binding.contextPreviewCancel.setOnClickListener((v) -> {
@@ -2169,7 +2192,7 @@ public class ConversationFragment extends XmppFragment
         }
     }
 
-    private void quoteMessage(Message message) {
+    public void quoteMessage(Message message) {
         if (message.isPrivateMessage()) privateMessageWith(message.getCounterpart());
         if (activity.xmppConnectionService != null && activity.xmppConnectionService.getBooleanPreference("show_thread_feature", R.bool.show_thread_feature)) {
             setThread(message.getThread());
@@ -2194,7 +2217,7 @@ public class ConversationFragment extends XmppFragment
         return false;
     }
 
-    public void setupReply(Message message) {
+    private void setupReply(Message message) {
         if (message != null) {
 
             final var correcting = conversation.getCorrectingMessage();
@@ -4056,9 +4079,6 @@ public class ConversationFragment extends XmppFragment
 
     private void reInit(Conversation conversation) {
         reInit(conversation, false, false);
-        if (activity != null) {
-            activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
-        }
     }
 
     private boolean reInit(final Conversation conversation, final boolean hasExtras, final boolean hasMessageUUID) {
@@ -4078,10 +4098,6 @@ public class ConversationFragment extends XmppFragment
             return false;
         }
         updateinputfield(canSendMeCommand());
-        if (activity != null) {
-            activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
-        }
-
         setThread(conversation.getThread());
         setupReply(conversation.getReplyTo());
 
@@ -4643,9 +4659,6 @@ public class ConversationFragment extends XmppFragment
 
     @Override
     public void refresh() {
-        if (activity != null) {
-            activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
-        }
         if (this.binding == null) {
             Log.d(
                     Config.LOGTAG,
@@ -4709,25 +4722,31 @@ public class ConversationFragment extends XmppFragment
 
                         if (Bookmark.printableValue(subject) && !hidden) {
                             binding.mucSubjectText.setText(subject);
+                            binding.mucSubjectIcon.setOnClickListener(v -> ConferenceDetailsActivity.open(getActivity(), conversation));
                             binding.mucSubject.setOnClickListener(v -> ConferenceDetailsActivity.open(getActivity(), conversation));
                             binding.mucSubjectHide.setOnClickListener(v -> {
                                 conversation.getMucOptions().hideSubject();
                                 binding.mucSubject.setVisibility(View.GONE);
                             });
-                            if (activity != null && binding.mucSubjectIcon != null)
-                                binding.mucSubjectIcon.setImageDrawable(ContextCompat.getDrawable(activity, R.drawable.subject));
+                            if (activity != null && binding.mucSubjectIcon != null) {
+                                binding.statusMessageIcon.setVisibility(GONE);
+                                binding.mucSubjectIcon.setVisibility(VISIBLE);
+                            }
                             binding.mucSubject.setVisibility(View.VISIBLE);
                         } else {
                             binding.mucSubject.setVisibility(View.GONE);
                         }
-                    } else if (conversation != null && conversation.getMode() == Conversational.MODE_SINGLE) {
+                    } else if (conversation != null && conversation.getMode() == Conversational.MODE_SINGLE && activity.xmppConnectionService != null && activity.xmppConnectionService.getBooleanPreference("pinned_status_message", R.bool.pinned_status_message)) {
                         boolean statusChange = conversation.onContactUpdatedAndCheckStatusChange(conversation.getContact());
 
                         if (conversation.getLastProcessedStatusText() != null && (statusChange || !conversation.statusMessageHidden())) {
                             binding.mucSubject.setVisibility(View.VISIBLE);
-                            if (activity != null && binding.mucSubjectIcon != null)
-                                binding.mucSubjectIcon.setImageDrawable(ContextCompat.getDrawable(activity, R.drawable.ic_announcement_24dp));
+                            if (activity != null && binding.statusMessageIcon != null) {
+                                binding.mucSubjectIcon.setVisibility(GONE);
+                                binding.statusMessageIcon.setVisibility(VISIBLE);
+                            }
                             binding.mucSubjectText.setText(conversation.getLastProcessedStatusText());
+                            binding.statusMessageIcon.setOnClickListener(v -> activity.switchToContactDetails(conversation.getContact()));
                             binding.mucSubject.setOnClickListener(v -> activity.switchToContactDetails(conversation.getContact()));
                             binding.mucSubjectHide.setOnClickListener(v -> {
                                 conversation.hideStatusMessage();
@@ -4892,12 +4911,13 @@ public class ConversationFragment extends XmppFragment
         }
         this.binding.textSendButton.setTag(action);
         this.binding.textSendButton.setIconTint(ColorStateList.valueOf(SendButtonTool.getSendButtonColor(this.binding.textSendButton, status)));
+        this.binding.mucSubjectIcon.setIconTint(ColorStateList.valueOf(SendButtonTool.getSendButtonColor(this.binding.mucSubjectIcon, status)));
+        this.binding.statusMessageIcon.setIconTint(ColorStateList.valueOf(SendButtonTool.getSendButtonColor(this.binding.statusMessageIcon, status)));
         // TODO send button color
         final Activity activity = getActivity();
         if (activity != null) {
             this.binding.textSendButton.setIconResource(
                     SendButtonTool.getSendButtonImageResource(action, text.length() > 0 || hasAttachments || (c.getThread() != null && binding.textinputSubject.getText().length() > 0)));
-            this.binding.textSendButton.setPadding(0, 0, 10, 0);
         }
         if (activity == null) return;
         final SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(activity);
