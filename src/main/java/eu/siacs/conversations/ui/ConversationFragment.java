@@ -2568,6 +2568,10 @@ public class ConversationFragment extends XmppFragment
                         .setMessage(R.string.do_you_really_want_to_retract_this_message)
                         .setPositiveButton(R.string.yes, (dialog, whichButton) -> {
                             final var message = selectedMessage;
+                            final Editable editable = binding.textinput.getText();
+                            if (editable != null && !editable.toString().isEmpty()) {
+                                this.conversation.setDraftMessage(editable.toString());
+                            }
                             if (message.getStatus() == Message.STATUS_WAITING || message.getStatus() == Message.STATUS_OFFERED) {
                                 activity.xmppConnectionService.deleteMessage(message);
                                 return;
