@@ -1634,6 +1634,7 @@ public class ConversationFragment extends XmppFragment
                             }
                                  */
                             }
+                            conversation.setCaption(null);
                             mediaPreviewAdapter.notifyDataSetChanged();
                             toggleInputMethod();
                             /*
