@@ -73,6 +73,9 @@ public class MediaPreviewAdapter
                     mediaPreviews.remove(pos);
                     notifyItemRemoved(pos);
                     conversationFragment.toggleInputMethod();
+                    if (mediaPreviews.isEmpty()) {
+                        conversationFragment.restoreDraft();
+                    }
                 });
         holder.binding.mediaPreview.setOnClickListener(v -> {
             if (attachment.getType() == Attachment.Type.IMAGE) {
@@ -84,6 +87,7 @@ public class MediaPreviewAdapter
     }
 
     public void replaceOrAddMediaPreview(Uri originalUri, Uri editedUri, Attachment.Type type) {
+        conversationFragment.saveDraft();
         boolean replaced = false;
         for(int i = 0; i < mediaPreviews.size(); i++) {
             Attachment current = mediaPreviews.get(i);
@@ -125,6 +129,7 @@ public class MediaPreviewAdapter
     }
 
     public void addMediaPreviews(List<Attachment> attachments) {
+        conversationFragment.saveDraft();
         this.mediaPreviews.addAll(attachments);
         notifyDataSetChanged();
     }

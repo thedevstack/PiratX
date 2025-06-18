@@ -1225,11 +1225,13 @@ public class ConversationFragment extends XmppFragment
                     @Override
                     public void success(Message message) {
                         hidePrepareFileToast(prepareFileToast);
+                        /*
                         if (next == null) {
                             runOnUiThread(() -> messageSent());
                         } else {
                             runOnUiThread(next);
                         }
+                         */
                     }
 
                     @Override
@@ -1635,6 +1637,7 @@ public class ConversationFragment extends XmppFragment
                                  */
                             }
                             conversation.setCaption(null);
+                            restoreDraft();
                             mediaPreviewAdapter.notifyDataSetChanged();
                             toggleInputMethod();
                             /*
@@ -1663,6 +1666,24 @@ public class ConversationFragment extends XmppFragment
             }
         }
         return false;
+    }
+
+    public void saveDraft() {
+        if (this.conversation.getDraftMessage() == null) {
+            final Editable editable = binding.textinput.getText();
+            if (editable != null && !editable.toString().isEmpty()) {
+                this.conversation.setDraftMessage(editable.toString());
+                this.binding.textinput.setText("");
+            }
+        }
+    }
+
+    public void restoreDraft() {
+        String draft = this.conversation.getDraftMessage();
+        if (draft != null && !draft.isEmpty()) {
+            this.conversation.setDraftMessage(null);
+            this.binding.textinput.setText(draft);
+        }
     }
 
     public void toggleInputMethod() {
