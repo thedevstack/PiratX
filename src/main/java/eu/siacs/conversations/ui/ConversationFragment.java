@@ -2168,7 +2168,9 @@ public class ConversationFragment extends XmppFragment
     public void onDestroyView() {
         super.onDestroyView();
         Log.d(Config.LOGTAG, "ConversationFragment.onDestroyView()");
-
+        if (activity != null) {
+            activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+        }
         messageListAdapter.setOnContactPictureClicked(null);
         messageListAdapter.setOnContactPictureLongClicked(null);
         messageListAdapter.setOnInlineImageLongClicked(null);
@@ -4706,6 +4708,10 @@ public class ConversationFragment extends XmppFragment
                 updateEditablity();
                 conversation.refreshSessions();
 
+                if (activity != null && (binding.tabLayout.getVisibility() == View.GONE || binding.conversationViewPager.getCurrentItem() == 0)) {
+                    activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+                }
+
                 if (activity!= null) activity.runOnUiThread(() -> {
 
                     // Check pinned message presence
@@ -5683,7 +5689,16 @@ public class ConversationFragment extends XmppFragment
                     .add("ONEPLUS A6003")   // OnePlus 6 https://github.com/iNPUTmice/Conversations/issues/4329
                     .add("ONEPLUS A6010")   // OnePlus 6T https://codeberg.org/monocles/monocles_chat/issues/133
                     .add("ONEPLUS A6013")   // OnePlus 6T https://codeberg.org/monocles/monocles_chat/issues/133
+                    .add("Pixel 2") // Pixel 2 // https://codeberg.org/iNPUTmice/Conversations/issues/526
                     .add("Pixel 4a")        // Pixel 4a https://github.com/iNPUTmice/Conversations/issues/4223
+                    .add("SC-03K") // Samsung Galaxy S9+
+                    .add("SCV39") // Samsung Galaxy S9+
+                    .add("SM-G965F") // Samsung Galaxy S9+
+                    .add("SM-G965N") // Samsung Galaxy S9+
+                    .add("SM-G9650") // Samsung Galaxy S9+
+                    .add("SM-G965W") // Samsung Galaxy S9+
+                    .add("SM-G965U") // Samsung Galaxy S9+
+                    .add("SM-G965U1") // Samsung Galaxy S9+  // https://codeberg.org/iNPUTmice/Conversations/issues/526
                     .add("WP12 Pro")        // Oukitel WP 12 Pro https://github.com/iNPUTmice/Conversations/issues/4223
                     .add("Volla Phone X")   // Volla Phone X https://github.com/iNPUTmice/Conversations/issues/4223
                     .add("Redmi Note 12S")  // Xiaomi Redmi Note 12S Model name
@@ -5969,25 +5984,25 @@ public class ConversationFragment extends XmppFragment
                     keyboardHeight  = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom - insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom - 10;
                 }
                 if (keyboardHeight > 100 && !(secondaryFragment instanceof ConversationFragment)) {
-                    binding.keyboardButton.setVisibility(GONE);
-                    binding.emojiButton.setVisibility(VISIBLE);
+                    binding.keyboardButton.setVisibility(View.GONE);
+                    binding.emojiButton.setVisibility(View.VISIBLE);
                     params.height = keyboardHeight;
                     emojipickerview.setLayoutParams(params);
                 } else if (keyboardHeight > 100) {
-                    binding.keyboardButton.setVisibility(GONE);
-                    binding.emojiButton.setVisibility(VISIBLE);
+                    binding.keyboardButton.setVisibility(View.GONE);
+                    binding.emojiButton.setVisibility(View.VISIBLE);
                     params.height = keyboardHeight - 127;
                     emojipickerview.setLayoutParams(params);
-                } else if (binding.emojiButton.getVisibility() == VISIBLE) {
-                    binding.keyboardButton.setVisibility(GONE);
+                } else if (binding.emojiButton.getVisibility() == View.VISIBLE) {
+                    binding.keyboardButton.setVisibility(View.GONE);
                     params.height = 0;
                     emojipickerview.setLayoutParams(params);
-                } else if (binding.keyboardButton.getVisibility() == VISIBLE && keyboardHeight == 0) {
-                    binding.emojiButton.setVisibility(GONE);
+                } else if (binding.keyboardButton.getVisibility() == View.VISIBLE && keyboardHeight == 0) {
+                    binding.emojiButton.setVisibility(View.GONE);
                     params.height = 800;
                     emojipickerview.setLayoutParams(params);
-                } else if (binding.keyboardButton.getVisibility() == VISIBLE && keyboardHeight > 100) {
-                    binding.emojiButton.setVisibility(GONE);
+                } else if (binding.keyboardButton.getVisibility() == View.VISIBLE && keyboardHeight > 100) {
+                    binding.emojiButton.setVisibility(View.GONE);
                     params.height = keyboardHeight;
                     emojipickerview.setLayoutParams(params);
                 }
@@ -6006,25 +6021,25 @@ public class ConversationFragment extends XmppFragment
             keyboardHeightListener = (int keyboardHeight, boolean keyboardOpen, boolean isLandscape) -> {
                 Log.i("keyboard listener", "keyboardHeight: " + keyboardHeight + " keyboardOpen: " + keyboardOpen + " isLandscape: " + isLandscape);
                 if (keyboardOpen && !(secondaryFragment instanceof ConversationFragment)) {
-                    binding.keyboardButton.setVisibility(GONE);
-                    binding.emojiButton.setVisibility(VISIBLE);
+                    binding.keyboardButton.setVisibility(View.GONE);
+                    binding.emojiButton.setVisibility(View.VISIBLE);
                     params.height = keyboardHeight - 10;
                     emojipickerview.setLayoutParams(params);
                 } else if (keyboardOpen) {
-                    binding.keyboardButton.setVisibility(GONE);
-                    binding.emojiButton.setVisibility(VISIBLE);
+                    binding.keyboardButton.setVisibility(View.GONE);
+                    binding.emojiButton.setVisibility(View.VISIBLE);
                     params.height = keyboardHeight - 135;
                     emojipickerview.setLayoutParams(params);
-                } else if (binding.emojiButton.getVisibility() == VISIBLE) {
-                    binding.keyboardButton.setVisibility(GONE);
+                } else if (binding.emojiButton.getVisibility() == View.VISIBLE) {
+                    binding.keyboardButton.setVisibility(View.GONE);
                     params.height = 0;
                     emojipickerview.setLayoutParams(params);
-                } else if (binding.keyboardButton.getVisibility() == VISIBLE && keyboardHeight == 0) {
-                    binding.emojiButton.setVisibility(GONE);
+                } else if (binding.keyboardButton.getVisibility() == View.VISIBLE && keyboardHeight == 0) {
+                    binding.emojiButton.setVisibility(View.GONE);
                     params.height = 600;
                     emojipickerview.setLayoutParams(params);
-                } else if (binding.keyboardButton.getVisibility() == VISIBLE && keyboardHeight > 100) {
-                    binding.emojiButton.setVisibility(GONE);
+                } else if (binding.keyboardButton.getVisibility() == View.VISIBLE && keyboardHeight > 100) {
+                    binding.emojiButton.setVisibility(View.GONE);
                     params.height = keyboardHeight;
                     emojipickerview.setLayoutParams(params);
                 }
