@@ -1,6 +1,7 @@
 package eu.siacs.conversations.ui;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -1471,23 +1472,17 @@ public abstract class XmppActivity extends ActionBarActivity {
         return nightModeFlags == Configuration.UI_MODE_NIGHT_YES;
     }
 
-    public void ShowAvatarPopup(final Activity activity, final AvatarService.Avatarable user) {
-        final AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        AvatarPopup = builder.create();
-        final LayoutInflater inflater = getLayoutInflater();
-        final View dialogLayout = inflater.inflate(R.layout.avatar_dialog, null);
-        AvatarPopup.setView(dialogLayout);
-        AvatarPopup.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        final ImageView image = (ImageView) dialogLayout.findViewById(R.id.avatar);
-        AvatarWorkerTask.loadAvatar(user, image, R.dimen.avatar_big);
-        AvatarPopup.setOnShowListener((DialogInterface.OnShowListener) d -> {
-            int imageWidthInPX = 0;
-            if (image != null) {
-                imageWidthInPX = Math.round(image.getWidth());
-                AvatarPopup.getWindow().setLayout(imageWidthInPX, imageWidthInPX);
-            }
-        });
-        AvatarPopup.show();
+    public void ShowAvatarPopup(final AvatarService.Avatarable user) {
+        final Dialog dialog = new Dialog(this);
+        dialog.setContentView(R.layout.avatar_dialog); // Your custom layout
+        ImageView imageView = dialog.findViewById(R.id.avatar);
+        AvatarWorkerTask.loadAvatar(user, imageView, R.dimen.avatar_big);
+        imageView.setOnClickListener(v -> dialog.dismiss());
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+
+        dialog.show();
     }
 
     private void hideAvatarPopup() {
