@@ -87,7 +87,9 @@ public class MediaPreviewAdapter
     }
 
     public void replaceOrAddMediaPreview(Uri originalUri, Uri editedUri, Attachment.Type type) {
-        conversationFragment.saveDraft();
+        if (mediaPreviews.isEmpty()) {
+            conversationFragment.saveDraft();
+        }
         boolean replaced = false;
         for(int i = 0; i < mediaPreviews.size(); i++) {
             Attachment current = mediaPreviews.get(i);
@@ -129,7 +131,9 @@ public class MediaPreviewAdapter
     }
 
     public void addMediaPreviews(List<Attachment> attachments) {
-        conversationFragment.saveDraft();
+        if (mediaPreviews.isEmpty()) {
+            conversationFragment.saveDraft();
+        }
         this.mediaPreviews.addAll(attachments);
         notifyDataSetChanged();
     }
