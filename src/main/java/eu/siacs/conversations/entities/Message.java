@@ -1173,8 +1173,10 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
         }
 
         if (includeReplyTo && getInReplyTo() != null && getModerated() == null) {
+            /*
             // Don't show quote if it's the message right before us
             if (prev() != null && prev().getUuid().equals(getInReplyTo().getUuid())) return spannableBody;
+             */
 
             final var quote = getInReplyTo().getSpannableBody(thumbnailer, fallbackImg);
             if ((getInReplyTo().isFileOrImage() || getInReplyTo().isOOb()) && getInReplyTo().getFileParams() != null) {
