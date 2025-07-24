@@ -6,7 +6,7 @@ jobs:
   build:
     runs-on: docker
     container:
-      image: docker.io/redemonbr/android-sdk:node-lts-api-30
+      image: docker.io/redemonbr/android-sdk:node-lts-api-35
 
     steps:
       - name: accept licenses
