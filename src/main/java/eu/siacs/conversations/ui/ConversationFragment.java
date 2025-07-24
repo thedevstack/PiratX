@@ -2782,10 +2782,10 @@ public class ConversationFragment extends XmppFragment
             case R.id.attach_subject:
                 binding.textinputSubject.setVisibility(binding.textinputSubject.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
                 break;
-             */
             case R.id.attach_schedule:
                 scheduleMessage();
                 break;
+             */
             case R.id.action_search:
                 startSearch();
                 break;
