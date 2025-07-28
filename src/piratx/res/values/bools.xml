@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <bool name="use_colored_muc_names">true</bool>
+    <bool name="load_providers_list_external">false</bool>
 </resources>

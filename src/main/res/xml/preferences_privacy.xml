@@ -105,7 +105,8 @@
             android:icon="@drawable/xmpp_providers"
             android:key="load_providers_list_external"
             android:summary="@string/pref_load_providers_list_external_summary"
-            android:title="@string/pref_load_providers_list_external" />
+            android:title="@string/pref_load_providers_list_external"
+            android:enabled="false" />
 
     </PreferenceCategory>
 
