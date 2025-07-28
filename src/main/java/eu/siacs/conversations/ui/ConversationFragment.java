@@ -1276,13 +1276,14 @@ public class ConversationFragment extends XmppFragment
         final Conversation conversation = this.conversation;
         final boolean hasSubject = binding.textinputSubject.getText().length() > 0;
         if (conversation == null || (body.length() == 0 && mediaPreviewAdapter.getItemCount() == 0 && (conversation.getThread() == null || !hasSubject))) {
+            /*
             if (Build.VERSION.SDK_INT >= 24) {
-                //binding.textSendButton.showContextMenu(0, 0);
-                de.thedevstack.piratx.ui.PiratXPopupMenuHelper.createAndShowPopupMenu(getContext(), requireActivity(), binding.textSendButton, this::onOptionsItemSelected, conversation, binding.textinput.getText());
+                binding.textSendButton.showContextMenu(0, 0);
             } else {
-                //binding.textSendButton.showContextMenu();
-                de.thedevstack.piratx.ui.PiratXPopupMenuHelper.createAndShowPopupMenu(getContext(), requireActivity(), binding.textSendButton, this::onOptionsItemSelected, conversation, binding.textinput.getText());
+                binding.textSendButton.showContextMenu();
             }
+             */
+            de.thedevstack.piratx.ui.PiratXPopupMenuHelper.createAndShowPopupMenu(getContext(), requireActivity(), binding.textSendButton, this::onOptionsItemSelected, conversation, binding.textinput.getText());
             return;
         }
         if (trustKeysIfNeeded(conversation, REQUEST_TRUST_KEYS_TEXT)) {
@@ -1939,7 +1940,9 @@ public class ConversationFragment extends XmppFragment
                 new StylingHelper.MessageEditorStyler(binding.textinput, messageListAdapter));
 
         registerForContextMenu(binding.messagesView);
-        //registerForContextMenu(binding.textSendButton);
+        /*
+        registerForContextMenu(binding.textSendButton);
+         */
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             this.binding.textinput.setCustomInsertionActionModeCallback(
@@ -2388,7 +2391,8 @@ public class ConversationFragment extends XmppFragment
         // This should cancel any remaining click events that would otherwise trigger links
         v.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_CANCEL, 0f, 0f, 0));
 
-        /*if (v == binding.textSendButton) {
+        /*
+        if (v == binding.textSendButton) {
             super.onCreateContextMenu(menu, v, menuInfo);
             try {
                 java.lang.reflect.Method m = menu.getClass().getSuperclass().getDeclaredMethod("setOptionalIconsVisible", Boolean.TYPE);
@@ -2397,7 +2401,6 @@ public class ConversationFragment extends XmppFragment
             } catch (Exception e) {
                 e.printStackTrace();
             }
-
             Menu tmpMenu = new PopupMenu(activity, null).getMenu();
             activity.getMenuInflater().inflate(R.menu.fragment_conversation, tmpMenu);
             MenuItem attachMenu = tmpMenu.findItem(R.id.action_attach_file);
@@ -2424,7 +2427,8 @@ public class ConversationFragment extends XmppFragment
             }
             ConversationMenuConfigurator.configureAttachmentMenu(conversation, menu, TextUtils.isEmpty(binding.textinput.getText()));
             return;
-        }*/
+        }
+         */
 
         synchronized (this.messageList) {
             super.onCreateContextMenu(menu, v, menuInfo);
