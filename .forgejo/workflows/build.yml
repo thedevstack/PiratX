@@ -22,7 +22,6 @@ jobs:
           path: ${{ github.workspace }}/build/outputs/apk/*/dev/*-arm64-v8a-*.apk
           if-no-files-found: error
           retention-days: 10
-        working-directory: ${{ github.workspace }}
       - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
         with:
           name: dev-apk-armeabi-v7a
