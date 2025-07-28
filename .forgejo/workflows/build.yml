@@ -11,6 +11,7 @@ jobs:
     steps:
       - name: accept licenses
         run: yes | sdkmanager --licenses > /dev/null
+        shell: sh
       - uses: https://git.fucktheforce.de/actions/checkout@v4
       - name: build dev apk
         run: ./gradlew assembleMonoclesPiratxDev -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
@@ -18,22 +19,20 @@ jobs:
       - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
         with:
           name: dev-apk-arm64-v8a
-          path: build/outputs/apk/*/dev/*-arm64-v8a-*.apk
+          path: ${{ github.workspace }}/build/outputs/apk/*/dev/*-arm64-v8a-*.apk
           if-no-files-found: error
           retention-days: 10
         working-directory: ${{ github.workspace }}
       - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
         with:
           name: dev-apk-armeabi-v7a
-          path: build/outputs/apk/*/dev/*-armeabi-v7a-*.apk
+          path: ${{ github.workspace }}/build/outputs/apk/*/dev/*-armeabi-v7a-*.apk
           if-no-files-found: error
           retention-days: 10
-        working-directory: ${{ github.workspace }}
       - uses: https://git.fucktheforce.de/actions/upload-artifact@v3
         with:
           name: dev-apk-universal
-          path: build/outputs/apk/*/dev/*-universal-*.apk
+          path: ${{ github.workspace }}/build/outputs/apk/*/dev/*-universal-*.apk
           if-no-files-found: error
           retention-days: 10
-        working-directory: ${{ github.workspace }}
 
