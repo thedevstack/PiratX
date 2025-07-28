@@ -10,8 +10,9 @@ jobs:
 
     steps:
       - name: accept licenses
-        run: yes | sdkmanager --licenses > /dev/null
-        shell: sh
+        run: |
+          set +o pipefail
+          yes | sdkmanager --licenses > /dev/null
       - uses: https://git.fucktheforce.de/actions/checkout@v4
       - name: build dev apk
         run: ./gradlew assembleMonoclesPiratxDev -Dorg.gradle.jvmargs=-Xmx2g --no-daemon
