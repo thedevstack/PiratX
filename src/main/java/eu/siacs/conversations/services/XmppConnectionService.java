@@ -865,7 +865,7 @@ public class XmppConnectionService extends Service {
         });
     }
 
-    private File stickerDir() {
+    public File stickerDir() {
         SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
         final String dir = p.getString("sticker_directory", "Stickers");
         if (dir.startsWith("content://")) {
@@ -6733,6 +6733,9 @@ public class XmppConnectionService extends Service {
                 if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL && newReactions.size() > 0) {
                     FILE_ATTACHMENT_EXECUTOR.execute(() -> {
                         XmppAxolotlMessage axolotlMessage = conversation.getAccount().getAxolotlService().encrypt(body, conversation);
+                        if (axolotlMessage == null) {
+                            return;
+                        }
                         packet.setAxolotlMessage(axolotlMessage.toElement());
                         packet.addChild("encryption", "urn:xmpp:eme:0")
                                 .setAttribute("name", "OMEMO")
