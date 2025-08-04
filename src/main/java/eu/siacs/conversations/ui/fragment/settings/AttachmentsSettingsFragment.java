@@ -220,13 +220,13 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                             InputStream in;
                             OutputStream out;
                             try {
-                                File stickerfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "Custom");
+                                File stickerfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers" + File.separator + "Custom");
                                 //create output directory if it doesn't exist
                                 if (!stickerfolder.exists()) {
                                     stickerfolder.mkdirs();
                                 }
                                 String filename = getFileName(imageUri);
-                                File newSticker = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "Custom" + File.separator + filename);
+                                File newSticker = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers" + File.separator + "Custom" + File.separator + filename);
 
                                 in = requireXmppActivity().getContentResolver().openInputStream(imageUri);
                                 out = new FileOutputStream(newSticker);
@@ -259,13 +259,13 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                         InputStream in;
                         OutputStream out;
                         try {
-                            File stickerfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "Custom");
+                            File stickerfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers" + File.separator + "Custom");
                             //create output directory if it doesn't exist
                             if (!stickerfolder.exists()) {
                                 stickerfolder.mkdirs();
                             }
                             String filename = getFileName(imageUri);
-                            File newSticker = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "Custom" + File.separator + filename);
+                            File newSticker = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers" + File.separator + "Custom" + File.separator + filename);
 
                             in = requireXmppActivity().getContentResolver().openInputStream(imageUri);
                             out = new FileOutputStream(newSticker);
@@ -305,13 +305,13 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                             InputStream in;
                             OutputStream out;
                             try {
-                                File gifsfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "GIFs");
+                                File gifsfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers" + File.separator + "GIFs");
                                 //create output directory if it doesn't exist
                                 if (!gifsfolder.exists()) {
                                     gifsfolder.mkdirs();
                                 }
                                 String filename = getFileName(imageUri);
-                                File newGif = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "GIFs" + File.separator + filename);
+                                File newGif = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers" + File.separator + "GIFs" + File.separator + filename);
 
                                 in = requireXmppActivity().getContentResolver().openInputStream(imageUri);
                                 out = new FileOutputStream(newGif);
@@ -341,13 +341,13 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                         InputStream in;
                         OutputStream out;
                         try {
-                            File gifsfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "GIFs");
+                            File gifsfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers" + File.separator + "GIFs");
                             //create output directory if it doesn't exist
                             if (!gifsfolder.exists()) {
                                 gifsfolder.mkdirs();
                             }
                             String filename = getFileName(imageUri);
-                            File newGif = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "GIFs" + File.separator + filename);
+                            File newGif = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + File.separator + "Stickers" + File.separator + "GIFs" + File.separator + filename);
 
                             in = requireXmppActivity().getContentResolver().openInputStream(imageUri);
                             out = new FileOutputStream(newGif);
