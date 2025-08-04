@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-	<string name="mappreview_url">https://piratx.thedevstack.de/staticmap</string>
+	<string name="mappreview_url">https://staticmap.thedevstack.de/map.png</string>
     <string name="example_jid">username@jabber.thedevstack.de</string>
 	<string name="conversations_backup">Sicherung für PiratX</string>
     <string name="not_a_backup_file">Die von dir ausgewählte Datei ist keine Sicherungsdatei von PiratX</string>
