@@ -72,6 +72,7 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
     public void onCreatePreferences(@Nullable Bundle savedInstanceState, @Nullable String rootKey) {
         setPreferencesFromResource(R.xml.preferences_attachments, rootKey);
 
+        /*
         final var p = PreferenceManager.getDefaultSharedPreferences(requireActivity());
         final var stickerDir = findPreference("sticker_directory");
         if (Build.VERSION.SDK_INT >= 29) {
@@ -84,6 +85,7 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
         } else {
             stickerDir.setVisible(false);
         }
+        */
 
         final var importOwnStickers = findPreference("import_own_stickers");
         if (importOwnStickers != null) {
@@ -122,25 +124,29 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
         }
 
         final var downloadDefaultStickers = findPreference("download_default_stickers");
-        downloadDefaultStickers.setOnPreferenceClickListener((pref) -> {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                    requestStorageLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        if (downloadDefaultStickers != null) {
+            downloadDefaultStickers.setOnPreferenceClickListener((pref) -> {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        requestStorageLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+                    } else {
+                        downloadStickers();
+                    }
                 } else {
                     downloadStickers();
                 }
-            } else {
-                downloadStickers();
-            }
-            return true;
-        });
+                return true;
+            });
+        }
 
         final var clearBlockedMedia = findPreference("clear_blocked_media");
-        clearBlockedMedia.setOnPreferenceClickListener((pref) -> {
-            requireService().clearBlockedMedia();
-            runOnUiThread(() -> Toast.makeText(requireActivity(), "Blocked media will be displayed again", Toast.LENGTH_LONG).show());
-            return true;
-        });
+        if (clearBlockedMedia != null) {
+            clearBlockedMedia.setOnPreferenceClickListener((pref) -> {
+                requireService().clearBlockedMedia();
+                runOnUiThread(() -> Toast.makeText(requireActivity(), "Blocked media will be displayed again", Toast.LENGTH_LONG).show());
+                return true;
+            });
+        }
 
         final ListPreference autoAcceptFileSize = findPreference("auto_accept_file_size");
         if (autoAcceptFileSize == null) {
@@ -191,10 +197,9 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
     @Override
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (data == null) return;
-
+        /*
         final var p = PreferenceManager.getDefaultSharedPreferences(requireActivity());
-
-        if (data.getData() != null && requestCode == 0 /* Check for the sticker directory change request code if it's different */ ) {
+        if (data.getData() != null && requestCode == 0 ) {
             String newStickerDirPath = data.getData().toString();
             p.edit().putString("sticker_directory", newStickerDirPath).apply(); // Use apply() for asynchronous save
             final var stickerDirPreference = findPreference("sticker_directory");
@@ -202,6 +207,7 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                 stickerDirPreference.setSummary(newStickerDirPath);
             }
         }
+        */
 
         // Import and compress stickers
         if(requestCode == REQUEST_IMPORT_STICKERS) {
@@ -214,13 +220,13 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                             InputStream in;
                             OutputStream out;
                             try {
-                                File stickerfolder = new File(requireXmppActivity().xmppConnectionService.stickerDir().getAbsolutePath() + File.separator + "Custom");
+                                File stickerfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "Custom");
                                 //create output directory if it doesn't exist
                                 if (!stickerfolder.exists()) {
                                     stickerfolder.mkdirs();
                                 }
                                 String filename = getFileName(imageUri);
-                                File newSticker = new File(requireXmppActivity().xmppConnectionService.stickerDir().getAbsolutePath() + File.separator + "Custom" + File.separator + filename);
+                                File newSticker = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "Custom" + File.separator + filename);
 
                                 in = requireXmppActivity().getContentResolver().openInputStream(imageUri);
                                 out = new FileOutputStream(newSticker);
@@ -253,13 +259,13 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                         InputStream in;
                         OutputStream out;
                         try {
-                            File stickerfolder = new File(requireXmppActivity().xmppConnectionService.stickerDir().getAbsolutePath() + File.separator + "Custom");
+                            File stickerfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "Custom");
                             //create output directory if it doesn't exist
                             if (!stickerfolder.exists()) {
                                 stickerfolder.mkdirs();
                             }
                             String filename = getFileName(imageUri);
-                            File newSticker = new File(requireXmppActivity().xmppConnectionService.stickerDir().getAbsolutePath() + File.separator + "Custom" + File.separator + filename);
+                            File newSticker = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "Custom" + File.separator + filename);
 
                             in = requireXmppActivity().getContentResolver().openInputStream(imageUri);
                             out = new FileOutputStream(newSticker);
@@ -299,13 +305,13 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                             InputStream in;
                             OutputStream out;
                             try {
-                                File gifsfolder = new File(requireXmppActivity().xmppConnectionService.stickerDir().getAbsolutePath() + File.separator + "GIFs");
+                                File gifsfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "GIFs");
                                 //create output directory if it doesn't exist
                                 if (!gifsfolder.exists()) {
                                     gifsfolder.mkdirs();
                                 }
                                 String filename = getFileName(imageUri);
-                                File newGif = new File(requireXmppActivity().xmppConnectionService.stickerDir().getAbsolutePath() + File.separator + "GIFs" + File.separator + filename);
+                                File newGif = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "GIFs" + File.separator + filename);
 
                                 in = requireXmppActivity().getContentResolver().openInputStream(imageUri);
                                 out = new FileOutputStream(newGif);
@@ -335,13 +341,13 @@ public class AttachmentsSettingsFragment extends XmppPreferenceFragment {
                         InputStream in;
                         OutputStream out;
                         try {
-                            File gifsfolder = new File(requireXmppActivity().xmppConnectionService.stickerDir().getAbsolutePath() + File.separator + "GIFs");
+                            File gifsfolder = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "GIFs");
                             //create output directory if it doesn't exist
                             if (!gifsfolder.exists()) {
                                 gifsfolder.mkdirs();
                             }
                             String filename = getFileName(imageUri);
-                            File newGif = new File(requireXmppActivity().xmppConnectionService.stickerDir().getAbsolutePath() + File.separator + "GIFs" + File.separator + filename);
+                            File newGif = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers" + File.separator + "GIFs" + File.separator + filename);
 
                             in = requireXmppActivity().getContentResolver().openInputStream(imageUri);
                             out = new FileOutputStream(newGif);

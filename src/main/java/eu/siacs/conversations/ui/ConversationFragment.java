@@ -2692,6 +2692,9 @@ public class ConversationFragment extends XmppFragment
             case R.id.send_again_as_p2p:
                 resendMessage(selectedMessage, true);
                 return true;
+            case R.id.copy_link:
+                ShareUtil.copyLinkToClipboard(activity, selectedMessage);
+                return true;
             case R.id.copy_url:
                 ShareUtil.copyUrlToClipboard(activity, selectedMessage);
                 return true;
@@ -3747,29 +3750,27 @@ public class ConversationFragment extends XmppFragment
 
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType(MimeUtils.guessMimeTypeFromUri(activity, activity.xmppConnectionService.getFileBackend().getUriForFile(activity, file, file.getName())));
+        intent.setType(MimeUtils.guessMimeTypeFromUri(activity, FileBackend.getUriForFile(activity, file, file.getName())));
         intent.putExtra(Intent.EXTRA_TITLE, name);
 
-        SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(activity);
-        final String dir = p.getString("sticker_directory", "Stickers");
-        if (dir.startsWith("content://")) {
-            intent.putExtra("android.provider.extra.INITIAL_URI", Uri.parse(dir));
-        } else {
-            new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + "/" + dir + "/User Pack").mkdirs();
-            Uri uri;
-            if (Build.VERSION.SDK_INT >= 29) {
-                Intent tmp = ((StorageManager) activity.getSystemService(Context.STORAGE_SERVICE)).getPrimaryStorageVolume().createOpenDocumentTreeIntent();
-                uri = tmp.getParcelableExtra("android.provider.extra.INITIAL_URI");
-                uri = Uri.parse(uri.toString().replace("/root/", "/document/") + "%3APictures%2F" + dir);
-            } else {
-                uri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3APictures%2F" + dir);
+        // SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(activity);
+        // final String dir = p.getString("sticker_directory", "Stickers");
+        final String dir = "Stickers";
+        new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + File.separator + BuildConfig.APP_NAME + File.separator + "Stickers").mkdirs();
+        Uri uri;
+        if (Build.VERSION.SDK_INT >= 29) {
+            Intent tmp = ((StorageManager) activity.getSystemService(Context.STORAGE_SERVICE)).getPrimaryStorageVolume().createOpenDocumentTreeIntent();
+            uri = tmp.getParcelableExtra("android.provider.extra.INITIAL_URI");
+            if (uri != null) {
+                uri = Uri.parse(uri.toString().replace("/root/", "/document/") + "%3ADocuments%2F" + BuildConfig.APP_NAME + "%2F" + dir);
             }
-            intent.putExtra("android.provider.extra.INITIAL_URI", uri);
-            intent.putExtra("android.content.extra.SHOW_ADVANCED", true);
+        } else {
+            uri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADocuments%2F" + BuildConfig.APP_NAME + "%2F" + dir);
         }
-
-        Toast.makeText(activity, "Choose a sticker pack to add this sticker to", Toast.LENGTH_SHORT).show();
-        startActivityForResult(Intent.createChooser(intent, "Choose sticker pack"), REQUEST_SAVE_STICKER);
+        intent.putExtra("android.provider.extra.INITIAL_URI", uri);
+        intent.putExtra("android.content.extra.SHOW_ADVANCED", true);
+        Toast.makeText(activity, R.string.choose_stickerpack_to_add_sticker, Toast.LENGTH_SHORT).show();
+        startActivityForResult(Intent.createChooser(intent, getString(R.string.choose_sticker_pack)), REQUEST_SAVE_STICKER);
     }
 
     private void deleteFile(final Message message) {
