@@ -1,0 +1,57 @@
+on:
+  workflow_dispatch:
+    inputs:
+      version_update:
+        description: 'which part of semver should be updated?'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+env:
+  gradle_file: piratx.gradle
+
+jobs:
+  clean:
+    if: forge.ref == 'refs/heads/master'
+    runs-on: docker
+    container:
+      image: docker.io/alpine:3.22
+    steps:
+      - name: install needed packages
+        run: apk update && apk add --no-cache git bash nodejs
+      - name: clone repo
+        uses: https://git.fucktheforce.de/actions/checkout@v4
+      - name: gather info
+        id: info
+        run: |
+          VERSION_NAME=$(grep 'versionName .*' ${{ env.gradle_file }} | sed -e 's/[^0-9\.]//g' | head -n1)
+          echo "version_name=$VERSION_NAME" >> $FORGEJO_OUTPUT
+          VERSION_CODE=$(grep 'versionCode .*' ${{ env.gradle_file }} | sed -e 's/[^0-9\.]//g' | head -n1)
+          echo "version_code=$VERSION_CODE" >> $FORGEJO_OUTPUT
+        working-directory: ${{ github.workspace }}
+      - name: bump version
+        id: bump
+        uses: https://git.fucktheforce.de/actions/increment-semantic-version.git@1.2.3
+        with:
+          current-version: "${{ steps.info.outputs.version_name }}"
+          version-fragment: "${{ inputs.version_update }}"
+      - name: create tag and update version
+        run: |
+          git tag "v${{ steps.info.outputs.version_name }}"
+          NEXT_VERSION_CODE=$(( ${{ steps.info.outputs.version_code }} + 1 ))
+          sed -i -e 's/versionName .*/versionName "${{ steps.bump.outputs.next-version }}"/g' ${{ env.gradle_file }}
+          sed -i -e "s/versionCode .*/versionCode $NEXT_VERSION_CODE/g" ${{ env.gradle_file }}
+          git add ${{ env.gradle_file }}
+          git commit -m "update version info after creating tag"
+          git push
+          git push --tags
+        working-directory: ${{ github.workspace }}
+        env:
+          GIT_AUTHOR_NAME: "${{ vars.GIT_AUTHOR_NAME }}"
+          GIT_AUTHOR_EMAIL: "${{ vars.GIT_AUTHOR_EMAIL }}"
+          EMAIL: "${{ vars.GIT_AUTHOR_EMAIL }}"
+
