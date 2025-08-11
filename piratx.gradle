@@ -257,6 +257,10 @@ android {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             ndk.debugSymbolLevel = 'full'
+
+            def appName = "PiratX"
+            buildConfigField "String", "APP_NAME", "\"$appName\""
+            resValue "string", "app_name", appName
         }
     }
 
