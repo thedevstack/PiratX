@@ -261,6 +261,7 @@ android {
             def appName = "PiratX"
             buildConfigField "String", "APP_NAME", "\"$appName\""
             resValue "string", "app_name", appName
+            resValue "string", "git_hash", grgit.head().abbreviatedId
         }
     }
 
