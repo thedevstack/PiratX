@@ -22,9 +22,15 @@ jobs:
       image: docker.io/alpine:3.22
     steps:
       - name: install needed packages
-        run: apk update && apk add --no-cache git bash nodejs
+        run: apk update && apk add --no-cache git bash openssh-client
+      - name: install ssh key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY_THEDEVSTACK_DE_PIRATX }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p 2222 -H git.fucktheforce.de > ~/.ssh/known_hosts
       - name: clone repo
-        uses: https://git.fucktheforce.de/actions/checkout@v4
+        run: git clone ssh://git@git.fucktheforce.de:2222/thedevstack/PiratX.git workdir
       - name: gather info
         id: info
         run: |
@@ -32,7 +38,7 @@ jobs:
           echo "version_name=$VERSION_NAME" >> $FORGEJO_OUTPUT
           VERSION_CODE=$(grep 'versionCode .*' ${{ env.gradle_file }} | sed -e 's/[^0-9\.]//g' | head -n1)
           echo "version_code=$VERSION_CODE" >> $FORGEJO_OUTPUT
-        working-directory: ${{ github.workspace }}
+        working-directory: workdir
       - name: bump version
         id: bump
         uses: https://git.fucktheforce.de/actions/increment-semantic-version.git@1.2.3
@@ -49,7 +55,7 @@ jobs:
           git commit -m "update version info after creating tag"
           git push
           git push --tags
-        working-directory: ${{ github.workspace }}
+        working-directory: workdir
         env:
           GIT_AUTHOR_NAME: "${{ vars.GIT_AUTHOR_NAME }}"
           GIT_AUTHOR_EMAIL: "${{ vars.GIT_AUTHOR_EMAIL }}"
