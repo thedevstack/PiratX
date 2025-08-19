@@ -1,2 +1,18 @@
-﻿PiratX ist ein XMPP Messenger, der auf monocles chat, Cheogram und Conversations mit
-vielen Änderungen, insbesondere zur Verbesserung von allen Features ist.
+<h1>PiratX – Einfach, klar, bewährt</h1>
+
+<p>Dieser XMPP Messenger baut auf den bewährten Projekten <b>Monocles Chat</b>, <b>Cheogram</b> und <b>Conversations</b> auf und kombiniert deren Stärken in einer klaren, benutzerfreundlichen App.</p>
+
+<h2>Highlights</h2>
+<ul>
+  <li><b>Einfache Nutzung</b>: Keine überladenen Menüs, keine unnötigen Klicks</li>
+  <li><b>Bewährte Basis</b>: Stabil und zuverlässig dank erprobter Open-Source-Projekte</li>
+  <li><b>Fokus auf Wesentliches</b>: Sinnfreie und experimentelle Funktionen wurden bewusst entfernt</li>
+  <li><b>XMPP</b>: Offenes, föderiertes Protokoll – frei von zentraler Kontrolle</li>
+</ul>
+
+<h2>Warum diese App?</h2>
+<p>Weil du einen Messenger willst, der funktioniert, einfach zu bedienen ist und dabei auf die besten XMPP-Implementierungen setzt.</p>
+
+<p>Ohne Ballast.<br>
+Ohne Experimente.<br>
+<b>Einfach Kommunikation auf höchstem Niveau.</b></p>

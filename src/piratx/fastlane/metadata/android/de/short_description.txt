@@ -1,1 +1,1 @@
-ist ein XMPP-Messenger für Android
+Einfacher, zuverlässiger XMPP Messenger – ohne Ballast, klar und bewährt.

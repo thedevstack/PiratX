@@ -1,1 +1,1 @@
-ist ein sicherer XMPP-Chat-Client für Android
+Simple, reliable XMPP messenger – clear, proven, and without clutter.

@@ -1,29 +1,18 @@
-﻿monocles chat ist ein moderner und sicherer chat client, welcher das XMPP Protokoll nutzt und viele Funktionen bietet. Basierend auf der Anwendung Cheogram und Conversations mit
-vielen Änderungen, insbesondere zur Verbesserung der Sicherheit, also auch der Benutzerfreundlichkeit,
-um den Umstieg von oftmals vorinstallierten Messengern zu erleichtern.
+﻿<h1>PiratX – Simple, Clear, Reliable</h1>
 
-Verbindungssicherheit und der Schutz persönlicher Daten ist uns sehr wichtig,
-deshalb erzwingen wir verschlüsselte Verbindungen zwischen Messenger und Server,
-was es nahezu unmöglich macht, deine Nachrichten durch Fremde abzufangen und zu
-lesen. Dazu verzichten wir im Vergleich zu ähnlichen xmpp Clienten auf ältere Verschlüsselungs Ketten. Diese sind optimal an den monocles Chat Server angepasst, aber auch mit anderen Chat Servern kompatibel, welche heutige Standards nutzen.
+<p>This XMPP messenger is built on the proven projects <b>Monocles Chat</b>, <b>Cheogram</b>, and <b>Conversations</b>, combining their strengths in a clean and user-friendly app.</p>
 
-Wem das nicht genug ist, kann auf die integrierte Nachrichtenverschlüsselung von
-Ende-zu-Ende, wie OMEMO oder OpenPGP, zurückgreifen.
-Damit lassen sich Nachrichten auf dem Sendegerät verschlüsseln und nur durch das
-für den Empfang bestimmte Empfangsgerät entschlüsseln.
+<h2>Highlights</h2>
+<ul>
+  <li><b>Easy to Use</b>: No cluttered menus, no unnecessary clicks</li>
+  <li><b>Proven Foundation</b>: Stable and reliable thanks to well-tested open-source projects</li>
+  <li><b>Focus on the Essentials</b>: Removed meaningless or experimental features</li>
+  <li><b>XMPP</b>: Open, federated protocol – free from central control</li>
+</ul>
 
-Features:
-* Ende-zu-Ende Verschlüsselung entweder mit <a href="https://de.wikipedia.org/wiki/Off-the-Record_Messaging">OTR</a>, <a href="http://conversations.im/omemo/">OMEMO</a> oder <a href="http://openpgp.org/about/">OpenPGP</a>
-* Austausch von Bildern sowie anderen Dateien
-* Standorte senden und empfangen
-* Sprachnachrichten senden und empfangen
-* Integration von Kontobildern (Avatare) deiner Kontakte
-* Synchronisiere Nachrichtenverlauf mit anderen Clients
-* Konferenzen bzw. Gruppenchats
-* Adressbuchintegration (ein Austausch deines Adressbuches mit dem Server findet nicht statt)
-* Audio/Video Telefonie
-* sehr geringe Akku-Belastung
-* Status Nachrichten
-* tägliches Backup der Datenbank auf den lokalen Speicher
+<h2>Why this app?</h2>
+<p>Because you want a messenger that simply works, is easy to use, and builds on the best XMPP implementations.</p>
 
-Benötigst du Hilfe? Bitte tritt doch einfach dem Support Gruppenchat <a href="xmpp:support@conference.monocles.eu">support@conference.monocles.eu</a> bei.
+<p>No clutter.<br>
+No experiments.<br>
+<b>Just communication at its best.</b></p>
