@@ -1,0 +1,2 @@
+﻿PiratX ist ein XMPP Messenger, der auf monocles chat, Cheogram und Conversations mit
+vielen Änderungen, insbesondere zur Verbesserung von allen Features ist.
