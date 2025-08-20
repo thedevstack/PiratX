@@ -2539,10 +2539,17 @@ public class ConversationFragment extends XmppFragment
             if (!showError
                     && m.getType() == Message.TYPE_TEXT
                     && m.isEditable()
+                    /*
                     && !m.isGeoUri()
+                     */
                     && m.getConversation() instanceof Conversation) {
-                correctMessage.setVisible(true);
-                if (!m.getBody().equals("") && !m.getBody().equals(" ")) retractMessage.setVisible(true);
+                if (!m.isGeoUri()) { // Correct only non geo uri - until valid flow is implemented
+                    correctMessage.setVisible(true);
+                }
+                /*
+                if (!m.getBody().equals("") && !m.getBody().equals(" "))
+                */
+                retractMessage.setVisible(true);
             }
             if (m.getStatus() == Message.STATUS_WAITING) {
                 correctMessage.setVisible(true);
