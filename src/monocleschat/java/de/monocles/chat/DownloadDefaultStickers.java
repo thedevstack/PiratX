@@ -25,6 +25,7 @@ import io.ipfs.cid.Cid;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.util.HashSet;
@@ -188,7 +189,16 @@ public class DownloadDefaultStickers extends Service {
 			return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + "/" + dir);
 		}
 		*/
-		return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + "/" + "Stickers");
+		File stickerDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + "/" + BuildConfig.APP_NAME + "/" + "Stickers");
+		File noMediaFile = new File(stickerDir, ".nomedia");
+        try {
+			Log.d(Config.LOGTAG, "creating .nomedia file in sticker dir if non existent");
+			noMediaFile.getParentFile().mkdirs();
+            noMediaFile.createNewFile();
+        } catch (IOException e) {
+            Log.d(Config.LOGTAG, "unable to create .nomedia file", e);
+        }
+        return stickerDir;
 	}
 
 	@Override
