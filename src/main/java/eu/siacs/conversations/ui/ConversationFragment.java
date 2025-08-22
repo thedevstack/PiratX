@@ -1378,7 +1378,12 @@ public class ConversationFragment extends XmppFragment
                 messageSent();
                 return;
             } else {
-                message.putEdited(message.getUuid(), message.getServerMsgId());
+                if (message.isCarbon()) {
+                    message.putEdited(message.getRemoteMsgId(), message.getServerMsgId());
+                } else {
+                    message.putEdited(message.getUuid(), message.getServerMsgId());
+                }
+
                 message.setServerMsgId(null);
                 message.setUuid(UUID.randomUUID().toString());
             }

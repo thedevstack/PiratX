@@ -1048,7 +1048,10 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
     }
 
     public boolean isEditable() {
+        /*
         return status != STATUS_RECEIVED && !isCarbon() && type != Message.TYPE_RTP_SESSION;
+         */
+        return status != STATUS_RECEIVED && type != Message.TYPE_RTP_SESSION;
     }
 
     public void setCounterparts(List<MucOptions.User> counterparts) {
