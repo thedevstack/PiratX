@@ -2676,7 +2676,11 @@ public class ConversationFragment extends XmppFragment
                             message.setBody(getString(R.string.retract_message_fallback));
                             message.setSubject(null);
                             message.setDeleted(true);
-                            message.putEdited(message.getUuid(), message.getServerMsgId());
+                            if (message.isCarbon()) {
+                                message.putEdited(message.getRemoteMsgId(), message.getServerMsgId());
+                            } else {
+                                message.putEdited(message.getUuid(), message.getServerMsgId());
+                            }
                             message.setServerMsgId(null);
                             message.setUuid(UUID.randomUUID().toString());
                             sendMessage(message);
