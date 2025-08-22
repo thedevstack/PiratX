@@ -155,6 +155,14 @@ public class ManageAccountActivity extends XmppActivity implements XmppConnectio
 
         BottomNavigationView bottomNavigationView=findViewById(R.id.bottom_navigation);
         bottomNavigationView.setBackgroundColor(Color.TRANSPARENT);
+
+
+        if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar)) {
+            bottomNavigationView.setVisibility(VISIBLE);
+        } else {
+            bottomNavigationView.setVisibility(View.GONE);
+        }
+
         bottomNavigationView.setOnItemSelectedListener(item -> {
 
             switch (item.getItemId()) {
@@ -183,14 +191,16 @@ public class ManageAccountActivity extends XmppActivity implements XmppConnectio
     public void onStart() {
         super.onStart();
 
+        /*
         BottomNavigationView bottomNavigationView=findViewById(R.id.bottom_navigation);
         bottomNavigationView.setSelectedItemId(R.id.manageaccounts);
 
-        if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar) && getIntent().getBooleanExtra("show_nav_bar", false)) {
+        if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar)) {
             bottomNavigationView.setVisibility(VISIBLE);
         } else {
             bottomNavigationView.setVisibility(View.GONE);
         }
+         */
     }
 
     @Override

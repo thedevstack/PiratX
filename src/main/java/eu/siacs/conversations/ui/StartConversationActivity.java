@@ -441,6 +441,15 @@ public class StartConversationActivity extends XmppActivity
 
         BottomNavigationView bottomNavigationView=findViewById(R.id.bottom_navigation);
         bottomNavigationView.setBackgroundColor(Color.TRANSPARENT);
+
+        bottomNavigationView.setSelectedItemId(R.id.contactslist);
+
+        if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar)) {
+            bottomNavigationView.setVisibility(VISIBLE);
+        } else {
+            bottomNavigationView.setVisibility(View.GONE);
+        }
+        
         bottomNavigationView.setOnItemSelectedListener(item -> {
 
             switch (item.getItemId()) {
@@ -566,6 +575,7 @@ public class StartConversationActivity extends XmppActivity
             requestNotificationPermissionIfNeeded();
         }
 
+        /*
         BottomNavigationView bottomNavigationView=findViewById(R.id.bottom_navigation);
         bottomNavigationView.setSelectedItemId(R.id.contactslist);
 
@@ -574,6 +584,7 @@ public class StartConversationActivity extends XmppActivity
         } else {
             bottomNavigationView.setVisibility(View.GONE);
         }
+        */
     }
 
     private void requestNotificationPermissionIfNeeded() {
