@@ -298,9 +298,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         final int status = message.getStatus();
         final boolean error;
         final Transferable transferable = message.getTransferable();
-        final boolean multiReceived =
-                message.getConversation().getMode() == Conversation.MODE_MULTI
-                        && message.getStatus() <= Message.STATUS_RECEIVED;
+
         final boolean sent = status != Message.STATUS_RECEIVED;
         final boolean showUserNickname =
                 message.getConversation().getMode() == Conversation.MODE_MULTI
@@ -409,16 +407,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             if (fileSize != null) {
                 timeInfoBuilder.add(fileSize);
             }
-            if (mForceNames || multiReceived || (message.getTrueCounterpart() != null && message.getContact() != null)) {
-                final String displayName = UIHelper.getMessageDisplayName(message);
-                if (displayName != null) {
-                    viewHolder.username().setVisibility(View.VISIBLE);
-                    viewHolder.username().setText(UIHelper.getColoredUsername(activity.xmppConnectionService, message));
-                }
-            } else {
-                viewHolder.username().setText(null);
-                viewHolder.username().setVisibility(GONE);
-            }
             if (bodyLanguage != null) {
                 timeInfoBuilder.add(bodyLanguage.toUpperCase(Locale.US));
             }
@@ -518,7 +506,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
         if (viewHolder.username() != null) {
             viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
-            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
         }
         final var body = getSpannableBody(message);
         ImageSpan[] imageSpans = body.getSpans(0, body.length(), ImageSpan.class);
@@ -657,6 +645,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.messageBox().setBackgroundTintMode(PorterDuff.Mode.SRC);
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+        if (viewHolder.username() != null) {
+            viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
+        }
 
         final ViewGroup.LayoutParams layoutParams = viewHolder.messageBody().getLayoutParams();
         layoutParams.width = ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -924,6 +916,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+        if (viewHolder.username() != null) {
+            viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
+        }
         viewHolder.audioPlayer().setVisibility(GONE);
         viewHolder.downloadButton().setVisibility(View.VISIBLE);
         viewHolder.downloadButton().setText(text);
@@ -942,6 +938,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.image().setVisibility(GONE);
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+        if (viewHolder.username() != null) {
+            viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
+        }
         viewHolder.audioPlayer().setVisibility(GONE);
         viewHolder.downloadButton().setVisibility(View.VISIBLE);
         viewHolder.downloadButton().setIconResource(0);
@@ -1010,6 +1010,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.downloadButton().setVisibility(View.VISIBLE);
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+        if (viewHolder.username() != null) {
+            viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
+        }
         viewHolder
                 .downloadButton()
                 .setText(
@@ -1031,6 +1035,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.downloadButton().setVisibility(View.VISIBLE);
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+        if (viewHolder.username() != null) {
+            viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
+        }
         final var uri = message.wholeIsKnownURI();
         if ("bitcoin".equals(uri.getScheme())) {
             final var amount = uri.getQueryParameter("amount");
@@ -1068,6 +1076,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.audioPlayer().setVisibility(GONE);
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+        if (viewHolder.username() != null) {
+            viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
+        }
         if (activity.xmppConnectionService != null && activity.xmppConnectionService.getBooleanPreference("show_maps_inside", R.bool.show_maps_inside)) {
             Glide.with(activity)
                     .load(Uri.parse(url))
@@ -1098,6 +1110,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.downloadButton().setVisibility(View.GONE);
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+        if (viewHolder.username() != null) {
+            viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
+        }
         final RelativeLayout audioPlayer = viewHolder.audioPlayer();
         audioPlayer.setVisibility(View.VISIBLE);
         AudioPlayer.ViewHolder.get(audioPlayer).setBubbleColor(bubbleColor);
@@ -1120,11 +1136,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
                 viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
             }
-        } else {
-            final FileParams params = message.getFileParams();
-            imagePreviewLayout(params.width, params.height, viewHolder.image(), message.getInReplyTo() != null, viewHolder.messageBody().getVisibility() != GONE, viewHolder);
         }
-
+        final FileParams params = message.getFileParams();
+        imagePreviewLayout(params.width, params.height, viewHolder.image(), message.getInReplyTo() != null, viewHolder.messageBody().getVisibility() != GONE, viewHolder);
         activity.loadBitmap(message, viewHolder.image());
         viewHolder.image().setOnClickListener(v -> openDownloadable(message));
     }
@@ -1178,45 +1192,45 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
 
 
+        // --- Start of Simplified Corner Rounding ---
         ShapeAppearanceModel.Builder shapeBuilder = new ShapeAppearanceModel.Builder();
-        boolean shapeChanged = false; // Flag to track if we need to rebuild
 
-        if (!otherAbove) {
-            shapeBuilder = shapeBuilder.setTopRightCorner(CornerFamily.ROUNDED, this.bubbleRadiusDim);
-            if (viewHolder instanceof EndBubbleMessageItemViewHolder) {
-                shapeBuilder = shapeBuilder.setTopLeftCorner(CornerFamily.ROUNDED, this.bubbleRadiusDim);
-            }
-        }
+        // Set all corners to be rounded with imageRadiusDim (or use bubbleRadiusDim if preferred)
+        shapeBuilder = shapeBuilder.setAllCorners(CornerFamily.ROUNDED, this.imageRadiusDim);
 
-        if (small) {
-            shapeBuilder = shapeBuilder.setAllCorners(CornerFamily.ROUNDED, this.imageRadiusDim);
-            // Padding can be set directly without checking old values, it's cheap.
+        image.setShapeAppearanceModel(shapeBuilder.build());
+        // --- End of Simplified Corner Rounding ---
+
+
+        // Adjust padding based on the 'small' flag or other criteria if needed.
+        // If you always want the same padding, you can set it unconditionally.
+        if (small) { // Or some other condition you define for padding
             image.setPadding(0, (int) this.padding8dp, 0, 0);
         } else {
             image.setPadding(0, 0, 0, 0);
         }
 
-        // This is the most direct way if caching `ShapeAppearanceModel` instances is too complex
-        image.setShapeAppearanceModel(shapeBuilder.build());
 
-
-        if (!small) {
-            // Optimize LayoutParams for messageBody and inReplyToQuote
-            // Get params once, modify, then set.
+        // The rest of the logic for adjusting messageBody and inReplyToQuote widths
+        // can remain if it's still relevant to your layout when an image is present.
+        // However, if the image corners are always fully rounded, the visual interaction
+        // with these elements might change, so review if this is still needed as is.
+        if (!small) { // This condition might also need re-evaluation.
+            // For example, if you want these width adjustments to always happen
+            // when an image is present, regardless of 'small'.
             final ViewGroup.LayoutParams bodyLayoutParams = viewHolder.messageBody().getLayoutParams();
-            int targetWidth = (int) (scaledW - this.padding22dp); // Use pre-calculated padding22dp
+            int targetWidth = (int) (scaledW - this.padding22dp);
 
             if (bodyLayoutParams.width != targetWidth) {
                 bodyLayoutParams.width = targetWidth;
                 viewHolder.messageBody().setLayoutParams(bodyLayoutParams);
             }
 
-            // Only modify quote params if the view exists (assuming inReplyToQuote() can be null or GONE)
             if (viewHolder.inReplyToQuote().getVisibility() == View.VISIBLE) {
                 final ViewGroup.LayoutParams qLayoutParams = viewHolder.inReplyToQuote().getLayoutParams();
                 if (qLayoutParams.width != targetWidth) {
                     qLayoutParams.width = targetWidth;
-                    viewHolder.inReplyToQuote().setLayoutParams(qLayoutParams); // Corrected from messageBody()
+                    viewHolder.inReplyToQuote().setLayoutParams(qLayoutParams);
                 }
             }
         }
@@ -1447,7 +1461,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     viewHolder instanceof StartBubbleMessageItemViewHolder
                             ? !mergeIntoTop
                             : !mergeIntoBottom;
-            setRequiresAvatar(viewHolder, requiresAvatar);
+            setRequiresAvatar(viewHolder, requiresAvatar, message);
             AvatarWorkerTask.loadAvatar(message, viewHolder.contactPicture(), R.dimen.avatar);
         } else {
             viewHolder.contactPicture().setVisibility(View.GONE);
@@ -1765,6 +1779,11 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
 
         displayStatus(viewHolder, message, bubbleColor);
+
+        if (message.getConversation().getMode() == Conversation.MODE_SINGLE && viewHolder.username() != null) {
+            viewHolder.username().setText(null);
+            viewHolder.username().setVisibility(GONE);
+        }
 
        viewHolder.messageBody().setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override
@@ -2087,17 +2106,34 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     }
 
     private void setRequiresAvatar(
-            final BubbleMessageItemViewHolder viewHolder, final boolean requiresAvatar) {
+            final BubbleMessageItemViewHolder viewHolder, final boolean requiresAvatar, Message message) {
         final var layoutParams = viewHolder.contactPicture().getLayoutParams();
+        final boolean multiReceived =
+                message.getConversation().getMode() == Conversation.MODE_MULTI
+                        && message.getStatus() <= Message.STATUS_RECEIVED;
         if (requiresAvatar) {
             final var resources = viewHolder.contactPicture().getResources();
             final var avatarSize = resources.getDimensionPixelSize(R.dimen.bubble_avatar_size);
             layoutParams.height = avatarSize;
             viewHolder.contactPicture().setVisibility(View.VISIBLE);
             viewHolder.messageBox().setMinimumHeight(avatarSize);
+            if (mForceNames || multiReceived || (message.getTrueCounterpart() != null && message.getContact() != null)) {
+                final String displayName = UIHelper.getMessageDisplayName(message);
+                if (displayName != null) {
+                    viewHolder.username().setVisibility(View.VISIBLE);
+                    viewHolder.username().setText(UIHelper.getColoredUsername(activity.xmppConnectionService, message));
+                }
+            } else if (viewHolder.username() != null) {
+                viewHolder.username().setText(null);
+                viewHolder.username().setVisibility(GONE);
+            }
         } else {
             layoutParams.height = 0;
             viewHolder.contactPicture().setVisibility(View.INVISIBLE);
+            if (viewHolder.username() != null) {
+                viewHolder.username().setText(null);
+                viewHolder.username().setVisibility(GONE);
+            }
             viewHolder.messageBox().setMinimumHeight(0);
         }
         viewHolder.contactPicture().setLayoutParams(layoutParams);
