@@ -1498,17 +1498,6 @@ public class ConversationFragment extends XmppFragment
                 mediaPreviewAdapter.addMediaPreviews(Attachment.of(activity, data.getData(), Attachment.Type.FILE));
                 toggleInputMethod();
                 break;
-            case REQUEST_SAVE_STICKER:
-                final DocumentFile df = DocumentFile.fromSingleUri(activity, data.getData());
-                final File f = savingAsSticker;
-                savingAsSticker = null;
-                try {
-                    activity.xmppConnectionService.getFileBackend().copyFileToDocumentFile(activity, f, df);
-                    Toast.makeText(activity, "Sticker saved", Toast.LENGTH_SHORT).show();
-                } catch (final FileBackend.FileCopyException e) {
-                    Toast.makeText(activity, e.getResId(), Toast.LENGTH_SHORT).show();
-                }
-                break;
             case REQUEST_TRUST_KEYS_NONE:
                 break;
             case REQUEST_TRUST_KEYS_TEXT:

@@ -20,12 +20,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
+import eu.siacs.conversations.BuildConfig;
+
 public class StickersMigration {
 
     private static final String TAG = "StickerMigration";
     private static final File oldStickersDir =
             new File(Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOCUMENTS) + "/monocles chat" + File.separator + "Stickers");
+                    Environment.DIRECTORY_DOCUMENTS) + File.separator + BuildConfig.APP_NAME + File.separator + "Stickers");
     public static File stickersDir;
 
     private static void copyDirectory(File source, File target) {
