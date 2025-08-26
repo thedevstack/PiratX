@@ -732,9 +732,7 @@ public class MessageParser extends AbstractParser
                 var reason = replaceElement.findChildContent("reason", "urn:xmpp:message-moderate:0");
                 if (reason == null) reason = replaceElement.findChildContent("reason", "urn:xmpp:message-moderate:1");
                 replacementId = (fasten == null ? replaceElement : fasten).getAttribute("id");
-                if (null != reason) {
-                    packet.setBody(reason == null ? "" : reason);
-                }
+                packet.setBody(reason == null ? mXmppConnectionService.getString(R.string.message_retracted) : reason);
             }
         }
         LocalizedContent body = packet.getBody();
@@ -1684,7 +1682,7 @@ public class MessageParser extends AbstractParser
                                     } else {
                                         c.add(message);
                                     }
-                                    query.incrementActualMessageCount();
+                                    if (query != null) query.incrementActualMessageCount();
                                     mXmppConnectionService.databaseBackend.createMessage(message);
                                 }
                             }

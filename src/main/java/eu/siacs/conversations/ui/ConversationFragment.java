@@ -1272,7 +1272,7 @@ public class ConversationFragment extends XmppFragment
         }
         if (body == null) body = new SpannableStringBuilder("");
         if (body.length() > Config.MAX_DISPLAY_MESSAGE_CHARS) {
-            Toast.makeText(activity, "Message is too long", Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, activity.getString(R.string.message_is_too_long), Toast.LENGTH_SHORT).show();
             return;
         }
         final Conversation conversation = this.conversation;
