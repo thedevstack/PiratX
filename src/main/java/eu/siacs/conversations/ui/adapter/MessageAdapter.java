@@ -18,6 +18,7 @@ import android.text.Spanned;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
+import android.text.TextPaint;
 import android.text.style.ImageSpan;
 import android.text.style.ClickableSpan;
 import android.text.format.DateUtils;
@@ -89,6 +90,7 @@ import eu.siacs.conversations.ui.AddReactionActivity;
 import io.ipfs.cid.Cid;
 
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.NoSuchAlgorithmException;
@@ -181,6 +183,8 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     private final Map<String, WebxdcUpdate> lastWebxdcUpdate = new HashMap<>();
     private String selectionUuid = null;
     private final AppSettings appSettings;
+    private ReplyClickListener replyClickListener;
+
 
     private final float imagePreviewWidthTarget;
     private final float bubbleRadiusDim;
@@ -238,6 +242,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
     public void setOnMessageBoxClicked(OnContactPictureClicked listener) {
         this.mOnMessageBoxClickedListener = listener;
+    }
+
+    public void setReplyClickListener(ReplyClickListener listener) {
+        this.replyClickListener = listener;
     }
 
     public void setConversationFragment(ConversationFragment frag) {
@@ -483,6 +491,13 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.image().setVisibility(View.GONE);
         viewHolder.messageBody().setTypeface(null, Typeface.ITALIC);
         viewHolder.messageBody().setVisibility(View.VISIBLE);
+        viewHolder.messageBox().setBackgroundTintMode(PorterDuff.Mode.SRC);
+        viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+        viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+        if (viewHolder.username() != null) {
+            viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
+        }
         viewHolder.messageBody().setText(text);
         viewHolder
                 .messageBody()
@@ -1132,6 +1147,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             viewHolder.messageBox().setBackgroundTintMode(PorterDuff.Mode.CLEAR);
             viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
             viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
+            viewHolder.inReplyToBox().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
+            viewHolder.inReplyToBox().setBackgroundTintList(bubbleToColorStateList(viewHolder.inReplyToBox(), bubbleColor));
+            viewHolder.inReplyToQuote().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_surface_container));
+            viewHolder.inReplyToQuote().setBackgroundTintList(bubbleToColorStateList(viewHolder.inReplyToQuote(), bubbleColor));
             if (viewHolder.username() != null) {
                 viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
                 viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
@@ -1721,7 +1740,16 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     emoji -> showDetailedReaction(message, emoji),
                     emoji -> sendCustomReaction(message, emoji),
                     reaction -> removeCustomReaction(conversation, reaction),
-                    () -> addReaction(message));
+                    () -> {
+                        if (mConversationFragment.requireTrustKeys()) {
+                            return;
+                        }
+
+                        final var intent = new Intent(activity, AddReactionActivity.class);
+                        intent.putExtra("conversation", message.getConversation().getUuid());
+                        intent.putExtra("message", message.getUuid());
+                        activity.startActivity(intent);
+                    });
         } else {
             if (viewHolder instanceof StartBubbleMessageItemViewHolder startViewHolder) {
                 startViewHolder.encryption().setVisibility(View.GONE);
@@ -1745,13 +1773,25 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             viewHolder.subject().setText(subject);
         }
 
+
+        WeakReference<ReplyClickListener> listener = new WeakReference<>(replyClickListener);
         if (message.getInReplyTo() == null) {
             viewHolder.inReplyToBox().setVisibility(GONE);
         } else {
             viewHolder.inReplyToBox().setVisibility(View.VISIBLE);
             viewHolder.inReplyTo().setText(UIHelper.getMessageDisplayName(message.getInReplyTo()));
-            viewHolder.inReplyTo().setOnClickListener((v) -> mConversationFragment.jumpTo(message.getInReplyTo()));
-            viewHolder.inReplyToQuote().setOnClickListener((v) -> mConversationFragment.jumpTo(message.getInReplyTo()));
+            viewHolder.inReplyTo().setOnClickListener(v -> {
+                ReplyClickListener l = listener.get();
+                if (l != null) {
+                    l.onReplyClick(message);
+                }
+            });
+            viewHolder.inReplyToQuote().setOnClickListener(v -> {
+                ReplyClickListener l = listener.get();
+                if (l != null) {
+                    l.onReplyClick(message);
+                }
+            });
             setTextColor(viewHolder.inReplyTo(), bubbleColor);
         }
 
@@ -2119,7 +2159,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             viewHolder.messageBox().setMinimumHeight(avatarSize);
             if (mForceNames || multiReceived || (message.getTrueCounterpart() != null && message.getContact() != null)) {
                 final String displayName = UIHelper.getMessageDisplayName(message);
-                if (displayName != null) {
+                if (viewHolder.username() != null && displayName != null) {
                     viewHolder.username().setVisibility(View.VISIBLE);
                     viewHolder.username().setText(UIHelper.getColoredUsername(activity.xmppConnectionService, message));
                 }
@@ -2903,5 +2943,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     true,
                     true);
         }
+    }
+
+    public interface ReplyClickListener {
+        void onReplyClick(Message message);
     }
 }

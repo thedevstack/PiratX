@@ -365,6 +365,7 @@ public class Conversation extends AbstractEntity
             for (int i = messages.size() - 1; i >= 0; --i) {
                 final Message message = messages.get(i);
                 if (message.getSubject() != null && !message.isOOb() && (message.getRawBody() == null || message.getRawBody().length() == 0)) continue;
+                if (message.isDeleted() || message.getRetractId() != null) continue;
                 if ((message.getRawBody() == null || "".equals(message.getRawBody()) || " ".equals(message.getRawBody())) && message.getReply() != null && message.edited() && message.getHtml() != null) continue;
                 if (asReaction(message) != null) continue;
                 if (message.isRead()) {
@@ -383,6 +384,7 @@ public class Conversation extends AbstractEntity
             for (int i = messages.size() - 1; i >= 0; --i) {
                 final Message message = messages.get(i);
                 if (message.getSubject() != null && !message.isOOb() && (message.getRawBody() == null || message.getRawBody().length() == 0)) continue;
+                if (message.isDeleted() || message.getRetractId() != null) continue;
                 if ((message.getRawBody() == null || "".equals(message.getRawBody()) || " ".equals(message.getRawBody())) && message.getReply() != null && message.edited() && message.getHtml() != null) continue;
                 if (asReaction(message) != null) continue;
                 if (message.getStatus() == Message.STATUS_RECEIVED) {
@@ -802,6 +804,13 @@ public class Conversation extends AbstractEntity
         Set<String> extraIds = new HashSet<>();
         for (ListIterator<Message> iterator = messages.listIterator(messages.size()); iterator.hasPrevious(); ) {
             Message m = iterator.previous();
+
+            // **New Check: Remove deleted or retracted messages**
+            if (m.isDeleted() || m.getRetractId() != null) {
+                iterator.remove();
+                continue; // Move to the next message
+            }
+
             final Element mthread = m.getThread();
             if (mthread != null) {
                 Thread thread = threads.get(mthread.getContent());
@@ -1083,6 +1092,11 @@ public class Conversation extends AbstractEntity
         synchronized (this.messages) {
             for (int i = messages.size() - 1; i >= 0; --i) {
                 final Message message = messages.get(i);
+                // **NEW CHECK: Skip deleted or retracted messages**
+                if (message.isDeleted() || message.getRetractId() != null) {
+                    message.markRead();
+                    continue;
+                }
                 if (message.getSubject() != null && !message.isOOb() && (message.getRawBody() == null || message.getRawBody().length() == 0)) continue;
                 if ((message.getRawBody() == null || "".equals(message.getRawBody()) || " ".equals(message.getRawBody())) && message.getReply() != null && message.edited() && message.getHtml() != null) continue;
                 if (asReaction(message) != null) continue;
@@ -1530,11 +1544,15 @@ public class Conversation extends AbstractEntity
         setAttribute("storeMedia", cache ? "cache" : "shared");
     }
 
-    public boolean storeInCache() {
-        if ("cache".equals(getAttribute("storeMedia"))) return true;
-        if ("shared".equals(getAttribute("storeMedia"))) return false;
-        if (mode == Conversation.MODE_MULTI && !mucOptions.isPrivateAndNonAnonymous()) return true;
-        return xmppConnectionService != null && xmppConnectionService.getBooleanPreference("default_store_media_in_cache", R.bool.default_store_media_in_cache);
+    public boolean storeInCache(XmppConnectionService xmppConnectionService) {
+        if (xmppConnectionService != null && xmppConnectionService.getBooleanPreference("default_store_media_in_cache", R.bool.default_store_media_in_cache)) {
+            return true;
+        } else {
+            if ("cache".equals(getAttribute("storeMedia"))) return true;
+            if ("shared".equals(getAttribute("storeMedia"))) return false;
+            if (mode == Conversation.MODE_MULTI && !mucOptions.isPrivateAndNonAnonymous()) return true;
+            return true;
+        }
     }
 
     public boolean setAttribute(String key, boolean value) {
@@ -1680,6 +1698,9 @@ public class Conversation extends AbstractEntity
 
     public void add(Message message) {
         checkSpam(message);
+        if (message.isDeleted() || message.getRetractId() != null) {
+            return; // Don't add it
+        }
         synchronized (this.messages) {
             this.messages.add(message);
         }
@@ -1687,7 +1708,9 @@ public class Conversation extends AbstractEntity
 
     public void prepend(int offset, Message message) {
         checkSpam(message);
-
+        if (message.isDeleted() || message.getRetractId() != null) {
+            return; // Don't add it
+        }
         List<Message> properListToAdd;
 
         if (!historyPartMessages.isEmpty()) {
@@ -1708,7 +1731,21 @@ public class Conversation extends AbstractEntity
 
     public void addAll(int index, List<Message> messages, boolean fromPagination) {
         checkSpam(messages.toArray(new Message[0]));
+        List<Message> filteredMessages = new ArrayList<>();
+        for (Message message : messages) {
+            if (message.isDeleted() || message.getRetractId() != null) {
+                // Optionally, ensure it's removed from the main list if it could exist there
+                synchronized (this.messages) {
+                    this.messages.remove(message);
+                }
+            } else {
+                filteredMessages.add(message);
+            }
+        }
 
+        if (filteredMessages.isEmpty()) {
+            return; // Nothing to add
+        }
         synchronized (this.messages) {
             List<Message> properListToAdd;
 
@@ -1781,6 +1818,7 @@ public class Conversation extends AbstractEntity
             for (final Message message : Lists.reverse(this.messages)) {
                 if (message.getSubject() != null && !message.isOOb() && (message.getRawBody() == null || message.getRawBody().length() == 0)) continue;
                 if (asReaction(message) != null) continue;
+                if (message.isDeleted() || message.getRetractId() != null) continue;
                 if ((message.getRawBody() == null || "".equals(message.getRawBody()) || " ".equals(message.getRawBody())) && message.getReply() != null && message.edited() && message.getHtml() != null) continue;
                 final boolean muted = xmppConnectionService != null && message.getStatus() == Message.STATUS_RECEIVED && getMode() == Conversation.MODE_MULTI && xmppConnectionService.isMucUserMuted(new MucOptions.User(null, getJid(), message.getOccupantId(), null, null));
                 if (muted) continue;
@@ -1802,6 +1840,7 @@ public class Conversation extends AbstractEntity
             for (Message message : messages) {
                 if (message.getSubject() != null && !message.isOOb() && (message.getRawBody() == null || message.getRawBody().length() == 0)) continue;
                 if (asReaction(message) != null) continue;
+                if (message.isDeleted() || message.getRetractId() != null) continue;
                 if ((message.getRawBody() == null || "".equals(message.getRawBody()) || " ".equals(message.getRawBody())) && message.getReply() != null && message.edited() && message.getHtml() != null) continue;
                 if (message.getStatus() == Message.STATUS_RECEIVED) {
                     ++count;
@@ -1861,6 +1900,7 @@ public class Conversation extends AbstractEntity
         synchronized (this.messages) {
             for (int i = messages.size() - 1; i >= 0; i--) {
                 final Message message = messages.get(i);
+                if (message.isDeleted() || message.getRetractId() != null) continue;
                 if (uuid.equals(message.getUuid())) {
                     return count;
                 }

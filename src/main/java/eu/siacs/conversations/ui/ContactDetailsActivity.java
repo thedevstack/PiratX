@@ -33,6 +33,7 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.databinding.DataBindingUtil;
@@ -333,8 +334,8 @@ public class ContactDetailsActivity extends OmemoActivity
     public void onStart() {
         super.onStart();
         final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
-        this.showDynamicTags = preferences.getBoolean(AppSettings.SHOW_DYNAMIC_TAGS, false);
-        this.showLastSeen = preferences.getBoolean("last_activity", false);
+        this.showDynamicTags = preferences.getBoolean("show_dynamic_tags", getResources().getBoolean(R.bool.show_dynamic_tags));
+        this.showLastSeen = preferences.getBoolean("last_activity", getResources().getBoolean(R.bool.last_activity));
         binding.mediaWrapper.setVisibility(
                 Compatibility.hasStoragePermission(this) ? View.VISIBLE : View.GONE);
         mMediaAdapter.setAttachments(Collections.emptyList());
@@ -387,7 +388,7 @@ public class ContactDetailsActivity extends OmemoActivity
                 saveEdits();
                 break;
             case R.id.action_edit_contact:
-                final Uri systemAccount = contact.getSystemAccount();
+                Uri systemAccount = contact.getSystemAccount();
                 if (systemAccount == null) {
                     menuItem.expandActionView();
                     EditText text = menuItem.getActionView().findViewById(R.id.search_field);
@@ -431,20 +432,72 @@ public class ContactDetailsActivity extends OmemoActivity
                     if (showDynamicTags) binding.editTags.setVisibility(View.VISIBLE);
                     if (save != null) save.setVisible(true);
                 } else {
-                    menuItem.collapseActionView();
-                    if (save != null) save.setVisible(false);
-                    Intent intent = new Intent(Intent.ACTION_EDIT);
-                    intent.setDataAndType(systemAccount, Contacts.CONTENT_ITEM_TYPE);
-                    intent.putExtra("finishActivityOnSaveCompleted", true);
-                    try {
-                        startActivity(intent);
-                    } catch (ActivityNotFoundException e) {
-                        Toast.makeText(
-                                        ContactDetailsActivity.this,
-                                        R.string.no_application_found_to_view_contact,
-                                        Toast.LENGTH_SHORT)
-                                .show();
-                    }
+                    final MaterialAlertDialogBuilder EditConactbuilder = new MaterialAlertDialogBuilder(ContactDetailsActivity.this);
+                    EditConactbuilder.setTitle(R.string.action_edit_contact);
+                    EditConactbuilder.setMessage(R.string.edit_sytemaccount_or_xmppaccount);
+
+                    EditConactbuilder.setPositiveButton(R.string.edit_sytemaccount, new DialogInterface.OnClickListener() {
+
+                        public void onClick(DialogInterface EditContactdialog, int whichButton) {
+
+                            menuItem.collapseActionView();
+                            if (save != null) save.setVisible(false);
+                            Intent intent = new Intent(Intent.ACTION_EDIT);
+                            intent.setDataAndType(systemAccount, Contacts.CONTENT_ITEM_TYPE);
+                            intent.putExtra("finishActivityOnSaveCompleted", true);
+                            try {
+                                startActivity(intent);
+                            } catch (ActivityNotFoundException e) {
+                                Toast.makeText(ContactDetailsActivity.this, R.string.no_application_found_to_view_contact, Toast.LENGTH_SHORT).show();
+                            }
+                        }});
+                    EditConactbuilder.setNegativeButton(R.string.edit_chat_contact, new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface EditContactdialog, int whichButton) {
+                            menuItem.expandActionView();
+                            EditText text = menuItem.getActionView().findViewById(R.id.search_field);
+                            text.setOnEditorActionListener((v, actionId, event) -> {
+                                saveEdits();
+                                return true;
+                            });
+                            text.setText(contact.getServerName());
+                            text.requestFocus();
+                            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                            if (imm != null) {
+                                imm.showSoftInput(text, InputMethodManager.SHOW_IMPLICIT);
+                            }
+                            binding.tags.setVisibility(View.GONE);
+                            binding.editTags.clearSync();
+                            for (final ListItem.Tag group : contact.getGroupTags()) {
+                                binding.editTags.addObjectSync(group);
+                            }
+                            ArrayList<ListItem.Tag> tags = new ArrayList<>();
+                            contact.getAccount(); // This line doesn't seem to do anything with the result. You might want to review it.
+                            for (final Account account : xmppConnectionService.getAccounts()) {
+                                for (Contact contact : account.getRoster().getContacts()) {
+                                    tags.addAll(contact.getTags(ContactDetailsActivity.this));
+                                }
+                                for (Bookmark bookmark : account.getBookmarks()) {
+                                    tags.addAll(bookmark.getTags(ContactDetailsActivity.this));
+                                }
+                            }
+                            Comparator<Map.Entry<ListItem.Tag,Integer>> sortTagsBy = Map.Entry.comparingByValue(Comparator.reverseOrder());
+                            sortTagsBy = sortTagsBy.thenComparing(entry -> entry.getKey().getName());
+
+                            ArrayAdapter<ListItem.Tag> adapter = new ArrayAdapter<>(
+                                    ContactDetailsActivity.this,
+                                    android.R.layout.simple_list_item_1,
+                                    tags.stream()
+                                            .collect(Collectors.toMap((x) -> x, (t) -> 1, (c1, c2) -> c1 + c2))
+                                            .entrySet().stream()
+                                            .sorted(sortTagsBy)
+                                            .map(Map.Entry::getKey).collect(Collectors.toList())
+                            );
+                            binding.editTags.setAdapter(adapter);
+                            if (showDynamicTags) binding.editTags.setVisibility(View.VISIBLE);
+                            if (save != null) save.setVisible(true);
+                        }
+                    });
+                    EditConactbuilder.create().show();
                 }
                 break;
             case R.id.action_block, R.id.action_unblock:
@@ -473,7 +526,6 @@ public class ContactDetailsActivity extends OmemoActivity
         final MenuItem unblock = menu.findItem(R.id.action_unblock);
         edit = menu.findItem(R.id.action_edit_contact);
         save = menu.findItem(R.id.action_save);
-        final MenuItem delete = menu.findItem(R.id.action_delete_contact);
         final MenuItem customNotifications = menu.findItem(R.id.action_custom_notifications);
         customNotifications.setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R);
         if (contact == null) {
@@ -492,7 +544,6 @@ public class ContactDetailsActivity extends OmemoActivity
         }
         if (!contact.showInRoster()) {
             edit.setVisible(false);
-            delete.setVisible(false);
         }
         edit.setOnActionExpandListener(new MenuItem.OnActionExpandListener() {
             @Override
@@ -917,7 +968,7 @@ public class ContactDetailsActivity extends OmemoActivity
                 xmppConnectionService.updateConversation(conversation);
             } else {
                 binding.storeInCache.setEnabled(true);
-                binding.storeInCache.setChecked(conversation.storeInCache());
+                binding.storeInCache.setChecked(conversation.storeInCache(xmppConnectionService));
                 binding.storeInCache.setOnCheckedChangeListener((v, checked) -> {
                     conversation.setStoreInCache(checked);
                     xmppConnectionService.updateConversation(conversation);

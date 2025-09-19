@@ -107,7 +107,7 @@ import org.whispersystems.libsignal.state.SignedPreKeyRecord;
 public class DatabaseBackend extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "history";
-    private static final int DATABASE_VERSION = 62;
+    private static final int DATABASE_VERSION = 63;
 
     private static boolean requiresMessageIndexRebuild = false;
     private static DatabaseBackend instance = null;
@@ -530,7 +530,8 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         + " NUMBER DEFAULT 0,"
                         + Message.BODY_LANGUAGE
                         + " TEXT,"
-                        + "retractId" + " TEXT,"
+                        + Message.RETRACT_ID
+                        + " TEXT,"
                         + Message.OCCUPANT_ID
                         + " TEXT,"
                         + Message.REACTIONS
@@ -575,7 +576,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
         }
         try {
-            db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + "retractId" + " TEXT;");
+            db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + Message.RETRACT_ID + " TEXT;");
         } catch (SQLiteException ex) {
             Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
         }
@@ -1287,6 +1288,38 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 }
             }
         }
+        if (oldVersion < 63 && newVersion >= 63) {
+            if (!columnExists(db, Message.TABLENAME, Message.RETRACT_ID)) {
+                db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + Message.RETRACT_ID + " TEXT;");
+            }
+        }
+    }
+
+    /**
+     * Checks if a specific column exists in the given table.
+     *
+     * @param db        The SQLiteDatabase instance.
+     * @param tableName The name of the table to check.
+     * @param columnName The name of the column to check.
+     * @return true if the column exists, false otherwise.
+     */
+    private boolean columnExists(SQLiteDatabase db, String tableName, String columnName) {
+        Cursor cursor = null;
+        try {
+            // Querying with a limit of 0 is an efficient way to get column metadata
+            cursor = db.query(tableName, null, null, null, null, null, null, "0");
+            if (cursor != null) {
+                return cursor.getColumnIndex(columnName) != -1;
+            }
+        } catch (Exception e) {
+            // Log the exception if necessary
+            Log.e("DBHelper", "Error checking if column exists: " + e.getMessage());
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return false;
     }
 
     private void canonicalizeJids(SQLiteDatabase db) {

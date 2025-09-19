@@ -138,11 +138,13 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
     public static final String FILE_PARAMS = "fileParams";
     public static final String OCCUPANTID = "occupant_id";
     public static final String NOTIFICATION_DISMISSED = "notificationDismissed";
+    public static final String RETRACT_ID = "retractId";
 
 
     public static final String ERROR_MESSAGE_CANCELLED = "eu.siacs.conversations.cancelled";
 
     public static final Object PLAIN_TEXT_SPAN = new PlainTextSpan();
+    public static final String DELETED_MESSAGE_BODY = "de.monocles.chat.message_deleted";
 
     public boolean markable = false;
     protected String conversationUuid;
@@ -185,6 +187,7 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
     private FileParams fileParams = null;
     private List<MucOptions.User> counterparts;
     private WeakReference<MucOptions.User> user;
+    private String retractId = null;
 
     protected Message(Conversational conversation) {
         this.conversation = conversation;
@@ -224,6 +227,7 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
                 System.currentTimeMillis(),
                 null,
                 null,
+                null,
                 null);
     }
 
@@ -257,6 +261,7 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
                 System.currentTimeMillis(),
                 null,
                 null,
+                null,
                 null);
     }
 
@@ -286,7 +291,7 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
             final String bodyLanguage,
             final String occupantId,
             final Collection<Reaction> reactions,
-            final long timeReceived, final String subject, final String fileParams, final List<Element> payloads) {
+            final long timeReceived, final String subject, final String fileParams, final List<Element> payloads, final String retractId) {
         this.conversation = conversation;
         this.uuid = uuid;
         this.conversationUuid = conversationUUid;
@@ -316,6 +321,7 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
         this.subject = subject;
         if (payloads != null) this.payloads = payloads;
         if (fileParams != null && getSims().isEmpty()) this.fileParams = new FileParams(fileParams);
+        this.retractId = retractId;
     }
 
     public static Message fromCursor(Cursor cursor, Conversation conversation) throws IOException {
@@ -362,7 +368,8 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
                 cursor.getLong(cursor.getColumnIndexOrThrow(cursor.isNull(cursor.getColumnIndexOrThrow(TIME_RECEIVED)) ? TIME_SENT : TIME_RECEIVED)),
                 cursor.getString(cursor.getColumnIndexOrThrow(SUBJECT)),
                 cursor.getString(cursor.getColumnIndexOrThrow(FILE_PARAMS)),
-                payloads
+                payloads,
+                cursor.getString(cursor.getColumnIndexOrThrow(RETRACT_ID))
         );
         final var legacyOccupant = cursor.getString(cursor.getColumnIndexOrThrow(OCCUPANTID));
         if (legacyOccupant != null) m.setOccupantId(legacyOccupant);
@@ -454,6 +461,7 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
         values.put(OCCUPANTID, occupantId);
         values.put(TIME_RECEIVED, timeReceived);
         values.put(NOTIFICATION_DISMISSED, notificationDismissed ? 1 : 0);
+        values.put(RETRACT_ID, retractId);
         return values;
     }
 
@@ -482,7 +490,7 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
     public void updateReplyTo(final Message replyTo, Spanned body) {
         clearReplyReact();
 
-        if (body == null) body = new SpannableStringBuilder(getBody(true));
+        if (body == null) body = new SpannableStringBuilder(getBody(false));
         setBody(QuoteHelper.quote(MessageUtils.prepareQuote(replyTo)) + "\n");
 
         final String replyId = replyTo.replyId();
@@ -912,6 +920,14 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
 
     public synchronized void setTransferable(Transferable transferable) {
         this.transferable = transferable;
+    }
+
+    public String getRetractId() {
+        return this.retractId;
+    }
+
+    public void setRetractId(String id) {
+        this.retractId = id;
     }
 
     public boolean addReadByMarker(final ReadByMarker readByMarker) {
@@ -1511,6 +1527,14 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
 
     public boolean needsUploading() {
         return isFileOrImage() && getFileParams().url == null;
+    }
+
+    public void setOob(boolean isOob) {
+        this.oob = isOob;
+    }
+
+    public List<Edit> getEditedList() {
+        return edits;
     }
 
     public static class FileParams {

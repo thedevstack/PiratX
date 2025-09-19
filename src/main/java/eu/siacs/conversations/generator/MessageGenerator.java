@@ -81,6 +81,13 @@ public class MessageGenerator extends AbstractGenerator {
             packet.addExtension(new Replace(message.getEditedIdWireFormat()));
         }
         if (message.isDeleted()) {
+            /*
+            Element apply = packet.addChild("apply-to", "urn:xmpp:fasten:0").setAttribute("id", (message.getRetractId() != null ? message.getRetractId() : (message.getRemoteMsgId() != null ? message.getRemoteMsgId() : (message.getEditedIdWireFormat() != null ? message.getEditedIdWireFormat() : message.getUuid()))));
+            apply.addChild("retract", "urn:xmpp:message-retract:0");
+            packet.addChild("fallback", "urn:xmpp:fallback:0");
+            packet.addChild("store", "urn:xmpp:hints");
+            packet.setBody("This person attempted to retract a previous message, but it's unsupported by your client.");
+             */
             packet.addExtension(new Retract(message.getEditedIdWireFormat()));
             packet.addExtension(new Fallback(Retract.NAMESPACE));
         }
@@ -92,7 +99,13 @@ public class MessageGenerator extends AbstractGenerator {
             }
         } else {
             for (Element el : message.getPayloads()) {
-                if ("thread".equals(el.getName())) packet.addChild(el);
+                // Allow <thread>, XEP-0461 <reply>, and XEP-0461 <fallback for reply> elements
+                if ("thread".equals(el.getName()) ||
+                        ("reply".equals(el.getName()) && "urn:xmpp:reply:0".equals(el.getNamespace())) ||
+                        ("fallback".equals(el.getName()) && "urn:xmpp:fallback:0".equals(el.getNamespace()) && "urn:xmpp:reply:0".equals(el.getAttribute("for")))
+                ) {
+                    packet.addChild(el);
+                }
             }
         }
         return packet;
@@ -160,7 +173,8 @@ public class MessageGenerator extends AbstractGenerator {
             packet = preparePacket(message, false);
             packet.addChild("x", Namespace.OOB).addChild("url").setContent(fileParams.url);
         }
-        if (message.getRawBody() != null) packet.setBody(message.getRawBody());
+        if (message.getRawBody() != null && !message.isDeleted())
+            packet.setBody(message.getRawBody());
         return packet;
     }
 

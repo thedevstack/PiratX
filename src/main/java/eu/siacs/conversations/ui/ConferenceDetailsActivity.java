@@ -577,7 +577,7 @@ public class ConferenceDetailsActivity extends XmppActivity
         share.setVisible(!groupChat);
         AccountUtils.showHideMenuItems(menu);
         final MenuItem customNotifications = menu.findItem(R.id.action_custom_notifications);
-        if (customNotifications != null) customNotifications.setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R);
+        customNotifications.setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R);
         return super.onCreateOptionsMenu(menu);
     }
 
@@ -646,7 +646,7 @@ public class ConferenceDetailsActivity extends XmppActivity
                     xmppConnectionService.updateConversation(mConversation);
                 } else {
                     binding.storeInCache.setEnabled(true);
-                    binding.storeInCache.setChecked(mConversation.storeInCache());
+                    binding.storeInCache.setChecked(mConversation.storeInCache(xmppConnectionService));
                     binding.storeInCache.setOnCheckedChangeListener((v, checked) -> {
                         mConversation.setStoreInCache(checked);
                         xmppConnectionService.updateConversation(mConversation);

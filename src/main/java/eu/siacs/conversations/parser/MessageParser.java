@@ -732,7 +732,7 @@ public class MessageParser extends AbstractParser
                 var reason = replaceElement.findChildContent("reason", "urn:xmpp:message-moderate:0");
                 if (reason == null) reason = replaceElement.findChildContent("reason", "urn:xmpp:message-moderate:1");
                 replacementId = (fasten == null ? replaceElement : fasten).getAttribute("id");
-                packet.setBody(reason == null ? mXmppConnectionService.getString(R.string.message_retracted) : reason);
+                packet.setBody(reason == null ? "" : reason);   //TODO: fix this
             }
         }
         LocalizedContent body = packet.getBody();
@@ -1179,6 +1179,7 @@ public class MessageParser extends AbstractParser
                 updateLastseen(account, from);
             }
 
+            // Old but working message retraction and moderation
             if (replacementId != null && mXmppConnectionService.allowMessageCorrection()) {
                 final Message replacedMessage =
                         conversation.findMessageWithRemoteIdAndCounterpart(
@@ -1236,6 +1237,10 @@ public class MessageParser extends AbstractParser
                                 replacedMessage.clearPayloads();
                                 replacedMessage.setFileParams(null);
                                 replacedMessage.addPayload(replaceElement);
+
+                                replacedMessage.setDeleted(true);
+                                replacedMessage.setRetractId(replacementId);
+                                mXmppConnectionService.updateMessage(replacedMessage, replacedMessage.getUuid());
                             } else {
                                 replacedMessage.clearPayloads();
                                 for (final var p : message.getPayloads()) {
@@ -1718,7 +1723,7 @@ public class MessageParser extends AbstractParser
         if (reactions != null) {
             processReactions(
                     reactions,
-                    mXmppConnectionService.find(account, from.asBareJid()),
+                    mXmppConnectionService.find(account, counterpart.asBareJid()),
                     isTypeGroupChat,
                     occupant,
                     counterpart,
