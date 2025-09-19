@@ -1627,6 +1627,7 @@ public class ConversationFragment extends XmppFragment
                                     Log.d(
                                             Config.LOGTAG,
                                             "ConversationsActivity.commitAttachments() - attaching image to conversations. CHOOSE_IMAGE");
+                                    /*
                                     attachImageToConversation(conversation, attachment.getUri(), attachment.getMime(), this);
                                      */
                                     attachImageToConversation(conversation, attachment.getUri(), attachment.getMime(), null);
