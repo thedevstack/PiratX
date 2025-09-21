@@ -2682,6 +2682,42 @@ public class ConversationFragment extends XmppFragment
                             if (editable != null && !editable.toString().isEmpty()) {
                                 this.conversation.setDraftMessage(editable.toString());
                             }
+                            if (message.getStatus() == Message.STATUS_WAITING || message.getStatus() == Message.STATUS_OFFERED) {
+                                activity.xmppConnectionService.deleteMessage(message);
+                                return;
+                            }
+                            Element reactions = message.getReactionsEl();
+                            if (reactions != null) {
+                                final Message previousReaction = conversation.findMessageReactingTo(reactions.getAttribute("id"), null);
+                                if (previousReaction != null) reactions = previousReaction.getReactionsEl();
+                                for (Element el : reactions.getChildren()) {
+                                    if (message.getRawBody().endsWith(el.getContent())) {
+                                        reactions.removeChild(el);
+                                    }
+                                }
+                                message.setReactions(reactions);
+                                if (previousReaction != null) {
+                                    previousReaction.setReactions(reactions);
+                                    activity.xmppConnectionService.updateMessage(previousReaction);
+                                }
+                            } else {
+                                message.setInReplyTo(null);
+                                message.clearPayloads();
+                            }
+                            message.setBody(getString(R.string.retract_message_fallback));
+                            message.setSubject(null);
+                            message.setDeleted(true);
+                            if (message.isCarbon()) {
+                                message.putEdited(message.getRemoteMsgId(), message.getServerMsgId());
+                            } else {
+                                message.putEdited(message.getUuid(), message.getServerMsgId());
+                            }
+                            message.setRetractId(message.getEditedIdWireFormat());
+                            message.setCarbon(false);
+                            message.setServerMsgId(null);
+                            message.setUuid(UUID.randomUUID().toString());
+                            sendMessage(message);
+                            /*
                             fadeOutMessage(message.getUuid());
                             binding.messagesView.postDelayed(() -> {
                                 final Message finalMessage = message;
@@ -2692,7 +2728,7 @@ public class ConversationFragment extends XmppFragment
 
                                     long time = System.currentTimeMillis();
                                     Message retractmessage = new Message(conversation,
-                                            getString(R.string.retract_message_fallback),
+                                            "This person attempted to retract a previous message, but it's unsupported by your client."),
                                             message.getEncryption(),        // Message.ENCRYPTION_NONE doesn't work for encrypted messages
                                             Message.STATUS_SEND);
                                     if (retractedMessage.getEditedList().size() > 0) {
@@ -2701,14 +2737,7 @@ public class ConversationFragment extends XmppFragment
                                         retractmessage.setRetractId(retractedMessage.getRemoteMsgId() != null ? retractedMessage.getRemoteMsgId() : retractedMessage.getUuid());
                                     }
 
-                                    /*
                                     retractedMessage.putEdited(retractedMessage.getUuid(), retractedMessage.getServerMsgId());  //TODO: Maybe add: , retractedMessage.getBody(), retractedMessage.getTimeSent());
-                                     */
-                                    if (retractedMessage.isCarbon()) {
-                                        retractedMessage.putEdited(retractedMessage.getRemoteMsgId(), retractedMessage.getServerMsgId());
-                                    } else {
-                                        retractedMessage.putEdited(retractedMessage.getUuid(), retractedMessage.getServerMsgId());
-                                    }
                                     retractedMessage.setBody(Message.DELETED_MESSAGE_BODY);
                                     retractedMessage.setServerMsgId(null);
                                     retractedMessage.setRemoteMsgId(message.getRemoteMsgId());
@@ -2744,6 +2773,7 @@ public class ConversationFragment extends XmppFragment
                                 activity.onConversationsListItemUpdated();
                                 refresh();
                             }, 300L);
+                            */
                         })
                         .setNegativeButton(R.string.no, null).show();
                 return true;
