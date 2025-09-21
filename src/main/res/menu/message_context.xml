@@ -50,6 +50,10 @@
         android:title="@string/correct_message"
         android:visible="false" />
     <item
+        android:id="@+id/retract_message"
+        android:title="@string/retract_message"
+        android:visible="false" />
+    <item
         android:id="@+id/moderate_message"
         android:title="@string/moderate_message"
         android:visible="false" />
@@ -97,4 +101,8 @@
         android:id="@+id/retract_message"
         android:title="@string/retract_message"
         android:visible="false" />
+    <item
+        android:id="@+id/message_info"
+        android:title="Info"
+        android:visible="true"/>
 </menu>

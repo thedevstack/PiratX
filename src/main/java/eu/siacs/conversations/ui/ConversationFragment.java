@@ -2837,6 +2837,13 @@ public class ConversationFragment extends XmppFragment
             case R.id.action_report_and_block:
                 reportMessage(selectedMessage);
                 return true;
+            /* Start: PiratX debug additional dialog jump to show technical message details */
+            case R.id.message_info:
+                if (BuildConfig.DEBUG) {
+                    de.thedevstack.piratx.ui.PiratXDialogHelper.showMessageDetailsDialog(requireActivity(), selectedMessage);
+                    return true;
+                }
+            /* End: PiratX debug additional dialog jump to show technical message details */
             default:
                 return onOptionsItemSelected(item);
         }
