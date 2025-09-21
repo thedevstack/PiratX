@@ -15,6 +15,7 @@
     <bool name="app_lock_enabled">false</bool>
     <bool name="pinned_status_message">false</bool>
     <bool name="load_now_playing_from_system">false</bool>
+    <bool name="default_store_media_in_cache">false</bool>
 
     <string-array name="domains">
         <item>jabber.thedevstack.de</item>
