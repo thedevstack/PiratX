@@ -88,7 +88,7 @@ public class MessageGenerator extends AbstractGenerator {
             packet.addChild("store", "urn:xmpp:hints");
             packet.setBody("This person attempted to retract a previous message, but it's unsupported by your client.");
              */
-            packet.addExtension(new Retract(message.getEditedIdWireFormat()));
+            packet.addExtension(new Retract(message.getRetractId()));
             packet.addExtension(new Fallback(Retract.NAMESPACE));
         }
         if (!legacyEncryption) {
