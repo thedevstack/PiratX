@@ -4,6 +4,7 @@ import android.content.Context;
 
 import androidx.appcompat.app.AlertDialog;
 
+import de.thedevstack.piratx.utils.PiratXMessageUtil;
 import eu.siacs.conversations.entities.Message;
 
 public class PiratXDialogHelper {
@@ -24,7 +25,9 @@ public class PiratXDialogHelper {
         body.append("Server-ID: ").append(message.getServerMsgId()).append("\n");
         body.append("Remote-ID: ").append(message.getRemoteMsgId()).append("\n");
         body.append("Carbon: ").append(message.isCarbon()).append("\n");
-        //body.append("Carbon: ").append(message.get).append("\n");
+        body.append("Retract-ID: ").append(message.getRetractId()).append("\n");
+        body.append("isRetracted: ").append(PiratXMessageUtil.isRetracted(message)).append("\n");
+        //body.append("Retract-ID: ").append(message.getRetractId()).append("\n");
 
         // AlertDialog.Builder verwenden, um den Dialog zu erstellen
         AlertDialog.Builder builder = new AlertDialog.Builder(context);

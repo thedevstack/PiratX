@@ -35,7 +35,7 @@ public class PiratXMessageUtil {
         return body;
     }
 
-    protected static SpannableStringBuilder createRetractionBody(Message message) {
+    public static SpannableStringBuilder createRetractionBody(Message message) {
         String retractMessage = Conversations.getContext().getString(R.string.message_retracted);
         message.setBody(retractMessage);
         SpannableStringBuilder body = message.getSpannableBody();

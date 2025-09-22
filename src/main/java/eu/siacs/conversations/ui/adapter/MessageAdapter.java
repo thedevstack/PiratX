@@ -683,9 +683,14 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
         final var rawBody = message.getBody();
         if (Strings.isNullOrEmpty(rawBody)) {
-            viewHolder.messageBody().setText("");
-            viewHolder.messageBody().setTextIsSelectable(false);
-            toggleWhisperInfo(viewHolder, message, bubbleColor);
+            if (de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)) {
+                viewHolder.messageBody().setText(de.thedevstack.piratx.utils.PiratXMessageUtil.createRetractionBody(message));
+            } else {
+                viewHolder.messageBody().setText("");
+                viewHolder.messageBody().setTextIsSelectable(false);
+                toggleWhisperInfo(viewHolder, message, bubbleColor);
+            }
+
             return;
         }
         viewHolder.messageBody().setTextIsSelectable(true);
