@@ -1344,7 +1344,10 @@ public class ConversationFragment extends XmppFragment
                     }
                 }
                 // Set caption when only one attachment
+                /*
                 if (mediaPreviewAdapter.getItemCount() == 1) {
+                 */
+                if (mediaPreviewAdapter.getItemCount() == 1 && !message.isGeoUri()) {
                     conversation.setCaption(message);
                     commitAttachments();
                     return;
@@ -1703,7 +1706,12 @@ public class ConversationFragment extends XmppFragment
     public void toggleInputMethod() {
         //Currently no caption possible when E2EE enabled
         if (conversation.getNextEncryption() == Message.ENCRYPTION_NONE && mediaPreviewAdapter.getItemCount() == 1) {
+            /*
             binding.textinputLayoutNew.setVisibility(VISIBLE);
+             */
+            // Do not show text input for locations since its discarded anyways
+            boolean isLocationAttachment = mediaPreviewAdapter.getAttachments().get(0).getType() == Attachment.Type.LOCATION;
+            binding.textinputLayoutNew.setVisibility(isLocationAttachment ? GONE : VISIBLE);
             binding.mediaPreview.setVisibility(View.VISIBLE);
         } else {
             boolean hasAttachments = mediaPreviewAdapter.hasAttachments();
