@@ -86,6 +86,7 @@ import com.google.common.collect.ImmutableSet;
 import com.daimajia.swipe.SwipeLayout;
 import com.lelloman.identicon.view.GithubIdenticonView;
 
+import de.thedevstack.piratx.utils.PiratXMessageUtil;
 import eu.siacs.conversations.ui.AddReactionActivity;
 import io.ipfs.cid.Cid;
 
@@ -1556,7 +1557,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         /*
         reactionsPopup(message, viewHolder);
          */
-        if (message.getRetractId() != null) { // Do not show reaction popup on retracted message bubbles
+        if (!PiratXMessageUtil.isRetracted(message)) { // Do not show reaction popup on retracted message bubbles
             reactionsPopup(message, viewHolder);
         }
 
