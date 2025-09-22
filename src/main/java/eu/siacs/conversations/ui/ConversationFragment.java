@@ -2592,7 +2592,7 @@ public class ConversationFragment extends XmppFragment
                 retractMessage.setVisible(true);
             }
             /*
-            if ((m.isGeoUri() || m.isFileOrImage()) && !deleted && m.getStatus() != Message.STATUS_RECEIVED) retractMessage.setVisible(true); //TODO also allow retraction when not yet downloaded
+            if ((m.isGeoUri() || m.isFileOrImage()) && m.getStatus() != Message.STATUS_RECEIVED) retractMessage.setVisible(true); //TODO also allow retraction when not yet downloaded
              */
             if (m.isEditable() && m.isGeoUri()) {
                 //correctMessage.setVisible(true); // Correct geo uri not visible - until valid flow is implemented
@@ -2742,7 +2742,7 @@ public class ConversationFragment extends XmppFragment
 
                                     long time = System.currentTimeMillis();
                                     Message retractmessage = new Message(conversation,
-                                            "This person attempted to retract a previous message, but it's unsupported by your client."),
+                                            "This person attempted to retract a previous message, but it's unsupported by your client.",
                                             message.getEncryption(),        // Message.ENCRYPTION_NONE doesn't work for encrypted messages
                                             Message.STATUS_SEND);
                                     if (retractedMessage.getEditedList().size() > 0) {
