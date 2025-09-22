@@ -1553,7 +1553,12 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             }
         });
 
+        /*
         reactionsPopup(message, viewHolder);
+         */
+        if (message.getRetractId() != null) { // Do not show reaction popup on retracted message bubbles
+            reactionsPopup(message, viewHolder);
+        }
 
         viewHolder.messageBody().setOnClickListener(v -> {
             if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
