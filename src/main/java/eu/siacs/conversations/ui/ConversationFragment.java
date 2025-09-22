@@ -2675,6 +2675,17 @@ public class ConversationFragment extends XmppFragment
                 openWith.setVisible(true);
             }
         }
+        else if (BuildConfig.DEBUG && de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(m)) {
+            activity.getMenuInflater().inflate(R.menu.message_context, menu);
+            for (int i = 0; i < menu.size(); i++) {
+                MenuItem item = menu.getItem(i);
+                if (item.getItemId() == R.id.message_info) {
+                    item.setVisible(true);
+                } else {
+                    item.setVisible(false);
+                }
+            }
+        }
     }
 
     @Override
