@@ -2583,7 +2583,13 @@ public class ConversationFragment extends XmppFragment
                 correctMessage.setVisible(true);
                 retractMessage.setVisible(true);
             }
+            /*
             if ((m.isGeoUri() || m.isFileOrImage()) && !deleted && m.getStatus() != Message.STATUS_RECEIVED) retractMessage.setVisible(true); //TODO also allow retraction when not yet downloaded
+             */
+            if (m.isEditable() && m.isGeoUri()) {
+                //correctMessage.setVisible(true); // Correct geo uri not visible - until valid flow is implemented
+                retractMessage.setVisible(true);
+            }
             if (m.getStatus() == Message.STATUS_WAITING) {
                 correctMessage.setVisible(true);
                 retractMessage.setVisible(true);
