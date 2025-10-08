@@ -94,6 +94,7 @@ import androidx.annotation.IdRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
+import androidx.annotation.WorkerThread;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
@@ -2753,7 +2754,7 @@ public class ConversationFragment extends XmppFragment
 
                                     long time = System.currentTimeMillis();
                                     Message retractmessage = new Message(conversation,
-                                            "This person attempted to retract a previous message, but it's unsupported by your client.",
+                                            "",
                                             message.getEncryption(),        // Message.ENCRYPTION_NONE doesn't work for encrypted messages
                                             Message.STATUS_SEND);
                                     if (retractedMessage.getEditedList().size() > 0) {
@@ -6698,7 +6699,6 @@ public class ConversationFragment extends XmppFragment
                         binding.pinnedMessageText.setVisibility(View.GONE);
                         binding.pinnedMessageImageThumbnail.setVisibility(View.GONE);
                         binding.pinnedMessageFileIcon.setVisibility(View.GONE);
-                        String contentDescriptionForContainer;
 
                         if (pinnedData.cid != null && isDisplayableMediaCid(pinnedData.cid)) { // You'll need an isDisplayableMediaCid helper
                             binding.pinnedMessageImageThumbnail.setVisibility(View.VISIBLE);
@@ -6721,16 +6721,6 @@ public class ConversationFragment extends XmppFragment
                                     binding.pinnedMessageFileIcon.setVisibility(View.VISIBLE);
                                 }
                             }
-                            // Set content description for accessibility
-                            if (isVideoCid(pinnedData.cid)) {
-                                contentDescriptionForContainer = activity.getString(R.string.pinned_video_preview,
-                                        pinnedData.plaintextBody != null ? pinnedData.plaintextBody : activity.getString(R.string.video_attachment));
-                            } else {
-                                contentDescriptionForContainer = activity.getString(R.string.pinned_image_preview,
-                                        pinnedData.plaintextBody != null ? pinnedData.plaintextBody : activity.getString(R.string.image_attachment));
-                            }
-                            binding.pinnedMessageImageThumbnail.setContentDescription(contentDescriptionForContainer);
-
                         } else if (pinnedData.cid != null && isAudioCid(pinnedData.cid)) { // Audio File
                             // TODO: Add audio player directly in the pinned message container
                             binding.pinnedMessageFileIcon.setVisibility(View.VISIBLE);
@@ -6740,11 +6730,7 @@ public class ConversationFragment extends XmppFragment
                                 binding.pinnedMessageText.setVisibility(View.VISIBLE);
                                 // Optional: Adjust layout if text and icon are shown together
                                 // e.g., move text to the side of the icon, or ensure enough padding.
-                                contentDescriptionForContainer = activity.getString(R.string.pinned_audio_with_text_preview, pinnedData.plaintextBody);
-                            } else {
-                                contentDescriptionForContainer = activity.getString(R.string.pinned_audio_no_preview);
                             }
-                            binding.pinnedMessageFileIcon.setContentDescription(contentDescriptionForContainer);
                         } else if (pinnedData.cid != null) { // Generic file
                             // TODO: Set appropriate file icon based on MIME type derived from CID or filename
                             binding.pinnedMessageFileIcon.setImageResource(R.drawable.ic_description_24dp); // Helper needed
@@ -6762,13 +6748,10 @@ public class ConversationFragment extends XmppFragment
                             } else {
                                 binding.pinnedMessageText.setText(pinnedData.plaintextBody);
                                 binding.pinnedMessageText.setVisibility(View.VISIBLE);
-                                // Set content description for accessibility
                             }
                         } else if (pinnedData.plaintextBody != null && !pinnedData.plaintextBody.isEmpty()) { // Text only
                             binding.pinnedMessageText.setText(pinnedData.plaintextBody);
                             binding.pinnedMessageText.setVisibility(View.VISIBLE);
-                            // Set content description for accessibility
-                            binding.pinnedMessageText.setContentDescription(activity.getString(R.string.pinned_text_preview, pinnedData.plaintextBody));
                         } else {
                             // Should not happen if validation in repository is correct, but good to handle
                             hidePinnedMessageView();
@@ -6798,24 +6781,27 @@ public class ConversationFragment extends XmppFragment
         }).start();
     }
 
-    // Helper method to determine if a CID likely represents an image or video
-    private boolean isDisplayableMediaCid(Cid cid) {
-        if (cid == null) return false;
+    /**
+     * Checks if a given Cid corresponds to a displayable image or video file.
+     * This method performs file system operations and MUST be called from a background thread.
+     */
+    @WorkerThread
+    private boolean isDisplayableMediaCid(@Nullable Cid cid) {
+        if (cid == null) {
+            return false;
+        }
+        // Add null checks for activity and the service to prevent crashes.
+        if (activity == null || activity.xmppConnectionService == null) {
+            return false;
+        }
         File file = activity.xmppConnectionService.getFileForCid(cid);
-        if (file == null) return false;
-        String lowerFilePath = file.getAbsolutePath();
-        String mimeType = MimeUtils.guessFromPath(lowerFilePath);
-        return mimeType != null && (mimeType.startsWith("image/") || mimeType.startsWith("video/"));
-    }
+        if (file == null) {
+            return false;
+        }
+        String filePath = file.getAbsolutePath();
+        String mimeType = MimeUtils.guessFromPath(filePath);
 
-    private boolean isVideoCid(Cid cid) {
-        if (cid == null) return false;
-        File file = activity.xmppConnectionService.getFileForCid(cid);
-        if (file == null) return false;
-        String lowerFilePath = file.getAbsolutePath();
-        String mimeType = MimeUtils.guessFromPath(lowerFilePath);
-        // Video types
-        return mimeType != null && mimeType.startsWith("video/");
+        return mimeType != null && (mimeType.startsWith("image/") || mimeType.startsWith("video/"));
     }
 
     private boolean isAudioCid(Cid cid) {

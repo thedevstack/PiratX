@@ -715,6 +715,9 @@ public class ContactDetailsActivity extends OmemoActivity
             ShowAvatarPopup(contact);
             return true;
         });
+
+        binding.presenceIndicator.setStatus(contact);
+
         binding.detailsContactKeys.removeAllViews();
         boolean hasKeys = false;
         final LayoutInflater inflater = getLayoutInflater();
@@ -1019,8 +1022,7 @@ public class ContactDetailsActivity extends OmemoActivity
                     int limit = GridManager.getCurrentColumnCount(binding.media);
                     mMediaAdapter.setAttachments(
                             attachments.subList(0, Math.min(limit, attachments.size())));
-                    binding.mediaWrapper.setVisibility(
-                            attachments.size() > 0 ? View.VISIBLE : View.GONE);
+                    binding.showMedia.setVisibility(attachments.size() > 0 ? View.VISIBLE : View.GONE);
                 });
     }
 
@@ -1080,6 +1082,10 @@ public class ContactDetailsActivity extends OmemoActivity
                 } else if (uri.getScheme().equals("wownero")) {
                     binding.command.setText(uri.getSchemeSpecificPart());
                     binding.command.setCompoundDrawablesRelativeWithIntrinsicBounds(getDrawable(R.drawable.wownero_24dp), null, null, null);
+                    binding.command.setCompoundDrawablePadding(20);
+                } else if (uri.getScheme().equals("taler")) {
+                    binding.command.setText(uri.getSchemeSpecificPart());
+                    binding.command.setCompoundDrawablesRelativeWithIntrinsicBounds(getDrawable(R.drawable.taler_icon_24dp), null, null, null);
                     binding.command.setCompoundDrawablePadding(20);
                 } else if (uri.getScheme().equals("https") && "liberapay.com".equals(uri.getHost())) {
                     binding.command.setText(uri.getPath().substring(1));
