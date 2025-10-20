@@ -9,6 +9,7 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.media.AudioManager;
+import android.media.MediaMetadataRetriever;
 import android.os.Build;
 import android.os.Handler;
 import android.os.PowerManager;
@@ -111,7 +112,26 @@ public class AudioPlayer
 
     private boolean init(final ViewHolder viewHolder, final Message message) {
         MessageAdapter.setTextColor(viewHolder.runtime, viewHolder.bubbleColor);
+        MessageAdapter.setTextColor(viewHolder.title, viewHolder.bubbleColor);
         viewHolder.progress.setOnSeekBarChangeListener(this);
+        MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
+        try {
+            mediaMetadataRetriever.setDataSource(message.getRelativeFilePath());
+            if (mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) != null && mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) != null) {
+                String artist = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                String album = mediaMetadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+                viewHolder.title.setText(String.format("%s - %s", artist, album));
+            }
+        } catch (Exception e) {
+            Log.w(Config.LOGTAG, e);
+        } finally {
+            try {
+                mediaMetadataRetriever.release();
+            } catch (Exception e) {
+                // Can fail on some older Android versions, log if needed
+                Log.e(Config.LOGTAG, "Error releasing MediaMetadataRetriever", e);
+            }
+        }
         final ColorStateList color =
                 MessageAdapter.bubbleToOnSurfaceColorStateList(
                         viewHolder.progress, viewHolder.bubbleColor);
@@ -452,6 +472,7 @@ public class AudioPlayer
 
     public static class ViewHolder {
         private TextView runtime;
+        private TextView title;
         private SeekBar progress;
         private MaterialButton playPause;
         private MessageAdapter.BubbleColor bubbleColor = MessageAdapter.BubbleColor.SURFACE;
@@ -464,6 +485,7 @@ public class AudioPlayer
             }
             final ViewHolder viewHolder = new ViewHolder();
             viewHolder.runtime = audioPlayer.findViewById(R.id.runtime);
+            viewHolder.title = audioPlayer.findViewById(R.id.title);
             viewHolder.progress = audioPlayer.findViewById(R.id.progress);
             viewHolder.playPause = audioPlayer.findViewById(R.id.play_pause);
             audioPlayer.setTag(R.id.TAG_AUDIO_PLAYER_VIEW_HOLDER, viewHolder);

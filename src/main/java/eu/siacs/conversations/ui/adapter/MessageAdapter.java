@@ -5,6 +5,7 @@ import static android.view.View.GONE;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
@@ -13,6 +14,7 @@ import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
+import android.preference.PreferenceManager;
 import android.text.Editable;
 import android.text.Spanned;
 import android.text.Spannable;
@@ -48,10 +50,13 @@ import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
+import androidx.core.view.ViewCompat;
 import androidx.core.widget.ImageViewCompat;
+import androidx.customview.widget.ViewDragHelper;
 import androidx.databinding.DataBindingUtil;
 import androidx.media3.common.util.Log;
 import androidx.recyclerview.widget.RecyclerView;
@@ -83,9 +88,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 import com.google.common.collect.ImmutableSet;
-import com.daimajia.swipe.SwipeLayout;
 import com.lelloman.identicon.view.GithubIdenticonView;
 
+import de.monocles.chat.ui.DraggableListView;
 import de.thedevstack.piratx.utils.PiratXMessageUtil;
 import eu.siacs.conversations.ui.AddReactionActivity;
 import io.ipfs.cid.Cid;
@@ -162,7 +167,7 @@ import eu.siacs.conversations.xml.Element;
 import java.util.Arrays;
 import java.util.Collection;
 
-public class MessageAdapter extends ArrayAdapter<Message> {
+public class MessageAdapter extends ArrayAdapter<Message> implements DraggableListView.DraggableAdapter {
 
     public static final String DATE_SEPARATOR_BODY = "DATE_SEPARATOR";
     private static final int END = 0;
@@ -195,6 +200,100 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     private final float padding22dp;
     private final float targetImageWidthSmallThreshold;
     private final float targetImageWidthLargeThreshold;
+    private boolean allowRelativeTimestamps = true;
+    private MessageBoxSwipedListener messageBoxSwipedListener;
+
+
+    private ViewDragHelper dragHelper = null;
+    private final ViewDragHelper.Callback dragCallback = new ViewDragHelper.Callback() {
+        private int horizontalOffset = 0;
+        private boolean swipedEnoughFirstTime = true;
+
+        @Override
+        public boolean tryCaptureView(@NonNull View child, int pointerId) {
+            return child.getTag(R.id.TAG_DRAGGABLE) != null;
+        }
+
+        @Override
+        public void onViewCaptured(@NonNull View capturedChild, int activePointerId) {
+            horizontalOffset = 0;
+            swipedEnoughFirstTime = true;
+            super.onViewCaptured(capturedChild, activePointerId);
+        }
+
+        @Override
+        public void onViewReleased(@NonNull View releasedChild, float xvel, float yvel) {
+            if (dragHelper != null) {
+                dragHelper.settleCapturedViewAt(0, releasedChild.getTop());
+                ViewCompat.postOnAnimation(releasedChild, new SettleRunnable(releasedChild));
+                MessageItemViewHolder viewHolder = (MessageItemViewHolder) releasedChild.getTag();
+
+                // Check if the view was swiped far enough to the right
+                if (viewHolder != null && viewHolder.position >= 0 && viewHolder.position < getCount() && horizontalOffset > releasedChild.getWidth()/8) {
+                    Message m = getItem(viewHolder.position);
+                    if (messageBoxSwipedListener != null) {
+                        messageBoxSwipedListener.onMessageBoxReleasedAfterSwipe(m);
+                    }
+                }
+            }
+            horizontalOffset = 0;
+            swipedEnoughFirstTime = true;
+            super.onViewReleased(releasedChild, xvel, yvel);
+        }
+
+        @Override
+        public int clampViewPositionHorizontal(@NonNull View child, int left, int dx) {
+            // Allow dragging to the right, but not to the left
+            int fixedLeft = Math.max(left, 0);
+            horizontalOffset = fixedLeft;
+
+            // Trigger haptic feedback when swiped far enough to the right
+            if (horizontalOffset > child.getWidth()/8 && swipedEnoughFirstTime) {
+                swipedEnoughFirstTime = false;
+                messageBoxSwipedListener.onMessageBoxSwipedEnough();
+            }
+
+            // Set the maximum drag distance to the right
+            return Math.min(child.getWidth()/4, fixedLeft);
+        }
+
+
+        @Override
+        public int clampViewPositionVertical(@NonNull View child, int top, int dy) {
+            return child.getTop();
+        }
+
+        @Override
+        public int getViewHorizontalDragRange(@NonNull View child) {
+            return Math.max(Math.abs(child.getLeft()), 1);
+        }
+
+        private class SettleRunnable implements Runnable {
+            private View view;
+
+            public SettleRunnable(View view) {
+                this.view = view;
+            }
+
+            @Override
+            public void run() {
+                if (dragHelper != null && dragHelper.continueSettling(true)) {
+                    ViewCompat.postOnAnimation(view, this);
+                }
+            }
+        }
+    };
+
+    @Nullable
+    @Override
+    public ViewDragHelper.Callback getDragCallback() {
+        return dragCallback;
+    }
+
+    @Override
+    public void setViewDragHelper(@Nullable ViewDragHelper helper) {
+        this.dragHelper = helper;
+    }
 
     public MessageAdapter(
             final XmppActivity activity, final List<Message> messages, final boolean forceNames) {
@@ -213,6 +312,8 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         appSettings = new AppSettings(activity);
         updatePreferences();
         this.mForceNames = forceNames;
+        final SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(activity);
+        allowRelativeTimestamps = !p.getBoolean("always_full_timestamps", activity.getResources().getBoolean(R.bool.always_full_timestamps));
     }
 
     public MessageAdapter(final XmppActivity activity, final List<Message> messages) {
@@ -408,7 +509,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
 
         final String formattedTime =
-                UIHelper.readableTimeDifferenceFull(getContext(), message.getTimeSent());
+                UIHelper.readableTimeDifferenceFull(getContext(), message.getTimeSent(), allowRelativeTimestamps);
         final String bodyLanguage = message.getBodyLanguage();
         final ImmutableList.Builder<String> timeInfoBuilder = new ImmutableList.Builder<>();
 
@@ -1328,56 +1429,64 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     private MessageItemViewHolder getViewHolder(
             final View view, final @NonNull ViewGroup parent, final int type) {
         if (view != null && view.getTag() instanceof MessageItemViewHolder messageItemViewHolder) {
+            if (dragHelper != null && dragHelper.getCapturedView() == view) {
+                dragHelper.abort();
+            }
             return messageItemViewHolder;
         } else {
             final MessageItemViewHolder viewHolder =
-                switch (type) {
-                    case RTP_SESSION ->
-                            new RtpSessionMessageItemViewHolder(
-                                    DataBindingUtil.inflate(
-                                            LayoutInflater.from(parent.getContext()),
-                                            R.layout.item_message_rtp_session,
-                                            parent,
-                                            false));
-                    case DATE_SEPARATOR ->
-                            new DateSeperatorMessageItemViewHolder(
-                                    DataBindingUtil.inflate(
-                                            LayoutInflater.from(parent.getContext()),
-                                            R.layout.item_message_date_bubble,
-                                            parent,
-                                            false));
-                    case STATUS ->
-                            new StatusMessageItemViewHolder(
-                                    DataBindingUtil.inflate(
-                                            LayoutInflater.from(parent.getContext()),
-                                            R.layout.item_message_status,
-                                            parent,
-                                            false));
-                    // Ensure END and START produce distinct types if they have different render logic
-                    // or are checked separately in getView's switch.
-                    case END ->
-                            new EndBubbleMessageItemViewHolder( // Make sure this is a distinct class
+                    switch (type) {
+                        case RTP_SESSION ->
+                                new RtpSessionMessageItemViewHolder(
+                                        DataBindingUtil.inflate(
+                                                LayoutInflater.from(parent.getContext()),
+                                                R.layout.item_message_rtp_session,
+                                                parent,
+                                                false));
+                        case DATE_SEPARATOR ->
+                                new DateSeperatorMessageItemViewHolder(
+                                        DataBindingUtil.inflate(
+                                                LayoutInflater.from(parent.getContext()),
+                                                R.layout.item_message_date_bubble,
+                                                parent,
+                                                false));
+                        case STATUS ->
+                                new StatusMessageItemViewHolder(
+                                        DataBindingUtil.inflate(
+                                                LayoutInflater.from(parent.getContext()),
+                                                R.layout.item_message_status,
+                                                parent,
+                                                false));
+                        case END -> {
+                            final var holder = new EndBubbleMessageItemViewHolder(
                                     DataBindingUtil.inflate(
                                             LayoutInflater.from(parent.getContext()),
                                             R.layout.item_message_end,
                                             parent,
                                             false));
-                    case START ->
-                            new StartBubbleMessageItemViewHolder( // Make sure this is a distinct class
+                            holder.itemView.setTag(R.id.TAG_DRAGGABLE, true);
+                            yield holder;
+                        }
+                        case START -> {
+                            final var holder = new StartBubbleMessageItemViewHolder(
                                     DataBindingUtil.inflate(
                                             LayoutInflater.from(parent.getContext()),
                                             R.layout.item_message_start,
                                             parent,
                                             false));
-                    default -> {
-                        Log.e("MessageAdapter", "Unable to create ViewHolder for type: " + type);
-                        throw new AssertionError("Unable to create ViewHolder for type: " + type);
-                    }
-                };
+                            holder.itemView.setTag(R.id.TAG_DRAGGABLE, true);
+                            yield holder;
+                        }
+                        default -> {
+                            Log.e("MessageAdapter", "Unable to create ViewHolder for type: " + type);
+                            throw new AssertionError("Unable to create ViewHolder for type: " + type);
+                        }
+                    };
             viewHolder.itemView.setTag(viewHolder);
             return viewHolder;
         }
     }
+
 
     @NonNull
     @Override
@@ -1388,6 +1497,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             type = getItemViewType(message, bubbleDesign.alignStart);
 
             final MessageItemViewHolder viewHolder = getViewHolder(view, parent, type);
+            viewHolder.position = position;
 
             if (type == DATE_SEPARATOR
                     && viewHolder instanceof DateSeperatorMessageItemViewHolder messageItemViewHolder) {
@@ -1480,6 +1590,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         final var mergeIntoTop = mergeIntoTop(position, message);
         final var mergeIntoBottom = mergeIntoBottom(position, message);
         final var showAvatar =
+                /*
+                bubbleDesign.showAvatars
+                 */
                 (bubbleDesign.showAvatars && received)
                         || (viewHolder instanceof StartBubbleMessageItemViewHolder
                         && message.getConversation().getMode() == Conversation.MODE_MULTI);
@@ -1502,62 +1615,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
                 MessageAdapter.this.mOnMessageBoxClickedListener
                         .onContactPictureClicked(message);
-            }
-        });
-
-
-        // monocles swipe feature
-        SwipeLayout swipeLayout = viewHolder.layoutSwipe();
-
-        //set show mode.
-        swipeLayout.setShowMode(SwipeLayout.ShowMode.PullOut);
-
-        //add drag edge.(If the BottomView has 'layout_gravity' attribute, this line is unnecessary)
-        swipeLayout.addDrag(SwipeLayout.DragEdge.Left, viewHolder.bottomWrapper());
-
-        swipeLayout.addSwipeListener(new SwipeLayout.SwipeListener() {
-            @Override
-            public void onClose(SwipeLayout layout) {
-                swipeLayout.refreshDrawableState();
-                swipeLayout.clearAnimation();
-                //when the SurfaceView totally cover the BottomView.
-            }
-
-            @Override
-            public void onUpdate(SwipeLayout layout, int leftOffset, int topOffset) {
-                swipeLayout.setClickToClose(true);
-                //you are swiping.
-            }
-
-            @Override
-            public void onStartOpen(SwipeLayout layout) {
-                swipeLayout.setClickToClose(true);
-
-            }
-
-            @Override
-            public void onOpen(SwipeLayout layout) {
-                swipeLayout.refreshDrawableState();
-                //when the BottomView totally show.
-                if (mConversationFragment != null) {
-                    mConversationFragment.quoteMessage(message);
-                } else {
-                    activity.switchToConversationAndQuote(wrap(message.getConversation()), MessageUtils.prepareQuote(message));
-                }
-                swipeLayout.close(true);
-                swipeLayout.setClickToClose(true);
-            }
-
-            @Override
-            public void onStartClose(SwipeLayout layout) {
-                swipeLayout.close(true);
-                swipeLayout.setClickToClose(true);
-            }
-
-            @Override
-            public void onHandRelease(SwipeLayout layout, float xvel, float yvel) {
-                swipeLayout.refreshDrawableState();
-                swipeLayout.close(true);
             }
         });
 
@@ -1606,6 +1663,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         if (muted) {
             // Muted MUC participant
             displayInfoMessage(viewHolder, "Muted", bubbleColor);
+        /*
+        } else if (unInitiatedButKnownSize || message.isDeleted() || (transferable != null && transferable.getStatus() != Transferable.STATUS_UPLOADING)) {
+         */
         } else if (unInitiatedButKnownSize || (message.getType() > Message.TYPE_TEXT && message.isDeleted()) || (transferable != null && transferable.getStatus() != Transferable.STATUS_UPLOADING)) {
             if (unInitiatedButKnownSize || (message.isDeleted() && message.getModerated() == null) || transferable != null && transferable.getStatus() == Transferable.STATUS_OFFER) {
                 displayDownloadableMessage(viewHolder, message, activity.getString(R.string.download_x_file, UIHelper.getFileDescriptionString(activity, message)), bubbleColor);
@@ -2055,7 +2115,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                                 R.string.incoming_call_duration_timestamp,
                                 TimeFrameUtils.resolve(activity, duration),
                                 UIHelper.readableTimeDifferenceFull(
-                                        activity, message.getTimeSent())));
+                                        activity, message.getTimeSent(), allowRelativeTimestamps)));
             } else if (rtpSessionStatus.successful) {
                 viewHolder.binding.messageBody.setText(R.string.incoming_call);
             } else {
@@ -2063,7 +2123,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                         activity.getString(
                                 R.string.missed_call_timestamp,
                                 UIHelper.readableTimeDifferenceFull(
-                                        activity, message.getTimeSent())));
+                                        activity, message.getTimeSent(), allowRelativeTimestamps)));
             }
         } else {
             if (duration > 0) {
@@ -2072,13 +2132,13 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                                 R.string.outgoing_call_duration_timestamp,
                                 TimeFrameUtils.resolve(activity, duration),
                                 UIHelper.readableTimeDifferenceFull(
-                                        activity, message.getTimeSent())));
+                                        activity, message.getTimeSent(), allowRelativeTimestamps)));
             } else {
                 viewHolder.binding.messageBody.setText(
                         activity.getString(
                                 R.string.outgoing_call_timestamp,
                                 UIHelper.readableTimeDifferenceFull(
-                                        activity, message.getTimeSent())));
+                                        activity, message.getTimeSent(), allowRelativeTimestamps)));
             }
         }
         if (colorfulBackground) {
@@ -2159,7 +2219,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     }
 
     private void setBubblePadding(
-            final SwipeLayout root,
+            final ConstraintLayout root,
             final boolean mergeIntoTop,
             final boolean mergeIntoBottom) {
         final var resources = root.getResources();
@@ -2535,7 +2595,8 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
     private abstract static class MessageItemViewHolder extends RecyclerView.ViewHolder {
 
-        private final View itemView;
+        final View itemView;
+        public int position;
 
         private MessageItemViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -2549,7 +2610,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             super(itemView);
         }
 
-        public abstract SwipeLayout root();
+        public abstract ConstraintLayout root();
 
         protected abstract ImageView indicatorEdit();
 
@@ -2593,10 +2654,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
         protected abstract TextView username();
 
-        protected abstract SwipeLayout layoutSwipe();
-
-        protected abstract RelativeLayout bottomWrapper();
-
         protected abstract TextView showMore();
     }
 
@@ -2610,8 +2667,8 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
 
         @Override
-        public SwipeLayout root() {
-            return (SwipeLayout) this.binding.getRoot();
+        public ConstraintLayout root() {
+            return (ConstraintLayout) this.binding.getRoot();
         }
 
         @Override
@@ -2726,16 +2783,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         protected TextView showMore() {
             return this.binding.messageContent.showMore;
         }
-
-        @Override
-        protected SwipeLayout layoutSwipe() {
-            return this.binding.layoutSwipe;
-        }
-
-        @Override
-        protected RelativeLayout bottomWrapper() {
-            return this.binding.bottomWrapper;
-        }
     }
 
     private static class EndBubbleMessageItemViewHolder extends BubbleMessageItemViewHolder {
@@ -2748,23 +2795,13 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
 
         @Override
-        public SwipeLayout root() {
-            return (SwipeLayout) this.binding.getRoot();
+        public ConstraintLayout root() {
+            return (ConstraintLayout) this.binding.getRoot();
         }
 
         @Override
         protected TextView username() {
             return null;
-        }
-
-        @Override
-        protected SwipeLayout layoutSwipe() {
-            return this.binding.layoutSwipe;
-        }
-
-        @Override
-        protected RelativeLayout bottomWrapper() {
-            return this.binding.bottomWrapper;
         }
 
         @Override
@@ -2983,4 +3020,14 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     public interface ReplyClickListener {
         void onReplyClick(Message message);
     }
+
+    public void setOnMessageBoxSwiped(MessageBoxSwipedListener listener) {
+        this.messageBoxSwipedListener = listener;
+    }
+
+    public interface MessageBoxSwipedListener {
+        void onMessageBoxReleasedAfterSwipe(Message message);
+        void onMessageBoxSwipedEnough();
+    }
+
 }

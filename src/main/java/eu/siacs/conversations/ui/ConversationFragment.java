@@ -44,6 +44,8 @@ import android.os.FileObserver;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.preference.PreferenceManager;
 import android.provider.MediaStore;
 import android.text.Editable;
@@ -344,6 +346,7 @@ public class ConversationFragment extends XmppFragment
     private KeyboardHeightProvider.KeyboardHeightListener keyboardHeightListener = null;
     private KeyboardHeightProvider keyboardHeightProvider = null;
     private static final String PINNED_MESSAGE_KEY_PREFIX = "pinned_message_";
+    private Vibrator vibrator;
 
     protected OnClickListener clickToVerify = new OnClickListener() {
         @Override
@@ -1526,7 +1529,7 @@ public class ConversationFragment extends XmppFragment
                 final List<Attachment> imageUris =
                         Attachment.extractAttachments(activity, data, Attachment.Type.IMAGE);
                 if (imageUris.size() == 1 && imageUris.get(0).getMime().startsWith("image/")
-                        && !imageUris.get(0).getMime().equals("image/gif")) {
+                        && !imageUris.get(0).getMime().equals("image/gif") && !skipImageEditor()) {
                     editImage(imageUris.get(0).getUri());
                 } else {
                     mediaPreviewAdapter.addMediaPreviews(imageUris);
@@ -1536,7 +1539,7 @@ public class ConversationFragment extends XmppFragment
             }
             case ATTACHMENT_CHOICE_TAKE_PHOTO: {
                 final Uri takePhotoUri = pendingTakePhotoUri.pop();
-                if (takePhotoUri != null) {
+                if (takePhotoUri != null && !skipImageEditor()) {
                     editImage(takePhotoUri);
                 } else {
                     Log.d(Config.LOGTAG, "lost take photo uri. unable to to attach");
@@ -1765,6 +1768,7 @@ public class ConversationFragment extends XmppFragment
         }
         dirStickers = StickersMigration.getStickersDir(activity);
         StickersMigration.requireMigration(activity);
+        vibrator = (Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE);
     }
 
     @Override
@@ -1961,6 +1965,25 @@ public class ConversationFragment extends XmppFragment
         messageListAdapter.setOnContactPictureLongClicked(this);
         messageListAdapter.setOnInlineImageLongClicked(this);
         messageListAdapter.setConversationFragment(this);
+        messageListAdapter.setOnMessageBoxSwiped(
+                new MessageAdapter.MessageBoxSwipedListener() {
+                    @Override
+                    public void onMessageBoxReleasedAfterSwipe(Message message) {
+                        quoteMessage(message);
+                    }
+
+                    @Override
+                    public void onMessageBoxSwipedEnough() {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK));
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            vibrator.vibrate(VibrationEffect.createOneShot(10L, 127));
+                        } else {
+                            vibrator.vibrate(10L);
+                        }
+                    }
+                }
+        );
         messageListAdapter.setReplyClickListener(this::scrollToReply);
         binding.messagesView.setAdapter(messageListAdapter);
 
@@ -2215,6 +2238,7 @@ public class ConversationFragment extends XmppFragment
         messageListAdapter.setConversationFragment(null);
         messageListAdapter.setOnMessageBoxClicked(null);
         messageListAdapter.setReplyClickListener(null);
+        binding.messagesView.clearDragHelper();
         binding.conversationViewPager.setAdapter(null);
         if (conversation != null) conversation.setupViewPager(null, null, false, null);
     }
@@ -2476,16 +2500,18 @@ public class ConversationFragment extends XmppFragment
             extensions.clear();
             final var xmppConnectionService = activity.xmppConnectionService;
             final var dir = new File(xmppConnectionService.getExternalFilesDir(null), "extensions");
-            for (File file : Files.fileTraverser().breadthFirst(dir)) {
-                if (file.isFile() && file.canRead()) {
-                    final var dummy = new Message(conversation, null, conversation.getNextEncryption());
-                    dummy.setStatus(Message.STATUS_DUMMY);
-                    dummy.setThread(conversation.getThread());
-                    dummy.setUuid(file.getName());
-                    final var xdc = new WebxdcPage(activity, file, dummy);
-                    extensions.add(xdc);
-                    final var item = menu.add(0x1, extensions.size() - 1, 0, xdc.getName());
-                    item.setIcon(xdc.getIcon(24));
+            if (dir.exists() && dir.isDirectory()) { // Check if dir exists and is a directory
+                for (File file : Files.fileTraverser().breadthFirst(dir)) {
+                    if (file.isFile() && file.canRead() && file.getName().endsWith(".xdc")) { // check for .xdc extension
+                        final var dummy = new Message(conversation, null, conversation.getNextEncryption());
+                        dummy.setStatus(Message.STATUS_DUMMY);
+                        dummy.setThread(conversation.getThread());
+                        dummy.setUuid(file.getName());
+                        final var xdc = new WebxdcPage(activity, file, dummy);
+                        extensions.add(xdc);
+                        final var item = menu.add(0x1, extensions.size() - 1, 0, xdc.getName());
+                        item.setIcon(xdc.getIcon(24));
+                    }
                 }
             }
             ConversationMenuConfigurator.configureAttachmentMenu(conversation, menu, TextUtils.isEmpty(binding.textinput.getText()));
@@ -4915,7 +4941,7 @@ public class ConversationFragment extends XmppFragment
                     }
 
                     UserTune tune = conversation.getContact().getUserTune();
-                    if (tune != null) {
+                    if (tune != null && tune != UserTune.STOP) {
                         binding.tuneSubjectText.setText(
                                 getString(R.string.user_tune_listening_to, tune.title, tune.artist));
                         binding.tuneSubject.setOnClickListener(v -> activity.switchToContactDetails(conversation.getContact()));
@@ -5447,6 +5473,11 @@ public class ConversationFragment extends XmppFragment
     private boolean enterIsSend() {
         final SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(activity);
         return p.getBoolean("enter_is_send", getResources().getBoolean(R.bool.enter_is_send));
+    }
+
+    private boolean skipImageEditor() {
+        final SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(getActivity());
+        return p.getBoolean("skip_image_editor_screen", getResources().getBoolean(R.bool.skip_image_editor_screen));
     }
 
     public boolean onArrowUpCtrlPressed() {
