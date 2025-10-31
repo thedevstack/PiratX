@@ -71,6 +71,8 @@ public class AppRTCAudioManager {
     // Callback method for changes in audio focus.
     @Nullable private AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
     private ScheduledFuture<?> ringBackFuture;
+    /* field for tone generator to stop tone after ringing to avoid resource leaks */
+    private ToneGenerator toneGenerator;
 
     public AppRTCAudioManager(final Context context) {
         apprtcContext = context;
@@ -467,6 +469,7 @@ public class AppRTCAudioManager {
     }
 
     public void startRingBack() {
+        /*
         this.ringBackFuture =
                 JingleConnectionManager.SCHEDULED_EXECUTOR_SERVICE.scheduleAtFixedRate(
                         () -> {
@@ -479,14 +482,31 @@ public class AppRTCAudioManager {
                         0,
                         3,
                         TimeUnit.SECONDS);
+         */
+        this.ringBackFuture = JingleConnectionManager.SCHEDULED_EXECUTOR_SERVICE.scheduleWithFixedDelay(() -> {
+            if (null == this.toneGenerator) {
+                toneGenerator = new ToneGenerator(AudioManager.STREAM_RING, CallIntegration.DEFAULT_TONE_VOLUME);
+            }
+            toneGenerator.startTone(ToneGenerator.TONE_CDMA_DIAL_TONE_LITE, 750);
+        }, 0, 3, TimeUnit.SECONDS);
     }
 
     public void stopRingBack() {
+        /*
         final var future = this.ringBackFuture;
         if (future == null || future.isDone()) {
             return;
         }
         future.cancel(true);
+        */
+        if (null != this.ringBackFuture && !this.ringBackFuture.isDone()) {
+            this.ringBackFuture.cancel(true);
+        }
+        if (null != this.toneGenerator) {
+            this.toneGenerator.stopTone();
+            this.toneGenerator.release();
+            this.toneGenerator = null;
+        }
     }
 
     /** AudioManager state. */
