@@ -1101,6 +1101,9 @@ public class RtpSessionActivity extends XmppActivity
                 final JingleRtpConnection rtpConnection = requireRtpConnection();
                 updateInCallButtonConfigurationVideo(
                         rtpConnection.isVideoEnabled(), rtpConnection.isCameraSwitchable());
+                /* piratx: there is a video call ongoing - configure speaker buttons */
+                updateInCallButtonConfigurationSpeakerVideoCall();
+                /* piratx */
             } else {
                 final CallIntegration callIntegration = requireRtpConnection().getCallIntegration();
                 updateInCallButtonConfigurationSpeaker(
@@ -1128,10 +1131,74 @@ public class RtpSessionActivity extends XmppActivity
                     callIntegration.getSelectedAudioDevice(),
                     callIntegration.getAudioDevices().size());
             this.binding.inCallActionFarRight.setVisibility(View.GONE);
+        /* piratx: there is a video call ongoing - configure speaker buttons */
+        }
+        else if (STATES_SHOWING_SPEAKER_CONFIGURATION.contains(state)
+                && showButtons) {
+            updateInCallButtonConfigurationSpeakerVideoCall();
+            /* piratx */
         } else {
             this.binding.inCallActionLeft.setVisibility(View.GONE);
             this.binding.inCallActionRight.setVisibility(View.GONE);
             this.binding.inCallActionFarRight.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * PiratX method to configure speaker buttons in video calls.
+     * duplication of updateInCallButtonConfigurationSpeaker() but changed button
+     */
+    private void updateInCallButtonConfigurationSpeakerVideoCall() {
+        final JingleRtpConnection jingleRtpConnection = this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
+        if (null != jingleRtpConnection) {
+            final CallIntegration callIntegration = jingleRtpConnection.getCallIntegration();
+            if (null != callIntegration) {
+                CallIntegration.AudioDevice selectedAudioDevice = callIntegration.getSelectedAudioDevice();
+                int numberOfChoices = callIntegration.getAudioDevices().size();
+                switch (selectedAudioDevice) {
+                    case EARPIECE -> {
+                        this.binding.inCallActionFarLeft.setImageResource(R.drawable.ic_phone_in_talk_24dp);
+                        if (numberOfChoices >= 2) {
+                            this.binding.inCallActionFarLeft.setContentDescription(
+                                    getString(R.string.call_is_using_earpiece_tap_to_switch_to_speaker));
+                            this.binding.inCallActionFarLeft.setOnClickListener(this::switchToSpeaker);
+                        } else {
+                            this.binding.inCallActionFarLeft.setContentDescription(
+                                    getString(R.string.call_is_using_earpiece));
+                            this.binding.inCallActionFarLeft.setOnClickListener(null);
+                            this.binding.inCallActionFarLeft.setClickable(false);
+                        }
+                    }
+                    case WIRED_HEADSET -> {
+                        this.binding.inCallActionFarLeft.setContentDescription(
+                                getString(R.string.call_is_using_wired_headset));
+                        this.binding.inCallActionFarLeft.setImageResource(R.drawable.ic_headset_mic_24dp);
+                        this.binding.inCallActionFarLeft.setOnClickListener(null);
+                        this.binding.inCallActionFarLeft.setClickable(false);
+                    }
+                    case SPEAKER_PHONE -> {
+                        this.binding.inCallActionFarLeft.setImageResource(R.drawable.ic_volume_up_24dp);
+                        if (numberOfChoices >= 2) {
+                            this.binding.inCallActionFarLeft.setContentDescription(
+                                    getString(R.string.call_is_using_speaker_tap_to_switch_to_earpiece));
+                            this.binding.inCallActionFarLeft.setOnClickListener(this::switchToEarpiece);
+                        } else {
+                            this.binding.inCallActionFarLeft.setContentDescription(
+                                    getString(R.string.call_is_using_speaker));
+                            this.binding.inCallActionFarLeft.setOnClickListener(null);
+                            this.binding.inCallActionFarLeft.setClickable(false);
+                        }
+                    }
+                    case BLUETOOTH -> {
+                        this.binding.inCallActionFarLeft.setContentDescription(
+                                getString(R.string.call_is_using_bluetooth));
+                        this.binding.inCallActionFarLeft.setImageResource(R.drawable.ic_bluetooth_audio_24dp);
+                        this.binding.inCallActionFarLeft.setOnClickListener(null);
+                        this.binding.inCallActionFarLeft.setClickable(false);
+                    }
+                }
+                setVisibleAndShow(this.binding.inCallActionFarLeft);
+            }
         }
     }
 
@@ -1313,6 +1380,9 @@ public class RtpSessionActivity extends XmppActivity
         binding.endCall.hide();
         binding.inCallActionRight.hide();
         binding.inCallActionFarRight.hide();
+        /* piratx */
+        binding.inCallActionFarLeft.hide();
+        /* piratx */
     }
 
     private void showInCallButtons() {
@@ -1449,6 +1519,7 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private void switchToEarpiece(final View view) {
+        Log.d("InCall", "trying to switch to ear piece");
         try {
             requireCallIntegration().setAudioDevice(CallIntegration.AudioDevice.EARPIECE);
             acquireProximityWakeLock();
@@ -1458,6 +1529,7 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private void switchToSpeaker(final View view) {
+        Log.d("InCall", "trying to switch to speaker");
         try {
             requireCallIntegration().setAudioDevice(CallIntegration.AudioDevice.SPEAKER_PHONE);
             releaseProximityWakeLock();
@@ -1631,6 +1703,11 @@ public class RtpSessionActivity extends XmppActivity
                             callIntegration.getSelectedAudioDevice(),
                             callIntegration.getAudioDevices().size());
                 }
+                /* piratx: there might be a video call ongoing - configure speaker buttons */
+                else if (STATES_SHOWING_SPEAKER_CONFIGURATION.contains(endUserState)) {
+                    updateInCallButtonConfigurationSpeakerVideoCall();
+                }
+                /* piratx */
                 Log.d(
                         Config.LOGTAG,
                         "put proximity wake lock into proper state after device update");
