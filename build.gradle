@@ -142,8 +142,8 @@ android {
     defaultConfig {
         minSdkVersion 23
         targetSdkVersion 35
-        versionCode 193
-        versionName "2.0.16"
+        versionCode 194
+        versionName "2.0.17"
         applicationId "de.monocles.chat"
         def appName = "monocles chat"
         resValue "string", "app_name", appName
@@ -177,6 +177,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     flavorDimensions += "mode"
     flavorDimensions += "distribution"
 
@@ -199,8 +203,8 @@ android {
         monocleschat {
             dimension "mode"
             applicationId = "de.monocles.chat"
-            versionCode 193
-            versionName "2.0.16"
+            versionCode 194
+            versionName "2.0.17"
             def appName = "monocles chat"
             resValue "string", "app_name", appName
             buildConfigField "String", "APP_NAME", "\"$appName\""

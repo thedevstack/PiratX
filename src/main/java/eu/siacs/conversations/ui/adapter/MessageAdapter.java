@@ -2059,6 +2059,10 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                         if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
                             popup.setFocusable(false);
                             popup.onTouch(v, event);
+                            if (mConversationFragment != null) {
+                                // Store it in fragment to be able to cancel it.
+                                mConversationFragment.reactionPopup = popup;
+                            }
                         }
                     }
                     return false;
@@ -2070,6 +2074,10 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                         if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
                             popup.setFocusable(false);
                             popup.onTouch(v, event);
+                            if (mConversationFragment != null) {
+                                // Store it in fragment to be able to cancel it.
+                                mConversationFragment.reactionPopup = popup;
+                            }
                         }
                     }
                     return false;
