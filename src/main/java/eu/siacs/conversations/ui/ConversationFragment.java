@@ -2791,7 +2791,7 @@ public class ConversationFragment extends XmppFragment
                             message.setUuid(UUID.randomUUID().toString());
                             sendMessage(message);
                             /*
-                            fadeOutMessage(message.getUuid());
+                            //fadeOutMessage(message.getUuid());
                             binding.messagesView.postDelayed(() -> {
                                 final Message finalMessage = message;
                                 if (message.getConversation() instanceof Conversation) {
