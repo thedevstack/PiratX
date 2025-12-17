@@ -7466,6 +7466,27 @@ public class XmppConnectionService extends Service {
         }
     }
 
+    public void updateAccountOrder() {
+        synchronized (this.accounts) {
+            for (int i = 0; i < this.accounts.size(); i++) {
+                Account account = this.accounts.get(i);
+                // Update the order field on the object
+                account.setOrdering(i);
+                // Persist to database
+                databaseBackend.updateAccount(account);
+            }
+        }
+        // Notify UI
+        if (this.mOnAccountUpdates != null) {
+            for (OnAccountUpdate listener : this.mOnAccountUpdates) {
+                listener.onAccountUpdate();
+            }
+        }
+    }
+
+
+
+
     public interface OnMamPreferencesFetched {
         void onPreferencesFetched(Element prefs);
 

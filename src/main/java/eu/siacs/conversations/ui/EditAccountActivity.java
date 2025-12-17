@@ -22,10 +22,13 @@ import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.view.DragEvent;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
@@ -138,7 +141,7 @@ public class EditAccountActivity extends OmemoActivity
     private Account mAccount;
 
     // Supported VCard4 fields based on what ContactDetailsActivity supports
-    private static final String[] VCARD_TYPES = {"xmpp", "org", "title", "role", "url", "note", "tel", "email", "taler", "other"};
+    private static final String[] VCARD_TYPES = {"fn", "xmpp", "org", "title", "role", "url", "note", "tel", "email", "taler", "other"};
     private boolean mVCardModified = false;
     private boolean mIsLoadingVCard = false;
 
@@ -806,6 +809,14 @@ public class EditAccountActivity extends OmemoActivity
             mVCardModified = true; // Mark as modified
             refreshUi(); // Refresh button state
         });
+        binding.btnShowQrCode.setOnClickListener(v -> {
+            String vcardString = generateVCardString();
+            if (vcardString != null && !vcardString.isEmpty()) {
+                showQrCodeDialog(vcardString);
+            } else {
+                Toast.makeText(this, "No profile data to generate QR", Toast.LENGTH_SHORT).show();
+            }
+        });
         final var preferences = getPreferences();
         binding.quietHoursEnable.setOnClickListener((v) -> {
             preferences.edit().putBoolean("enable_quiet_hours:" + mAccount.getUuid(), binding.quietHoursEnable.isChecked()).apply();
@@ -948,6 +959,7 @@ public class EditAccountActivity extends OmemoActivity
                 configureActionBar(getSupportActionBar(), !openedFromNotification);
             } else {
                 this.binding.avater.setVisibility(View.GONE);
+                this.binding.vcard.setVisibility(View.GONE);
                 configureActionBar(
                         getSupportActionBar(), !(init && Config.MAGIC_CREATE_DOMAIN == null));
                 if (mForceRegister != null) {
@@ -1387,6 +1399,7 @@ public class EditAccountActivity extends OmemoActivity
         if (this.mAccount.isOnlineAndConnected() && !this.mFetchingAvatar) {
             final Features features = this.mAccount.getXmppConnection().getFeatures();
             this.binding.stats.setVisibility(View.VISIBLE);
+            this.binding.vcard.setVisibility(View.VISIBLE);
             boolean showBatteryWarning = isOptimizingBattery();
             boolean showDataSaverWarning = isAffectedByDataSaver();
             showOsOptimizationWarning(showBatteryWarning, showDataSaverWarning);
@@ -1599,6 +1612,7 @@ public class EditAccountActivity extends OmemoActivity
             }
             removeErrorsOnAllBut(errorLayout);
             this.binding.stats.setVisibility(View.GONE);
+            this.binding.vcard.setVisibility(View.GONE);
             this.binding.otherDeviceKeysCard.setVisibility(View.GONE);
             this.binding.verificationBox.setVisibility(View.GONE);
         }
@@ -1907,6 +1921,7 @@ public class EditAccountActivity extends OmemoActivity
         Spinner spinner = rowView.findViewById(R.id.vcard_type_spinner);
         EditText input = rowView.findViewById(R.id.vcard_value_input);
         View removeBtn = rowView.findViewById(R.id.btn_remove_entry);
+        View dragBtn = rowView.findViewById(R.id.btn_drag_entry);
 
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, VCARD_TYPES);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -1958,6 +1973,33 @@ public class EditAccountActivity extends OmemoActivity
             refreshUi();
         });
 
+        // 4. Enable Drag and Drop via the specific handle
+        // Using OnTouchListener allows immediate drag start without a long press delay
+        dragBtn.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                View.DragShadowBuilder shadowBuilder = new View.DragShadowBuilder(rowView);
+
+                // Fix for crash: Pass valid ClipData instead of null.
+                // Use a custom MIME type so EditTexts ignore this drag and don't try to insert text.
+                android.content.ClipData data = new android.content.ClipData(
+                        "vcard_reorder",
+                        new String[]{"application/x-private-reorder"},
+                        new android.content.ClipData.Item("")
+                );
+
+                // Start drag on the whole row
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    v.startDragAndDrop(data, shadowBuilder, rowView, 0);
+                }
+                return true;
+            }
+            return false;
+        });
+
+
+        // Ensure the container listens for drags
+        binding.profileDetailsContainer.setOnDragListener(mProfileDragListener);
+
         binding.profileDetailsContainer.addView(rowView);
     }
 
@@ -2007,8 +2049,13 @@ public class EditAccountActivity extends OmemoActivity
                 if (!value.startsWith("taler:")) value = "taler:" + value;
                 uri.setContent(value);
                 item.addChild(uri);
+            } else if (type.equals("fn")) {
+                // Specific handling for Formatted Name (FN)
+                Element text = new Element("text");
+                text.setContent(value);
+                item.addChild(text);
             } else {
-                // fn, nickname, note, org, title, role, etc use <text>
+                // other, nickname, note, org, title, role, etc use <text>
                 Element text = new Element("text");
                 text.setContent(value);
                 item.addChild(text);
@@ -2021,5 +2068,150 @@ public class EditAccountActivity extends OmemoActivity
         refreshUi();
 
         xmppConnectionService.publishVCard4(mAccount, vcardElement);
+    }
+
+    private final View.OnDragListener mProfileDragListener = (v, event) -> {
+        switch (event.getAction()) {
+            case DragEvent.ACTION_DRAG_STARTED:
+                return true;
+            case DragEvent.ACTION_DRAG_LOCATION:
+                final View draggedView = (View) event.getLocalState();
+                final ViewGroup container = (ViewGroup) v;
+                final float y = event.getY();
+                View targetView = null;
+
+                // Find the child view under the current drag position
+                for (int i = 0; i < container.getChildCount(); i++) {
+                    final View child = container.getChildAt(i);
+                    if (y > child.getTop() && y < child.getBottom()) {
+                        targetView = child;
+                        break;
+                    }
+                }
+
+                // If we found a target and it's not the one we are dragging, swap them
+                if (targetView != null && targetView != draggedView) {
+                    final int targetIndex = container.indexOfChild(targetView);
+                    container.removeView(draggedView);
+                    container.addView(draggedView, targetIndex);
+                }
+                return true;
+            case DragEvent.ACTION_DROP:
+                mVCardModified = true;
+                refreshUi();
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    private String generateVCardString() {
+        int childCount = binding.profileDetailsContainer.getChildCount();
+        if (childCount == 0 && mAccount.getDisplayName() == null) return null;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("BEGIN:VCARD\n");
+        sb.append("VERSION:4.0\n");
+
+        // Add FN (Formatted Name) if available from account or calculate it
+        // Depending on your logic, you might want to pull this from a specific 'nickname' row or the account object
+        // if (mAccount.getDisplayName() != null && !mAccount.getDisplayName().isEmpty()) {
+        //     sb.append("FN:").append(mAccount.getDisplayName()).append("\n");
+        // }
+
+        for (int i = 0; i < childCount; i++) {
+            View rowView = binding.profileDetailsContainer.getChildAt(i);
+            Spinner spinner = rowView.findViewById(R.id.vcard_type_spinner);
+            EditText input = rowView.findViewById(R.id.vcard_value_input);
+
+            String type = spinner.getSelectedItem().toString();
+            String value = input.getText().toString().trim();
+
+            if (value.isEmpty()) continue;
+
+            // Simple mapping from internal types to VCard properties
+            switch (type) {
+                case "fn":
+                    sb.append("FN:").append(value).append("\n");
+                    break;
+                case "tel":
+                    sb.append("TEL;VALUE=uri:").append(value.startsWith("tel:") ? value : "tel:" + value).append("\n");
+                    break;
+                case "mailto":
+                    sb.append("EMAIL:").append(value.startsWith("mailto:") ? value.substring(7) : value).append("\n");
+                    break;
+                case "xmpp":
+                    sb.append("IMPP:").append(value.startsWith("xmpp:") ? value : "xmpp:" + value).append("\n");
+                    break;
+                case "url":
+                    sb.append("URL:").append(value).append("\n");
+                    break;
+                case "nickname":
+                    sb.append("NICKNAME:").append(value).append("\n");
+                    break;
+                case "note":
+                    sb.append("NOTE:").append(value).append("\n");
+                    break;
+                case "org":
+                    sb.append("ORG:").append(value).append("\n");
+                    break;
+                case "title":
+                    sb.append("TITLE:").append(value).append("\n");
+                    break;
+                case "role":
+                    sb.append("ROLE:").append(value).append("\n");
+                    break;
+                case "bday":
+                    sb.append("BDAY:").append(value).append("\n");
+                    break;
+                // Add other cases as needed based on VCARD_TYPES
+                default:
+                    // Fallback for generic text
+                    sb.append("X-").append(type.toUpperCase()).append(":").append(value).append("\n");
+                    break;
+            }
+        }
+
+        sb.append("END:VCARD");
+        return sb.toString();
+    }
+
+    private void showQrCodeDialog(String content) {
+        try {
+            // Calculate dimensions
+            int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.8);
+
+            // Generate QR Bitmap
+            com.google.zxing.MultiFormatWriter writer = new com.google.zxing.MultiFormatWriter();
+            com.google.zxing.common.BitMatrix result = writer.encode(content, com.google.zxing.BarcodeFormat.QR_CODE, width, width);
+
+            // Convert BitMatrix to Bitmap
+            int w = result.getWidth();
+            int h = result.getHeight();
+            int[] pixels = new int[w * h];
+            for (int y = 0; y < h; y++) {
+                int offset = y * w;
+                for (int x = 0; x < w; x++) {
+                    pixels[offset + x] = result.get(x, y) ? android.graphics.Color.BLACK : android.graphics.Color.WHITE;
+                }
+            }
+            android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+            bitmap.setPixels(pixels, 0, w, 0, 0, w, h);
+
+            // Show in Dialog
+            ImageView imageView = new ImageView(this);
+            imageView.setImageBitmap(bitmap);
+            imageView.setPadding(32, 32, 32, 32);
+
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle("VCard QR Code")
+                    .setView(imageView)
+                    .setPositiveButton(R.string.ok, null)
+                    .show();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            Toast.makeText(this, "Failed to generate QR Code", Toast.LENGTH_SHORT).show();
+        }
     }
 }
