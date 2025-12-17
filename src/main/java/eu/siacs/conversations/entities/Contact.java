@@ -123,6 +123,7 @@ public class Contact implements ListItem, Blockable {
         if (avatar != null) {
             this.avatar = new Avatar();
             this.avatar.sha1sum = avatar;
+            this.avatar.owner = jid;
             this.avatar.origin = Avatar.Origin.VCARD; // always assume worst
         }
         try {

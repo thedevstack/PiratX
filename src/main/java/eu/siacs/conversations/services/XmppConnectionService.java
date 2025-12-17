@@ -5801,7 +5801,10 @@ public class XmppConnectionService extends Service {
 
     public void fetchAvatar(
             Account account, final Avatar avatar, final UiCallback<Avatar> callback) {
+        /*
         if (databaseBackend.isBlockedMedia(avatar.cid())) {
+         */
+        if (null != avatar && null != avatar.cid() && databaseBackend.isBlockedMedia(avatar.cid())) {
             if (callback != null) callback.error(0, null);
             return;
         }

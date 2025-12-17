@@ -916,6 +916,8 @@ public class ContactDetailsActivity extends OmemoActivity
                 return;
             }
             this.contact = account.getRoster().getContact(contactJid);
+            /* load avatar from xmpp */
+            de.thedevstack.piratx.ui.PiratXContactDetailsActivityUtil.loadAvatarFromXmpp(this, xmppConnectionService, contact, binding.detailsContactBadge);
             if (mPendingFingerprintVerificationUri != null) {
                 processFingerprintVerification(mPendingFingerprintVerificationUri);
                 mPendingFingerprintVerificationUri = null;
