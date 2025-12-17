@@ -209,7 +209,8 @@
             android:key="show_thread_feature"
             android:icon="@drawable/thread_hint"
             android:summary="@string/pref_show_thread_feature_summary"
-            android:title="@string/pref_show_thread_feature" />
+            android:title="@string/pref_show_thread_feature"
+            android:enabled="false" />
         <SwitchPreferenceCompat
             android:defaultValue="@bool/showtextformatting"
             android:key="showtextformatting"
@@ -243,19 +244,22 @@
             android:defaultValue="@bool/follow_thread_in_channel"
             android:key="follow_thread_in_channel"
             android:summary="@string/pref_follow_thread_in_channel_summary"
-            android:title="@string/pref_follow_thread_in_channel" />
+            android:title="@string/pref_follow_thread_in_channel"
+            android:enabled="false" />
         <SwitchPreferenceCompat
             android:defaultValue="@bool/jump_to_commands_tab"
             android:icon="@drawable/ic_open_with_24dp"
             android:key="jump_to_commands_tab"
             android:summary="@string/pref_jump_to_commands_tab_summary"
-            android:title="@string/pref_jump_to_commands_tab" />
+            android:title="@string/pref_jump_to_commands_tab"
+            android:enabled="false" />
         <SwitchPreferenceCompat
             android:icon="@drawable/ic_mood_24dp"
             android:defaultValue="@bool/message_autocomplete"
             android:key="message_autocomplete"
             android:summary="@string/pref_message_autocomplete_summary"
-            android:title="@string/pref_message_autocomplete" />
+            android:title="@string/pref_message_autocomplete"
+            android:enabled="false" />
         <SwitchPreferenceCompat
             android:icon="@drawable/ic_format_size_24dp"
             android:defaultValue="@bool/compose_rich_text"
