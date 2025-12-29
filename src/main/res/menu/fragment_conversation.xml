@@ -115,7 +115,8 @@
         android:id="@+id/action_open_calendar"
         android:orderInCategory="67"
         android:title="@string/action_open_calendar"
-        app:showAsAction="never" />
+        app:showAsAction="never"
+        android:visible="false" />
     <item
         android:orderInCategory="70"
         android:title="@string/more_options">
