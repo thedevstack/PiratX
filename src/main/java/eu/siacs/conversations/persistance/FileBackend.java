@@ -38,6 +38,8 @@ import androidx.annotation.StringRes;
 import androidx.core.content.FileProvider;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.exifinterface.media.ExifInterface;
+import java.util.Map;
+import java.util.HashMap;
 
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
@@ -89,8 +91,10 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -634,6 +638,19 @@ public class FileBackend {
         return attachments;
     }
 
+    public Map<Integer, Attachment> convertToAttachments(Map<Integer, DatabaseBackend.FilePath> relativeFilePaths) {
+        final Map<Integer, Attachment> attachments = new HashMap<>();
+        relativeFilePaths.forEach((key, value) -> {
+            final String mime =
+                    MimeUtils.guessMimeTypeFromExtension(
+                            MimeUtils.extractRelevantExtension(value.path));
+            final File file = getFileForPath(value.path, mime);
+            attachments.put(key, Attachment.of(value.uuid, file, mime));
+        });
+
+        return attachments;
+    }
+
     private File getLegacyStorageLocation(final String type) {
         if (Config.ONLY_INTERNAL_STORAGE) {
             return new File(mXmppConnectionService.getFilesDir(), type);
@@ -738,6 +755,54 @@ public class FileBackend {
     public void copyAttachmentToDownloadsFolder(Message m) throws FileCopyException {
         File input = mXmppConnectionService.getFileBackend().getFile(m);
 
+        File parentDirectory =
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File output = new File(parentDirectory, input.getName());
+        int counter = 1;
+        while (output.exists()) {
+            output = new File(parentDirectory, "(" + counter + ") " + input.getName());
+            counter++;
+        }
+
+        try {
+            output.createNewFile();
+        } catch (IOException e) {
+            throw new FileCopyException(R.string.error_unable_to_create_temporary_file);
+        }
+        try (final OutputStream os = new FileOutputStream(output);
+             final InputStream is =
+                     mXmppConnectionService.getContentResolver().openInputStream(Uri.fromFile(input))) {
+            if (is == null) {
+                throw new FileCopyException(R.string.error_file_not_found);
+            }
+            try {
+                ByteStreams.copy(is, os);
+            } catch (IOException e) {
+                throw new FileWriterException(output);
+            }
+            try {
+                os.flush();
+            } catch (IOException e) {
+                throw new FileWriterException(output);
+            }
+
+            updateMediaScanner(output);
+        } catch (final FileNotFoundException e) {
+            cleanup(output);
+            throw new FileCopyException(R.string.error_file_not_found);
+        } catch (final FileWriterException e) {
+            cleanup(output);
+            throw new FileCopyException(R.string.error_unable_to_create_temporary_file);
+        } catch (final SecurityException | IllegalStateException e) {
+            cleanup(output);
+            throw new FileCopyException(R.string.error_security_exception);
+        } catch (final IOException e) {
+            cleanup(output);
+            throw new FileCopyException(R.string.error_io_exception);
+        }
+    }
+
+    public void copyAttachmentToDownloadsFolder(File input) throws FileCopyException {
         File parentDirectory =
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         File output = new File(parentDirectory, input.getName());

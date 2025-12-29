@@ -634,6 +634,17 @@ public class XmppConnectionService extends Service {
         });
     }
 
+    public void copyAttachmentToDownloadsFolder(File file, final UiCallback<Integer> callback) {
+        COPY_TO_DOWNLOAD_EXECUTOR.execute(() -> {
+            try {
+                fileBackend.copyAttachmentToDownloadsFolder(file);
+                callback.success(-1);
+            } catch (FileBackend.FileCopyException e) {
+                callback.error(-1, e.getResId());
+            }
+        });
+    }
+
     public PgpEngine getPgpEngine() {
         if (!Config.supportOpenPgp()) {
             return null;
@@ -1482,6 +1493,10 @@ public class XmppConnectionService extends Service {
         return !Compatibility.isActiveNetworkMetered(connectivityManager)
                 || Compatibility.getRestrictBackgroundStatus(connectivityManager)
                 == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_DISABLED;
+    }
+
+    public Map<Integer, Integer> getMessagesCountGroupByDay(String conversationUuid, int year, int month) {
+        return databaseBackend.getMessagesCountGroupByDay(conversationUuid, year, month);
     }
 
     private void directReply(final Conversation conversation, final String body, final String lastMessageUuid, final boolean dismissAfterReply) {
