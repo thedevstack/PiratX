@@ -9,8 +9,11 @@ import com.google.common.io.BaseEncoding;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.entities.Account;
+import eu.siacs.conversations.entities.Comment;
 import eu.siacs.conversations.entities.Contact;
+import eu.siacs.conversations.entities.Post;
 import eu.siacs.conversations.entities.Room;
+import eu.siacs.conversations.entities.Story;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Element;
 import eu.siacs.conversations.xml.Namespace;
@@ -438,6 +441,57 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
                 account.getRoster().markAllAsNotInRoster();
             }
             this.rosterItems(account, query);
+        } else if (packet.hasChild("pubsub", Namespace.PUBSUB)) {
+            Element pubsub = packet.findChild("pubsub", Namespace.PUBSUB);
+            Element items = pubsub.findChild("items");
+            if (items != null) {
+                String node = items.getAttribute("node");
+                if (Namespace.PUBSUB_STORIES.equals(node)) {
+                    Jid from = packet.getFrom();
+                    if (from != null) {
+                        for (Element item : items.getChildren()) {
+                            if (item.getName().equals("item")) {
+                                Story story = Story.fromElement(item, from);
+                                if (story != null) {
+                                    mXmppConnectionService.onStoryReceived(story);
+                                }
+                            }
+                        }
+                    }
+                } else if (node != null && node.equals(Namespace.ATOM) || node != null && node.startsWith("urn:xmpp:microblog:0") || node != null && node.startsWith(Namespace.PUBSUB_SOCIAL_FEED)) {
+                    for (Element child : items.getChildren()) {
+                        if ("item".equals(child.getName())) {
+                            final String postId = child.getAttribute("id");
+                            Element entry = child.findChild("entry", Namespace.ATOM);
+                            if (entry != null) {
+                                try {
+                                    Element inReplyTo = entry.findChild("in-reply-to", "http://purl.org/syndication/thread/1.0");
+                                    if (inReplyTo != null) {
+                                        Comment comment = Comment.fromElement(entry);
+                                        String originalPostUuid = inReplyTo.getAttribute("ref");
+                                        if (originalPostUuid != null && originalPostUuid.startsWith("urn:uuid:")) {
+                                            originalPostUuid = originalPostUuid.substring(9);
+                                        }
+                                        mXmppConnectionService.notifyOnCommentReceived(originalPostUuid, comment);
+                                    } else {
+                                        Post post = Post.fromElement(entry);
+                                        mXmppConnectionService.onPostReceived(post, account);
+                                    }
+                                } catch (Exception e) {
+                                    Log.d(Config.LOGTAG, "error creating post/comment from pubsub item in iq", e);
+                                }
+                            } else if (postId != null) {
+                                mXmppConnectionService.onPostRetracted(postId);
+                            }
+                        } else if ("retract".equals(child.getName())) {
+                            final String postId = child.getAttribute("id");
+                            if (postId != null) {
+                                mXmppConnectionService.onPostRetracted(postId);
+                            }
+                        }
+                    }
+                }
+            }
         } else if ((packet.hasChild("block", Namespace.BLOCKING)
                 || packet.hasChild("blocklist", Namespace.BLOCKING))
                 && packet.fromServer(account)) {

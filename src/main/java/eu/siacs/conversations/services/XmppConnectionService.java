@@ -75,6 +75,8 @@ import com.kedia.ogparser.JsoupProxy;
 import com.kedia.ogparser.OpenGraphCallback;
 import com.kedia.ogparser.OpenGraphParser;
 import com.kedia.ogparser.OpenGraphResult;
+import com.otaliastudios.transcoder.Transcoder;
+import com.otaliastudios.transcoder.TranscoderListener;
 
 import net.java.otr4j.session.Session;
 import net.java.otr4j.session.SessionID;
@@ -106,11 +108,13 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.WeakHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.RejectedExecutionException;
@@ -123,6 +127,11 @@ import java.util.function.Consumer;
 
 import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.Conversations;
+import eu.siacs.conversations.entities.Comment;
+import eu.siacs.conversations.entities.Post;
+import eu.siacs.conversations.entities.Story;
+import eu.siacs.conversations.entities.StubConversation;
+import eu.siacs.conversations.utils.TranscoderStrategies;
 import eu.siacs.conversations.xmpp.jid.OtrJidHelper;
 import io.ipfs.cid.Cid;
 
@@ -291,6 +300,9 @@ public class XmppConnectionService extends Service {
     private final ScheduledExecutorService userTuneUpdateExecutor =
             Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> pendingUserTuneUpdate;
+
+    private final ScheduledExecutorService storyRetractionExecutor = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService storyCacheExecutor = Executors.newSingleThreadScheduledExecutor();
     private static final SerialSingleThreadExecutor VIDEO_COMPRESSION_EXECUTOR =
             new SerialSingleThreadExecutor("VideoCompression");
     private final SerialSingleThreadExecutor mDatabaseWriterExecutor =
@@ -345,19 +357,20 @@ public class XmppConnectionService extends Service {
                 }
                 if (online) {
                     conversation.endOtrIfNeeded();
-                if (contact.getPresences().size() == 1) {
-                    sendUnsentMessages(conversation);
-                }
-            } else {
-                //check if the resource we are haveing a conversation with is still online
-                if (conversation.hasValidOtrSession()) {
-                    String otrResource = conversation.getOtrSession().getSessionID().getUserID();
-                    if (!(Arrays.asList(contact.getPresences().toResourceArray()).contains(otrResource))) {
-                        conversation.endOtrIfNeeded();
+                    if (contact.getPresences().size() == 1) {
+                        sendUnsentMessages(conversation);
                     }
+                    fetchStories(conversation.getAccount(), conversation.getContact());
+                } else {
+                    //check if the resource we are haveing a conversation with is still online
+                    if (conversation.hasValidOtrSession()) {
+                        String otrResource = conversation.getOtrSession().getSessionID().getUserID();
+                        if (!(Arrays.asList(contact.getPresences().toResourceArray()).contains(otrResource))) {
+                            conversation.endOtrIfNeeded();
+                        }
+                        }
                     }
-                }
-            };
+                };
     private final PresenceGenerator mPresenceGenerator = new PresenceGenerator(this);
     private List<Account> accounts;
     private final JingleConnectionManager mJingleConnectionManager =
@@ -791,8 +804,8 @@ public class XmppConnectionService extends Service {
             message = conversation.getReplyTo().reply();
             message.setEncryption(conversation.getNextEncryption());
         }
-        if (conversation.getCaption() != null && !conversation.getCaption().getBody().trim().isEmpty()) {
-            message.appendBody(conversation.getCaption().getBody() + " ");
+        if (conversation.getCaption() != null && !conversation.getCaption().trim().isEmpty()) {
+            message.appendBody(conversation.getCaption() + " ");
             message.setEncryption(conversation.getNextEncryption());
         }
         if (conversation.getNextEncryption() == Message.ENCRYPTION_PGP) {
@@ -842,8 +855,8 @@ public class XmppConnectionService extends Service {
             message = conversation.getReplyTo().reply();
             message.setEncryption(conversation.getNextEncryption());
         }
-        if (conversation.getCaption() != null && !conversation.getCaption().getBody().trim().isEmpty()) {
-            message.appendBody(conversation.getCaption().getBody() + " ");
+        if (conversation.getCaption() != null && !conversation.getCaption().trim().isEmpty()) {
+            message.appendBody(conversation.getCaption() + " ");
             message.setEncryption(conversation.getNextEncryption());
         }
         if (conversation.getNextEncryption() == Message.ENCRYPTION_PGP) {
@@ -1846,8 +1859,11 @@ public class XmppConnectionService extends Service {
         toggleForegroundService();
         rescanStickers();
         cleanupCache();
+
         internalPingExecutor.scheduleWithFixedDelay(
                 this::manageAccountConnectionStatesInternal, 10, 10, TimeUnit.SECONDS);
+        storyRetractionExecutor.scheduleWithFixedDelay(this::retractOldStories, 1, 60, TimeUnit.MINUTES);
+        storyCacheExecutor.scheduleWithFixedDelay(this::cleanupStoryCache, 1, 1, TimeUnit.HOURS);
         final SharedPreferences sharedPreferences =
                 androidx.preference.PreferenceManager.getDefaultSharedPreferences(this);
         sharedPreferences.registerOnSharedPreferenceChangeListener(
@@ -1939,6 +1955,8 @@ public class XmppConnectionService extends Service {
         destroyed = false;
         fileObserver.stopWatching();
         internalPingExecutor.shutdown();
+        storyRetractionExecutor.shutdown();
+        storyCacheExecutor.shutdown();
         super.onDestroy();
     }
 
@@ -4197,7 +4215,8 @@ public class XmppConnectionService extends Service {
                 && this.mOnUpdateBlocklist.isEmpty()
                 && this.mOnShowErrorToasts.isEmpty()
                 && this.onJingleRtpConnectionUpdate.isEmpty()
-                && this.mOnKeyStatusUpdated.isEmpty());
+                && this.mOnKeyStatusUpdated.isEmpty()
+                && this.mOnStoriesUpdates.isEmpty());
     }
 
     private void switchToForeground() {
@@ -6348,6 +6367,31 @@ public class XmppConnectionService extends Service {
         }
     }
 
+    private final Set<OnCallLogUpdated> mOnCallLogUpdated =
+            Collections.newSetFromMap(new WeakHashMap<OnCallLogUpdated, Boolean>());
+
+    public void setOnCallLogUpdatedListener(OnCallLogUpdated listener) {
+        synchronized (LISTENER_LOCK) {
+            this.mOnCallLogUpdated.add(listener);
+        }
+    }
+
+    public void removeOnCallLogUpdatedListener(OnCallLogUpdated listener) {
+        synchronized (LISTENER_LOCK) {
+            this.mOnCallLogUpdated.remove(listener);
+        }
+    }
+
+    public void updateCallLogUi() {
+        for (OnCallLogUpdated listener : threadSafeList(this.mOnCallLogUpdated)) {
+            listener.onCallLogUpdated();
+        }
+    }
+
+    public interface OnCallLogUpdated {
+        void onCallLogUpdated();
+    }
+
     public void notifyJingleRtpConnectionUpdate(
             final Account account,
             final Jid with,
@@ -6815,7 +6859,7 @@ public class XmppConnectionService extends Service {
                 final var packet =
                         mMessageGenerator.reaction(reactTo, typeGroupChat, message, reactToId, reactions);
 
-                final var quote = QuoteHelper.quote(MessageUtils.prepareQuote(message)) + "\n";
+                final var quote = QuoteHelper.quote(MessageUtils.prepareQuote(message, 1, 2)) + "\n\n";
                 final var body = quote + String.join(" ", newReactions);
                 if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL && newReactions.size() > 0) {
                     FILE_ATTACHMENT_EXECUTOR.execute(() -> {
@@ -7738,4 +7782,626 @@ public class XmppConnectionService extends Service {
         });
     }
 
+    public void publishStory(final Account account, final String url, final String type, final String title, final UiCallback<Void> callback) {
+        publishStory(account, url, type, title, true, callback);
+    }
+
+    private void publishStory(final Account account, final String url, final String type, final String title, boolean retry, final UiCallback<Void> callback) {
+        if (account.getStatus() != Account.State.ONLINE) {
+            if (callback != null) {
+                callback.error(R.string.not_connected_try_again, null);
+            }
+            return;
+        }
+        // This is the corrected publish request. It sends NO configuration options.
+        final Iq packet = getIqGenerator().publishStory(account, url, type, title, null);
+        sendIqPacket(account, packet, response -> {
+            if (response.getType() == Iq.Type.RESULT) {
+                if (callback != null) {
+                    callback.success(null);
+                }
+            } else if (retry && PublishOptions.preconditionNotMet(response)) {
+                Log.d(Config.LOGTAG, account.getJid().asBareJid() + ": stories node does not exist. creating it");
+                // The node does not exist. Now we create it with the correct configuration.
+                final Iq createRequest = getIqGenerator().createStoriesNode();
+                createRequest.setTo(account.getJid().asBareJid());
+                sendIqPacket(account, createRequest, createResponse -> {
+                    if (createResponse.getType() == Iq.Type.RESULT) {
+                        // Node created. Now, retry publishing the story ONE more time, without the retry/create logic.
+                        publishStory(account, url, type, title, false, callback);
+                    } else {
+                        Log.e(Config.LOGTAG, "Failed to create stories node: " + createResponse);
+                        if (callback != null) {
+                            callback.error(R.string.error_publish_avatar_server_reject, null);
+                        }
+                    }
+                });
+            } else {
+                Log.e(Config.LOGTAG, "Failed to publish story: " + response);
+                if (callback != null) {
+                    callback.error(R.string.error_publish_avatar_server_reject, null);
+                }
+            }
+        });
+    }
+
+    public void uploadFileForUrl(final Account account, final android.net.Uri uri, final String mimeType, final UiCallback<String> callback) {
+        if (account == null) {
+            callback.error(R.string.no_active_account, null);
+            return;}
+
+        final DownloadableFile file = getFileBackend().getTemporaryFile(mimeType);
+
+        Runnable runnable = () -> {
+            try {
+                if (mimeType != null && mimeType.startsWith("video/")) {
+                    startOngoingVideoTranscodingForegroundNotification();try {
+                        final AtomicBoolean transcodeFailed = new AtomicBoolean(false);
+                        final TranscoderListener listener = new TranscoderListener() {
+                            @Override
+                            public void onTranscodeProgress(double progress) {
+                            }
+
+                            @Override
+                            public void onTranscodeCompleted(int successCode) {
+                                Log.d(Config.LOGTAG, "transcoding successful for story");
+                            }
+
+                            @Override
+                            public void onTranscodeCanceled() {
+                                Log.d(Config.LOGTAG, "transcoding canceled for story");
+                                transcodeFailed.set(true);
+                            }
+
+                            @Override
+                            public void onTranscodeFailed(@NonNull Throwable exception) {
+                                Log.w(Config.LOGTAG, "video transcoding failed for story", exception);
+                                transcodeFailed.set(true);
+                            }};
+                        try {
+                            Log.d(Config.LOGTAG, "Attempting to transcode video for story");
+                            final boolean highQuality = "720".equals(AttachFileToConversationRunnable.getVideoCompression(this));
+                            Future<Void> future = Transcoder.into(file.getAbsolutePath())
+                                    .addDataSource(this, uri)
+                                    .setVideoTrackStrategy(highQuality ? TranscoderStrategies.VIDEO_720P : TranscoderStrategies.VIDEO_360P)
+                                    .setAudioTrackStrategy(highQuality ? TranscoderStrategies.AUDIO_HQ : TranscoderStrategies.AUDIO_MQ)
+                                    .setListener(listener)
+                                    .transcode();
+                            future.get();
+                        } catch (Exception e) {
+                            Log.w(Config.LOGTAG, "video transcoding setup failed for story", e);
+                            transcodeFailed.set(true);
+                        }
+
+                        if (transcodeFailed.get() || file.getSize() == 0) {
+                            Log.d(Config.LOGTAG, "transcoding failed. falling back to copying original for story");
+                            if (file.exists() && !file.delete()) {
+                                Log.w(Config.LOGTAG, "could not delete failed transcode file");
+                            }
+                            getFileBackend().copyFileToPrivateStorage(file, uri);
+                        } else {
+                            long originalSize = FileBackend.getFileSize(this, uri);
+                            if (originalSize > 0 && file.getSize() >= originalSize) {
+                                Log.d(Config.LOGTAG, "transcoded file was not smaller. using original for story");
+                                if (file.exists() && !file.delete()) {
+                                    Log.w(Config.LOGTAG, "could not delete failed transcode file");
+                                }
+                                getFileBackend().copyFileToPrivateStorage(file, uri);
+                            } else {
+                                Log.d(Config.LOGTAG, "using transcoded video for story upload");
+                            }
+                        }
+                    } finally {
+                        stopOngoingVideoTranscodingForegroundNotification();
+                    }
+                } else if (mimeType != null && mimeType.startsWith("image/")) {
+                    getFileBackend().copyImageToPrivateStorage(file, uri);
+                } else {
+                    getFileBackend().copyFileToPrivateStorage(file, uri);
+                }
+            } catch (FileBackend.ImageCompressionException e) {
+                Log.d(Config.LOGTAG, "unable to compress image for story. falling back to file transfer", e);
+                try {
+                    getFileBackend().copyFileToPrivateStorage(file, uri);
+                } catch (FileBackend.FileCopyException ex) {
+                    callback.error(ex.getResId(), null);
+                    return;
+                }
+            } catch (final FileBackend.FileCopyException e) {
+                callback.error(e.getResId(), null);
+                return;
+            }
+
+            UiCallback<String> wrapperCallback = new UiCallback<String>() {
+                @Override
+                public void success(String url) {
+                    try {
+                        callback.success(url);
+                    } finally {
+                        getFileBackend().deleteFile(file);
+                    }
+                }
+
+                @Override
+                public void error(int errorCode, String object) {
+                    try {
+                        callback.error(errorCode, object);
+                    } finally {
+                        getFileBackend().deleteFile(file);
+                    }
+                }
+
+                @Override
+                public void userInputRequired(android.app.PendingIntent pi, String object) {
+                    try {
+                        callback.userInputRequired(pi, object);
+                    } finally {
+                        getFileBackend().deleteFile(file);
+                    }
+                }
+            };
+            mHttpConnectionManager.createNewUploadConnection(file, account, false, wrapperCallback);
+        };
+
+        FILE_ATTACHMENT_EXECUTOR.execute(runnable);
+    }
+
+    private final List<eu.siacs.conversations.entities.Story> stories = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final Set<OnStoriesUpdate> mOnStoriesUpdates =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
+    public List<eu.siacs.conversations.entities.Story> getStories() {
+        return this.stories;
+    }
+
+    public void onStoryReceived(eu.siacs.conversations.entities.Story story) {
+        if (story == null) {
+            return;
+        }
+        for (int i = 0; i < stories.size(); ++i) {
+            if (stories.get(i).getUuid().equals(story.getUuid())) {
+                stories.set(i, story);
+                updateStoriesUi();
+                return;
+            }
+        }
+        this.stories.add(story);
+        java.util.Collections.sort(stories, (a, b) -> Long.compare(b.getPublished(), a.getPublished()));
+        updateStoriesUi();
+    }
+
+    public void setOnStoriesUpdateListener(OnStoriesUpdate listener) {
+        synchronized (LISTENER_LOCK) {
+            this.mOnStoriesUpdates.add(listener);
+        }
+    }
+
+    public void removeOnStoriesUpdateListener(OnStoriesUpdate listener) {
+        synchronized (LISTENER_LOCK) {
+            this.mOnStoriesUpdates.remove(listener);
+        }
+    }
+
+    public void updateStoriesUi() {
+        for (OnStoriesUpdate listener : threadSafeList(this.mOnStoriesUpdates)) {
+            listener.onStoriesUpdate();
+        }
+    }
+
+    public interface OnStoriesUpdate {
+        void onStoriesUpdate();
+    }
+
+    public void fetchStories(Account account, Contact contact) {
+        if (account.getStatus() != Account.State.ONLINE) {
+            return;
+        }
+        Log.d(Config.LOGTAG, "fetching stories for " + contact.getJid());
+        Iq request = getIqGenerator().retrieveStories(contact.getJid());
+        sendIqPacket(account, request, response -> {
+            if (response.getType() == Iq.Type.RESULT) {
+                final Element pubsub = response.findChild("pubsub", Namespace.PUBSUB);
+                if (pubsub != null) {
+                    final List<eu.siacs.conversations.entities.Story> stories = eu.siacs.conversations.entities.Story.parseFromPubSub(pubsub, contact.getJid());
+                    for (eu.siacs.conversations.entities.Story story : stories) {
+                        onStoryReceived(story);
+                    }
+                }
+            }
+        });
+    }
+
+    public void retractStory(Account account, String storyId, final UiCallback<Void> callback) {
+        Iq iq = getIqGenerator().deleteItem(Namespace.PUBSUB_STORIES, storyId);
+        this.sendIqPacket(account, iq, response -> {
+            if (response.getType() == Iq.Type.RESULT) {
+                final List<eu.siacs.conversations.entities.Story> newStories = new ArrayList<>(stories);
+                for (Iterator<eu.siacs.conversations.entities.Story> iterator = newStories.iterator(); iterator.hasNext(); ) {
+                    if (iterator.next().getUuid().equals(storyId)) {
+                        iterator.remove();
+                        break;
+                    }
+                }
+                this.stories.clear();
+                this.stories.addAll(newStories);
+                updateStoriesUi();
+                if (callback != null) {
+                    callback.success(null);
+                }
+            } else {
+                if (callback != null) {
+                    callback.error(R.string.error_deleting_story, null);
+                }
+            }
+        });
+    }
+
+    public void onStoryRetracted(String storyId) {
+        if (storyId == null) {
+            return;
+        }
+        Story storyToRemove = null;
+        for (final Story story : this.stories) {
+            if (story.getUuid().equals(storyId)) {
+                storyToRemove = story;
+                break;
+            }
+        }
+        if (storyToRemove != null) {
+            this.stories.remove(storyToRemove);
+            updateStoriesUi();
+            Log.d(Config.LOGTAG, "Retracted story with id: " + storyId);
+        }
+    }
+
+    public void retractOldStories() {
+        final long twentyFourHoursAgo = System.currentTimeMillis() - 86400000;
+        final Map<Jid, Account> onlineAccounts = new HashMap<>();
+        for (final Account account : getAccounts()) {
+            if (account.isOnlineAndConnected()) {
+                onlineAccounts.put(account.getJid().asBareJid(), account);
+            }
+        }
+        if (onlineAccounts.isEmpty()) {
+            return;
+        }
+        for (final Story story : this.stories) {
+            if (story.getPublished() < twentyFourHoursAgo) {
+                final Account owner = onlineAccounts.get(story.getContact());
+                if (owner != null) {
+                    Log.d(Config.LOGTAG, "Retracting old story from account: " + owner.getJid().asBareJid());
+                    retractStory(owner, story.getUuid(), null);
+                }
+            }
+        }
+    }
+
+    public void cleanupStoryCache() {
+        Log.d(Config.LOGTAG, "Cleaning up story cache");
+        final File storyCacheDir = getFileBackend().getStoryCacheDirectory();
+        if (storyCacheDir.exists()) {
+            final long twentyFourHoursAgo = System.currentTimeMillis() - 86400000;
+            final File[] files = storyCacheDir.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.lastModified() < twentyFourHoursAgo) {
+                        if (file.delete()) {
+                            Log.d(Config.LOGTAG, "Deleted old story cache file: " + file.getName());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public void updateContact(final Contact contact) {
+        // First, persist the change in the database
+        if (databaseBackend.updateContact(contact)) {
+            // Then, find the live account and contact objects
+            final Account account = findAccountByUuid(contact.getAccount().getUuid());
+            if (account != null) {
+                final Contact rosterContact = account.getRoster().getContact(contact.getJid());
+                // Update the live contact object with the new setting
+                if (rosterContact != null) {
+                    rosterContact.setCallsDisabled(contact.areCallsDisabled());
+                    // Now, notify the UI about the change.
+                    // This will cause activities like ConversationActivity to redraw their menus
+                    // and hide/show the call button as appropriate.
+                    updateConversationUi();
+                    updateConversationUi(true);
+                }
+            }
+        }
+    }
+
+    public void fetchPubsubItems(final Jid server, final String node, final OnPubsubItemsFetched callback) {
+        Account account = null;
+        if (server != null) {
+            account = findAccountByJid(server);
+        }
+        if (account == null) {
+            for (Account acc : getAccounts()) {
+                if (acc.isOnlineAndConnected()) {
+                    account = acc;
+                    break;
+                }
+            }
+        }
+        if (account == null) {
+            if (callback != null) {
+                callback.onPubsubItemsFetchFailed();
+            }
+            return;
+        }
+        final Iq request = getIqGenerator().retrievePubsubItems(server, node);
+        sendIqPacket(account, request, response -> {
+            if (response.getType() == Iq.Type.RESULT) {
+                Element pubsub = response.findChild("pubsub", Namespace.PUBSUB);
+                if (pubsub != null && callback != null) {
+                    callback.onPubsubItemsFetched(pubsub.toString());
+                } else if (callback != null) {
+                    callback.onPubsubItemsFetchFailed();
+                }
+            } else {
+                if (callback != null) {
+                    callback.onPubsubItemsFetchFailed();
+                }
+            }
+        });
+    }
+
+    public interface OnPubsubItemsFetched {
+        void onPubsubItemsFetched(String feed);
+
+        void onPubsubItemsFetchFailed();
+    }
+
+    public void publishPost(final Account account, final String title, final String content, final String attachmentUrl, final String attachmentType, final String postId, final OnPostPublished callback) {
+        if (account == null) {
+            if (callback != null) {
+                callback.onPostPublishFailed();
+            }
+            return;
+        }
+
+        final boolean isEdit = postId != null;
+        final String idToPublish = isEdit ? postId : UUID.randomUUID().toString();
+
+        final Runnable publicationRunnable = () -> {
+            final Iq request = getIqGenerator().publishPost(account, title, content, attachmentUrl, attachmentType, idToPublish);
+            sendIqPacket(account, request, response2 -> {
+                if (response2.getType() == Iq.Type.RESULT) {
+                    if (!isEdit) {
+                        sendIqPacket(account, getIqGenerator().createCommentsNode(idToPublish), response3 -> {
+                            if (response3.getType() != Iq.Type.RESULT) {
+                                Log.d(Config.LOGTAG, "could not create comments node for post " + idToPublish + ". " + response3);
+                            }
+                        });
+                    }
+                    if (callback != null) {
+                        callback.onPostPublished();
+                    }
+                } else {
+                    Log.e(Config.LOGTAG, "Could not publish post. Server responded with: " + response2);
+                    if (callback != null) {
+                        callback.onPostPublishFailed();
+                    }
+                }
+            });
+        };
+
+        if (!isEdit) {
+            final Iq createRequest = getIqGenerator().createSocialFeedNode();
+            sendIqPacket(account, createRequest, response -> {
+                if (response.getType() != Iq.Type.RESULT) {
+                    Element error = response.findChild("error");
+                    if (error == null || !error.hasChild("conflict")) {
+                        Log.d(Config.LOGTAG, "could not create social feed node " + response);
+                    }
+                }
+                publicationRunnable.run();
+            });
+        } else {
+            publicationRunnable.run();
+        }
+    }
+
+    public void publishComment(final Account account, final String nodeUri, final String title, final OnPostPublished callback) {
+        if (account == null) {
+            if (callback != null) {
+                callback.onPostPublishFailed();
+            }
+            return;
+        }
+        final Jid to;
+        final String targetNode;
+        try {
+            final eu.siacs.conversations.utils.XmppUri uri = new eu.siacs.conversations.utils.XmppUri(nodeUri);
+            to = uri.getJid();
+            targetNode = uri.getParameter("node");
+        } catch (Exception e) {
+            Log.e(Config.LOGTAG, "Invalid URI in publishComment: " + nodeUri, e);
+            if (callback != null) {
+                callback.onPostPublishFailed();
+            }
+            return;
+        }
+
+        if (to == null || targetNode == null) {
+            Log.e(Config.LOGTAG, "Could not determine target for publishing comment");
+            if (callback != null) {
+                callback.onPostPublishFailed();
+            }
+            return;
+        }
+
+        final Iq createRequest = getIqGenerator().createCommentsNode(targetNode);
+        createRequest.setTo(to); // Comments node might be on a different server
+        sendIqPacket(account, createRequest, response -> {
+            if (response.getType() != Iq.Type.RESULT) {
+                Element error = response.findChild("error");
+                if (error == null || !error.hasChild("conflict")) {
+                    Log.d(Config.LOGTAG, "could not create comments node " + response);
+                }
+            }
+            final Iq publishRequest = getIqGenerator().publishComment(account, targetNode, title);
+            publishRequest.setTo(to);
+            sendIqPacket(account, publishRequest, publishResponse -> {
+                if (publishResponse.getType() == Iq.Type.RESULT) {
+                    if (callback != null) {
+                        callback.onPostPublished();
+                    }
+                } else {
+                    Log.e(Config.LOGTAG, "Could not publish comment. Server responded with: " + publishResponse);
+                    if (callback != null) {
+                        callback.onPostPublishFailed();
+                    }
+                }
+            });
+        });
+    }
+
+    public void retractPost(final Account account, final String node, final String id, final OnPostRetracted callback) {
+        if (account == null) {
+            if (callback != null) {
+                callback.onPostRetractionFailed();
+            }
+            return;
+        }
+        final Iq request = getIqGenerator().retractPost(node, id);
+        sendIqPacket(account, request, response -> {
+            if (response.getType() == Iq.Type.RESULT) {
+                if (callback != null) {
+                    callback.onPostRetracted(id);
+                }
+            } else {
+                if (callback != null) {
+                    callback.onPostRetractionFailed();
+                }
+            }
+        });
+    }
+
+
+    public void retractPost(final Account account, final Jid to, final String node, final String id, final OnPostRetracted callback) {
+        final Iq packet = getIqGenerator().retractPost(node, id);
+        packet.setTo(to);
+        this.sendIqPacket(account, packet, response -> {
+            if (response.getType() == Iq.Type.RESULT) {
+                if (callback != null) {
+                    callback.onPostRetracted(id);
+                }
+            } else {
+                if (callback != null) {
+                    callback.onPostRetractionFailed();
+                }
+            }
+        });
+    }
+
+    public interface OnPostPublished {
+        void onPostPublished();
+        void onPostPublishFailed();
+    }
+
+    public interface OnPostReceived {
+        void onPostReceived(Post post);
+    }
+
+    public interface OnPostRetracted {
+        void onPostRetracted(String postId);
+        void onPostRetractionFailed();
+    }
+
+    private final Set<OnPostReceived> mOnPostReceivedListeners =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    private final Set<OnPostRetracted> mOnPostRetractedListeners =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
+
+    public void addOnPostReceivedListener(OnPostReceived listener) {
+        synchronized (LISTENER_LOCK) {
+            mOnPostReceivedListeners.add(listener);
+        }
+    }
+
+    public void removeOnPostReceivedListener(OnPostReceived listener) {
+        synchronized (LISTENER_LOCK) {
+            mOnPostReceivedListeners.remove(listener);
+        }
+    }
+
+    public void addOnPostRetractedListener(OnPostRetracted listener) {
+        synchronized (LISTENER_LOCK) {
+            mOnPostRetractedListeners.add(listener);
+        }
+    }
+
+    public void removeOnPostRetractedListener(OnPostRetracted listener) {
+        synchronized (LISTENER_LOCK) {
+            mOnPostRetractedListeners.remove(listener);
+        }
+    }
+
+    public void onPostReceived(Post post, Account account) {
+        if (post == null || account == null) {
+            return;
+        }
+        databaseBackend.createPost(post, account);
+        for (OnPostReceived listener : threadSafeList(mOnPostReceivedListeners)) {
+            listener.onPostReceived(post);
+        }
+    }
+
+    public void onPostRetracted(String postId) {
+        if (postId == null) {
+            return;
+        }
+        databaseBackend.deletePost(postId);
+        for (OnPostRetracted listener : threadSafeList(mOnPostRetractedListeners)) {
+            listener.onPostRetracted(postId);
+        }
+    }
+
+    public void subscribeTo(final Account account, final Jid to, final String node, final Consumer<Iq> callback) {
+        final Iq iq = getIqGenerator().generateSubscriptionIq(to.asBareJid(), node, account.getJid().asBareJid());
+        sendIqPacket(account, iq, callback);
+    }
+
+    public void unsubscribeFrom(final Account account, final Jid to, final String node, final Consumer<Iq> callback) {
+        final Iq iq = getIqGenerator().generateUnsubscriptionIq(to.asBareJid(), node, account.getJid().asBareJid());
+        sendIqPacket(account, iq, callback);
+    }
+
+    public interface OnCommentReceived {
+        void onCommentReceived(String originalPostUuid, Comment comment);
+    }
+
+    private final List<OnCommentReceived> mOnCommentReceivedListeners = new ArrayList<>();
+
+    public void addOnCommentReceivedListener(OnCommentReceived listener) {
+        synchronized (mOnCommentReceivedListeners) {
+            if (!mOnCommentReceivedListeners.contains(listener)) {
+                mOnCommentReceivedListeners.add(listener);
+            }
+        }
+    }
+
+    public void removeOnCommentReceivedListener(OnCommentReceived listener) {
+        synchronized (mOnCommentReceivedListeners) {
+            mOnCommentReceivedListeners.remove(listener);
+        }
+    }
+
+    public void notifyOnCommentReceived(String originalPostUuid, Comment comment) {
+        synchronized (mOnCommentReceivedListeners) {
+            for (OnCommentReceived listener : mOnCommentReceivedListeners) {
+                try {
+                    listener.onCommentReceived(originalPostUuid, comment);
+                } catch (Exception e) {
+                    Log.d(Config.LOGTAG, "safe to ignore, listener has been removed");
+                }
+            }
+        }
+    }
 }

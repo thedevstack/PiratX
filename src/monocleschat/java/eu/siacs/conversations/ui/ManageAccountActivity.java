@@ -49,8 +49,6 @@ import eu.siacs.conversations.xmpp.XmppConnection;
 import static eu.siacs.conversations.utils.PermissionUtils.allGranted;
 import static eu.siacs.conversations.utils.PermissionUtils.writeGranted;
 
-import com.google.android.material.bottomnavigation.BottomNavigationView;
-
 public class ManageAccountActivity extends XmppActivity implements XmppConnectionService.OnConversationUpdate, OnAccountUpdate, KeyChainAliasCallback, XmppConnectionService.OnAccountCreated, AccountAdapter.OnTglAccountState {
 
     private final String STATE_SELECTED_ACCOUNT = "selected_account";
@@ -87,18 +85,9 @@ public class ManageAccountActivity extends XmppActivity implements XmppConnectio
         }
         ActionBar actionBar = getSupportActionBar();
 
-        // Show badge for unread message in bottom nav
-        int unreadCount = xmppConnectionService.unreadCount();
-        BottomNavigationView bottomnav = findViewById(R.id.bottom_navigation);
-        var bottomBadge = bottomnav.getOrCreateBadge(R.id.chats);
-        bottomBadge.setNumber(unreadCount);
-        bottomBadge.setVisible(unreadCount > 0);
-        bottomBadge.setHorizontalOffset(20);
-
-        boolean showNavBar = bottomnav.getVisibility() == VISIBLE;
         if (actionBar != null) {
-            actionBar.setHomeButtonEnabled(!this.accountList.isEmpty() && !showNavBar);
-            actionBar.setDisplayHomeAsUpEnabled(!this.accountList.isEmpty() && !showNavBar);
+            actionBar.setHomeButtonEnabled(!this.accountList.isEmpty());
+            actionBar.setDisplayHomeAsUpEnabled(!this.accountList.isEmpty());
         }
         invalidateOptionsMenu();
         mAccountAdapter.notifyDataSetChanged();
@@ -150,7 +139,6 @@ public class ManageAccountActivity extends XmppActivity implements XmppConnectio
         accountListView = findViewById(R.id.account_list);
         accountListView.setLayoutManager(new LinearLayoutManager(this));
 
-        // Setup ItemTouchHelper for drag and drop
         ItemTouchHelper.Callback callback = new ItemTouchHelper.Callback() {
             @Override
             public int getMovementFlags(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder) {
@@ -167,6 +155,19 @@ public class ManageAccountActivity extends XmppActivity implements XmppConnectio
             }
 
             @Override
+            public void clearView(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder) {
+                super.clearView(recyclerView, viewHolder);
+                if (xmppConnectionService != null) {
+                    List<Account> serviceAccounts = xmppConnectionService.getAccounts();
+                    synchronized (serviceAccounts) {
+                        serviceAccounts.clear();
+                        serviceAccounts.addAll(accountList);
+                    }
+                    xmppConnectionService.updateAccountOrder();
+                }
+            }
+
+            @Override
             public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) { }
 
             @Override
@@ -178,107 +179,18 @@ public class ManageAccountActivity extends XmppActivity implements XmppConnectio
         itemTouchHelper.attachToRecyclerView(accountListView);
 
         this.mAccountAdapter = new AccountAdapter(this, accountList, this::switchToAccount, itemTouchHelper::startDrag,
-                // Context Menu Listener
                 account -> {
                     this.selectedAccount = account;
                 },
-                // On Move Listener (Persistence Logic)
-                () -> {
-                    // 1. Update the order in the service to match the adapter's list
-                    if (xmppConnectionService != null) {
-                        // We need to push the current 'accountList' order to the service
-                        // This depends on how XmppConnectionService stores accounts.
-                        // Usually, we just need to verify the service list matches,
-                        // or force the service to update its internal list order if it's just in-memory for the session.
-
-                        // If the service loads from DB sorted by ID/Keys, we might need to add an 'order' column to the DB.
-                        // However, for a quick fix if the service list is mutable:
-                        List<Account> serviceAccounts = xmppConnectionService.getAccounts();
-                        synchronized (serviceAccounts) {
-                            serviceAccounts.clear();
-                            serviceAccounts.addAll(accountList);
-                        }
-
-                        // Ideally, trigger a database update here to save 'order' if supported.
-                        // For now, updating the in-memory list prevents the reset on toggle.
-                        xmppConnectionService.updateAccountOrder(); // You might need to implement this in Service if it doesn't exist
-                    }
-                }
+                null
         );
 
-        // --- Fix: Set the context listener to update selectedAccount ---
         this.mAccountAdapter.setContextAccountListener(account -> {
             this.selectedAccount = account;
         });
 
         accountListView.setAdapter(this.mAccountAdapter);
-
-        // Bottom Navigation Setup (unchanged) ...
-        BottomNavigationView bottomNavigationView = findViewById(R.id.bottom_navigation);
-        // ... (rest of bottom nav logic)
-        bottomNavigationView.setBackgroundColor(Color.TRANSPARENT);
-
-        bottomNavigationView.setSelectedItemId(R.id.manageaccounts);
-
-        if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar)) {
-            bottomNavigationView.setVisibility(VISIBLE);
-        } else {
-            bottomNavigationView.setVisibility(View.GONE);
-        }
-
-        bottomNavigationView.setOnItemSelectedListener(item -> {
-            // ... existing switch case ...
-            switch (item.getItemId()) {
-                case R.id.chats -> {
-                    startActivity(new Intent(getApplicationContext(), ConversationsActivity.class));
-                    overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
-                    return true;
-                }
-                case R.id.contactslist -> {
-                    Intent i = new Intent(getApplicationContext(), StartConversationActivity.class);
-                    i.putExtra("show_nav_bar", true);
-                    startActivity(i);
-                    overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
-                    return true;
-                }
-                case R.id.manageaccounts -> {
-                    return true;
-                }
-                default ->
-                        throw new IllegalStateException("Unexpected value: " + item.getItemId());
-            }
-        });
     }
-
-
-    @Override
-    public void onStart() {
-        super.onStart();
-
-        /*
-        BottomNavigationView bottomNavigationView=findViewById(R.id.bottom_navigation);
-        bottomNavigationView.setSelectedItemId(R.id.manageaccounts);
-
-        if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar) && getIntent().getBooleanExtra("show_nav_bar", false)) {
-            bottomNavigationView.setVisibility(VISIBLE);
-        } else {
-            bottomNavigationView.setVisibility(View.GONE);
-        }
-         */
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (findViewById(R.id.bottom_navigation).getVisibility() == VISIBLE) {
-            Intent intent = new Intent(this, ConversationsActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
-            startActivity(intent);
-            overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
-        }
-
-        super.onBackPressed();
-    }
-
 
     @Override
     public void onSaveInstanceState(final Bundle savedInstanceState) {

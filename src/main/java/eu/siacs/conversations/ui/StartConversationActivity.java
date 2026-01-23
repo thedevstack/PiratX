@@ -1,8 +1,5 @@
 package eu.siacs.conversations.ui;
 
-import static android.view.View.VISIBLE;
-import static eu.siacs.conversations.utils.AccountUtils.MANAGE_ACCOUNT_ACTIVITY;
-
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Dialog;
@@ -13,7 +10,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -60,9 +56,6 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import androidx.viewpager.widget.PagerAdapter;
 import androidx.viewpager.widget.ViewPager;
 
-import de.monocles.chat.FinishOnboarding;
-
-import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputLayout;
@@ -439,39 +432,6 @@ public class StartConversationActivity extends XmppActivity
                     return false;
                 });
 
-        BottomNavigationView bottomNavigationView=findViewById(R.id.bottom_navigation);
-        bottomNavigationView.setBackgroundColor(Color.TRANSPARENT);
-
-        bottomNavigationView.setSelectedItemId(R.id.contactslist);
-
-        if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar)) {
-            bottomNavigationView.setVisibility(VISIBLE);
-        } else {
-            bottomNavigationView.setVisibility(View.GONE);
-        }
-
-        bottomNavigationView.setOnItemSelectedListener(item -> {
-
-            switch (item.getItemId()) {
-                case R.id.chats -> {
-                    startActivity(new Intent(getApplicationContext(), ConversationsActivity.class));
-                    overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
-                    return true;
-                }
-                case R.id.contactslist -> {
-                    return true;
-                }
-                case R.id.manageaccounts -> {
-                    Intent i = new Intent(getApplicationContext(), MANAGE_ACCOUNT_ACTIVITY);
-                    i.putExtra("show_nav_bar", true);
-                    startActivity(i);
-                    overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
-                    return true;
-                }
-                default ->
-                        throw new IllegalStateException("Unexpected value: " + item.getItemId());
-            }
-        });
         mRequestedContactsPermission.set(savedInstanceState != null && savedInstanceState.getBoolean("requested_contacts_permission", false));
         mOpenedFab.set(savedInstanceState != null && savedInstanceState.getBoolean("opened_fab", false));
         binding.speedDial.setOnActionSelectedListener(actionItem -> {
@@ -574,17 +534,6 @@ public class StartConversationActivity extends XmppActivity
             }
             requestNotificationPermissionIfNeeded();
         }
-
-        /*
-        BottomNavigationView bottomNavigationView=findViewById(R.id.bottom_navigation);
-        bottomNavigationView.setSelectedItemId(R.id.contactslist);
-
-        if (getBooleanPreference("show_nav_bar", R.bool.show_nav_bar) && getIntent().getBooleanExtra("show_nav_bar", false)) {
-            bottomNavigationView.setVisibility(VISIBLE);
-        } else {
-            bottomNavigationView.setVisibility(View.GONE);
-        }
-         */
     }
 
     private void requestNotificationPermissionIfNeeded() {
@@ -976,16 +925,10 @@ public class StartConversationActivity extends XmppActivity
     @Override
     public boolean onPrepareOptionsMenu(Menu menu) {
         boolean res = super.onPrepareOptionsMenu(menu);
-        boolean navBarVisible = binding.bottomNavigation.getVisibility() == VISIBLE;
         MenuItem manageAccount = menu.findItem(R.id.action_account);
         MenuItem manageAccounts = menu.findItem(R.id.action_accounts);
         MenuItem noteToSelf = menu.findItem(R.id.action_note_to_self);
-        if (navBarVisible) {
-            manageAccount.setVisible(false);
-            manageAccounts.setVisible(false);
-        } else {
-            AccountUtils.showHideMenuItems(menu);
-        }
+        AccountUtils.showHideMenuItems(menu);
 
         if (xmppConnectionService != null && xmppConnectionService.getAccounts().size() != 1) {
             noteToSelf.setVisible(false);
@@ -1210,17 +1153,9 @@ public class StartConversationActivity extends XmppActivity
         }
         boolean openConversations =
                 !createdByViewIntent && !xmppConnectionService.isConversationsListEmpty(null);
-        boolean showNavBar = binding.bottomNavigation.getVisibility() == VISIBLE;
-        actionBar.setDisplayHomeAsUpEnabled(openConversations && !showNavBar);
-        actionBar.setDisplayHomeAsUpEnabled(openConversations && !showNavBar);
 
-        // Show badge for unread message in bottom nav
-        int unreadCount = xmppConnectionService.unreadCount();
-        BottomNavigationView bottomnav = findViewById(R.id.bottom_navigation);
-        var bottomBadge = bottomnav.getOrCreateBadge(R.id.chats);
-        bottomBadge.setNumber(unreadCount);
-        bottomBadge.setVisible(unreadCount > 0);
-        bottomBadge.setHorizontalOffset(20);
+        actionBar.setDisplayHomeAsUpEnabled(openConversations);
+        actionBar.setDisplayHomeAsUpEnabled(openConversations);
     }
 
     @Override
@@ -1449,7 +1384,9 @@ public class StartConversationActivity extends XmppActivity
         for (final var account : xmppConnectionService.getAccounts()) {
             if (mActivatedAccounts.contains(account.getJid().asBareJid().toString())) accounts.add(account);
         }
-
+        /*
+        boolean foundSopranica = false;
+        */
         for (final Account account : accounts) {
             for (Contact contact : account.getRoster().getContacts()) {
                 Presence.Status s = contact.getShownStatus();
@@ -1471,6 +1408,11 @@ public class StartConversationActivity extends XmppActivity
 
             for (Bookmark bookmark : account.getBookmarks()) {
                 if (bookmark.match(this, needle)) {
+                    /*
+                    if (bookmark.getJid().toString().equals("support@conference.monocles.eu")) {
+                        foundSopranica = true;
+                    }
+                    */
                     this.contacts.add(bookmark);
                     tags.addAll(bookmark.getTags(this));
                 }
@@ -1488,6 +1430,19 @@ public class StartConversationActivity extends XmppActivity
                         .map(e -> e.getKey()).collect(Collectors.toList())
         );
         Collections.sort(this.contacts);
+        /*
+        final boolean sopranicaDeleted = getPreferences().getBoolean("monocles_support_bookmark_deleted", false);
+
+        if (!sopranicaDeleted && !foundSopranica && (needle == null || needle.equals("")) && xmppConnectionService.getAccounts().size() > 0) {
+            Bookmark bookmark = new Bookmark(
+                xmppConnectionService.getAccounts().get(0),
+                Jid.of("support@conference.monocles.eu")
+            );
+            bookmark.setBookmarkName("monocles support room");
+            bookmark.addChild("group").setContent("support");
+            this.contacts.add(0, bookmark);
+        }
+        */
 
         mContactsAdapter.notifyDataSetChanged();
     }
@@ -1539,9 +1494,6 @@ public class StartConversationActivity extends XmppActivity
             Intent intent = new Intent(this, ConversationsActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
             startActivity(intent);
-            if (binding.bottomNavigation.getVisibility() == VISIBLE) {
-                overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
-            }
         }
         finish();
     }

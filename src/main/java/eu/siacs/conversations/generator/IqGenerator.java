@@ -22,7 +22,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -242,6 +244,47 @@ public class IqGenerator extends AbstractGenerator {
         item.setAttribute("id", id);
         item.addChild(element);
         return publish(namespace, item, options);
+    }
+
+    public Iq publishStory(final Account account, final String url, final String type, final String title, Bundle options) {
+        final Element item = new Element("item");
+        final String storyId = UUID.randomUUID().toString();
+        item.setAttribute("id", storyId);
+        final Element entry = item.addChild("entry", Namespace.ATOM);
+
+        entry.addChild("id").setContent("urn:uuid:" + storyId);
+
+        String effectiveTitle = title;
+        if (Strings.isNullOrEmpty(effectiveTitle)) {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+            effectiveTitle = "Story " + sdf.format(new Date());
+        }
+        entry.addChild("title").setContent(effectiveTitle);
+
+        final String timestamp = getTimestamp(System.currentTimeMillis());
+        entry.addChild("updated").setContent(timestamp);
+        entry.addChild("published").setContent(timestamp);
+
+        if (account != null) {
+            entry.addChild("author").addChild("uri").setContent("xmpp:" + account.getJid().asBareJid());
+        }
+
+        final Element link = entry.addChild("link");
+        link.setAttribute("rel", "enclosure");
+        link.setAttribute("href", url);
+        link.setAttribute("type", type);
+        link.setAttribute("title", effectiveTitle);
+
+        return publish(Namespace.PUBSUB_STORIES, item, options);
+    }
+
+    public Iq retrieveStories(Jid jid) {
+        final Iq iq = new Iq(Iq.Type.GET);
+        iq.setTo(jid);
+        final Element pubsub = iq.addChild("pubsub", Namespace.PUBSUB);
+        final Element items = pubsub.addChild("items");
+        items.setAttribute("node", Namespace.PUBSUB_STORIES);
+        return iq;
     }
 
     public Iq publishAvatarMetadata(final Avatar avatar, final Bundle options) {
@@ -672,6 +715,31 @@ public class IqGenerator extends AbstractGenerator {
         return options;
     }
 
+    public static Bundle defaultStoriesConfiguration() {
+        Bundle options = new Bundle();
+        options.putString("pubsub#node_type", "leaf");
+        options.putString("pubsub#type", Namespace.PUBSUB_STORIES);
+        options.putString("pubsub#access_model", "roster");
+        options.putString("pubsub#item_expire", "86400");
+        options.putString("pubsub#persist_items", "1");
+        options.putString("pubsub#max_items", "120");
+        options.putString("pubsub#notify_retract", "1");
+        options.putString("pubsub#send_last_published_item", "on_sub_and_presence");
+        options.putString("pubsub#publish_model", "publishers");
+        return options;
+    }
+
+    public Iq createStoriesNode() {
+        final Iq iq = new Iq(Iq.Type.SET);
+        final Element pubsub = iq.addChild("pubsub", Namespace.PUBSUB);
+        pubsub.addChild("create").setAttribute("node", Namespace.PUBSUB_STORIES);
+        final Element configure = pubsub.addChild("configure");
+        // Correctly use the 'pubsub#node_config' namespace
+        final Data data = Data.create("http://jabber.org/protocol/pubsub#node_config", defaultStoriesConfiguration());
+        configure.addChild(data);
+        return iq;
+    }
+
     public Iq requestPubsubConfiguration(Jid jid, String node) {
         return pubsubConfiguration(jid, node, null);
     }
@@ -745,5 +813,165 @@ public class IqGenerator extends AbstractGenerator {
             error.addChild("item-not-found", "urn:ietf:params:xml:ns:xmpp-stanzas");
             return response;
         }
+    }
+
+    public Iq retrievePubsubItems(final Jid server, final String node) {
+        final Iq iq = new Iq(Iq.Type.GET);
+        if (server != null) {
+            iq.setTo(server);
+        }
+        final Element pubsub = iq.addChild("pubsub", Namespace.PUBSUB);
+        final Element items = pubsub.addChild("items");
+        items.setAttribute("node", node);
+        return iq;
+    }
+
+    public Iq publishPost(final Account account, final String title, final String content, final String attachmentUrl, final String attachmentType, final String postId) {
+        final Element item = new Element("item");
+        item.setAttribute("id", postId);
+        final Element entry = item.addChild("entry", Namespace.ATOM);
+
+        entry.addChild("id").setContent("urn:uuid:" + postId);
+
+        entry.addChild("link")
+                .setAttribute("rel", "replies")
+                .setAttribute("title", "comments")
+                .setAttribute("href", "xmpp:" + account.getJid().asBareJid() + "?;node=urn:xmpp:microblog:0:comments/" + postId);
+
+        if (title != null) {
+            entry.addChild("title").setContent(title);
+        }
+        if (content != null) {
+            entry.addChild("content").setContent(content);
+        }
+        if (attachmentUrl != null && attachmentType != null) {
+            entry.addChild("link")
+                    .setAttribute("rel", "enclosure")
+                    .setAttribute("href", attachmentUrl)
+                    .setAttribute("type", attachmentType);
+        }
+        final Element author = entry.addChild("author");
+        String name = account.getDisplayName();
+        if (name == null || name.trim().isEmpty()) {
+            name = account.getJid().asBareJid().toString();
+        }
+        author.addChild("name").setContent(name);
+        author.addChild("uri").setContent("xmpp:" + account.getJid().asBareJid().toString());
+        final String now = AbstractGenerator.getTimestamp(System.currentTimeMillis());
+        entry.addChild("published").setContent(now);
+        entry.addChild("updated").setContent(now);
+
+        return publish(Namespace.MICROBLOG, item, null);
+    }
+
+
+    public static Bundle defaultPostConfiguration() {
+        Bundle options = new Bundle();
+        options.putString("pubsub#node_type", "leaf");
+        options.putString("pubsub#type", Namespace.PUBSUB_SOCIAL_FEED);
+        options.putString("pubsub#access_model", "roster");
+        options.putString("pubsub#persist_items", "1");
+        options.putString("pubsub#deliver_payloads", "1");
+        options.putString("pubsub#send_last_published_item", "on_sub");
+        options.putString("pubsub#max_items", "max");
+        options.putString("pubsub#notify_retract", "1");
+        options.putString("pubsub#deliver_notifications", "1");
+        options.putString("pubsub#publish_model", "publishers");
+        return options;
+    }
+
+    public static Bundle defaultCommentsConfiguration() {
+        Bundle options = new Bundle();
+        options.putString("pubsub#node_type", "leaf");
+        options.putString("pubsub#type", "urn:xmpp:microblog:0:comments");
+        options.putString("pubsub#access_model", "open");
+        options.putString("pubsub#persist_items", "1");
+        options.putString("pubsub#max_items", "max");
+        options.putString("pubsub#notify_retract", "1");
+        options.putString("pubsub#deliver_notifications", "1");
+        options.putString("pubsub#deliver_payloads", "1");
+        options.putString("pubsub#send_last_published_item", "on_sub");
+        options.putString("pubsub#publish_model", "open");
+        options.putString("pubsub#itemreply", "publisher");
+        return options;
+    }
+
+    private Iq createNode(String node, Bundle options) {
+        final Iq iq = new Iq(Iq.Type.SET);
+        final Element pubsub = iq.addChild("pubsub", Namespace.PUBSUB);
+        pubsub.addChild("create").setAttribute("node", node);
+        final Element configure = pubsub.addChild("configure");
+        final Data data = Data.create("http://jabber.org/protocol/pubsub#node_config", options);
+        configure.addChild(data);
+        return iq;
+    }
+
+    public Iq createSocialFeedNode() {
+        final Iq iq = new Iq(Iq.Type.SET);
+        final Element pubsub = iq.addChild("pubsub", Namespace.PUBSUB);
+        pubsub.addChild("create").setAttribute("node", Namespace.MICROBLOG);
+        final Element configure = pubsub.addChild("configure");
+        final Data data = Data.create("http://jabber.org/protocol/pubsub#node_config", defaultPostConfiguration());
+        configure.addChild(data);
+        return iq;
+    }
+
+    public Iq publishComment(final Account account, final String node, final String title) {
+        final Iq iq = new Iq(Iq.Type.SET);
+        iq.setTo(account.getJid().asBareJid());
+        final Element pubsub = iq.addChild("pubsub", Namespace.PUBSUB);
+        final Element publish = pubsub.addChild("publish");
+        publish.setAttribute("node", node);
+        final Element item = publish.addChild("item");
+        final Element entry = item.addChild("entry", Namespace.ATOM);
+        entry.addChild("title").setContent(title);
+        final Element author = entry.addChild("author");
+        String name = account.getDisplayName();
+        if (name == null || name.trim().isEmpty()) {
+            name = account.getJid().asBareJid().toString();
+        }
+        author.addChild("name").setContent(name);
+        author.addChild("uri").setContent("xmpp:" + account.getJid().asBareJid().toString());
+        final String id = "tag:" + account.getServer() + "," + AbstractGenerator.getTimestamp(System.currentTimeMillis()) + ":" + UUID.randomUUID().toString();
+        entry.addChild("id").setContent(id);
+        final String now = AbstractGenerator.getTimestamp(System.currentTimeMillis());
+        entry.addChild("published").setContent(now);
+        entry.addChild("updated").setContent(now);
+        return iq;
+    }
+
+
+    public Iq createCommentsNode(String postId) {
+        return createNode("urn:xmpp:microblog:0:comments/" + postId, defaultCommentsConfiguration());
+    }
+
+    public Iq retractPost(final String node, final String id) {
+        final var packet = new Iq(Iq.Type.SET);
+        final Element pubsub = packet.addChild("pubsub", Namespace.PUBSUB);
+        final Element retract = pubsub.addChild("retract");
+        retract.setAttribute("node", node);
+        retract.setAttribute("notify", "true");
+        retract.addChild("item").setAttribute("id", id);
+        return packet;
+    }
+
+    public Iq generateSubscriptionIq(final Jid to, final String node, final Jid from) {
+        final Iq iq = new Iq(Iq.Type.SET);
+        iq.setTo(to);
+        final Element pubsub = iq.addChild("pubsub", Namespace.PUBSUB);
+        final Element subscribe = pubsub.addChild("subscribe");
+        subscribe.setAttribute("node", node);
+        subscribe.setAttribute("jid", from.asBareJid().toString());
+        return iq;
+    }
+
+    public Iq generateUnsubscriptionIq(final Jid to, final String node, final Jid from) {
+        final Iq iq = new Iq(Iq.Type.SET);
+        iq.setTo(to);
+        final Element pubsub = iq.addChild("pubsub", Namespace.PUBSUB);
+        final Element unsubscribe = pubsub.addChild("unsubscribe");
+        unsubscribe.setAttribute("node", node);
+        unsubscribe.setAttribute("jid", from.asBareJid().toString());
+        return iq;
     }
 }

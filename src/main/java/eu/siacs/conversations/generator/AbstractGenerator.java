@@ -34,6 +34,7 @@ public abstract class AbstractGenerator {
             Namespace.OOB,
             "http://jabber.org/protocol/caps",
             "http://jabber.org/protocol/disco#info",
+            Namespace.PUBSUB,
             "urn:xmpp:avatar:metadata+notify",
             Namespace.NICK + "+notify",
             "urn:xmpp:ping",
@@ -41,6 +42,12 @@ public abstract class AbstractGenerator {
             "http://jabber.org/protocol/chatstates",
             Namespace.REACTIONS,
             Namespace.USER_TUNE + "+notify",
+            Namespace.PUBSUB_SOCIAL_FEED,
+            Namespace.PUBSUB_SOCIAL_FEED + "+notify",
+            Namespace.MICROBLOG,
+            Namespace.MICROBLOG + "+notify",
+            Namespace.PUBSUB_STORIES,
+            Namespace.PUBSUB_STORIES + "+notify",
     };
     private final String[] MESSAGE_CONFIRMATION_FEATURES = {
             "urn:xmpp:chat-markers:0", "urn:xmpp:receipts"

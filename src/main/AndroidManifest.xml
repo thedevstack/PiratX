@@ -397,6 +397,12 @@
             android:name=".ui.MucUsersActivity"
             android:label="@string/group_chat_members" />
         <activity
+            android:name=".ui.StoriesActivity"
+            android:label="@string/stories" />
+        <activity
+            android:name=".ui.StoryViewActivity"
+            android:label="@string/story" />
+        <activity
             android:name=".ui.ChannelDiscoveryActivity"
             android:label="@string/discover_channels" />
         <activity
@@ -462,6 +468,14 @@
                 <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\.ceb" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.CallsActivity"
+            android:label="@string/calls" />
+        <activity
+            android:name=".ui.PostsActivity"
+            android:label="@string/feeds" />
+        <activity
+            android:name=".ui.CreatePostActivity"
+            android:label="@string/create_post" />
     </application>
-
 </manifest>

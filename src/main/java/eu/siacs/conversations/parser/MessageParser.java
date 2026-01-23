@@ -35,8 +35,11 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import eu.siacs.conversations.crypto.OtrService;
+import eu.siacs.conversations.entities.Comment;
+import eu.siacs.conversations.entities.Post;
 import eu.siacs.conversations.entities.Presence;
 import eu.siacs.conversations.entities.ServiceDiscoveryResult;
+import eu.siacs.conversations.entities.Story;
 import eu.siacs.conversations.xmpp.pep.UserTune;
 import io.ipfs.cid.Cid;
 
@@ -464,6 +467,26 @@ public class MessageParser extends AbstractParser
                 && account.getJid().asBareJid().equals(from)) {
             final Element item = items.findChild("item");
             mXmppConnectionService.processMdsItem(account, item);
+        } else if (Namespace.PUBSUB_STORIES.equals(node)) {
+            final Element retract = items.findChild("retract");
+            if (retract != null) {
+                final String id = retract.getAttribute("id");
+                if (id != null) {
+                    mXmppConnectionService.onStoryRetracted(id);
+                }
+            } else {
+                final List<Element> children = items.getChildren();
+                if (children != null) {
+                    for (Element item : children) {
+                        if ("item".equals(item.getName())) {
+                            final Story story = Story.fromElement(item, from);
+                            if (story != null) {
+                                mXmppConnectionService.onStoryReceived(story);
+                            }
+                        }
+                    }
+                }
+            }
         } else if (Namespace.USER_TUNE.equals(node)) {
             final Conversation conversation =
                     mXmppConnectionService.find(account, from.asBareJid());
@@ -1732,11 +1755,41 @@ public class MessageParser extends AbstractParser
                     packet);
         }
 
-        final Element event =
-                original.findChild("event", "http://jabber.org/protocol/pubsub#event");
-        if (event != null && Jid.Invalid.hasValidFrom(original) && original.getFrom().isBareJid()) {
-            if (event.hasChild("items")) {
-                parseEvent(event, original.getFrom(), account);
+        final Element event = original.findChild("event", "http://jabber.org/protocol/pubsub#event");
+        if (event != null) {
+            final Element items = event.findChild("items");
+            if (items != null) {
+                final String node = items.getAttribute("node");
+                if (node != null && node.equals(Namespace.ATOM) || node != null && node.startsWith("urn:xmpp:microblog:0") || node != null && node.startsWith(Namespace.PUBSUB_SOCIAL_FEED)) {
+                    for (Element child : items.getChildren()) {
+                        if ("item".equals(child.getName())) {
+                            Element entry = child.findChild("entry", Namespace.ATOM);
+                            if (entry != null) {
+                                try {
+                                    Element inReplyTo = entry.findChild("in-reply-to", "http://purl.org/syndication/thread/1.0");
+                                    if (inReplyTo != null) {
+                                        Comment comment = Comment.fromElement(entry);
+                                        String originalPostUuid = inReplyTo.getAttribute("ref");
+                                        if (originalPostUuid != null && originalPostUuid.startsWith("urn:uuid:")) {
+                                            originalPostUuid = originalPostUuid.substring(9);
+                                        }
+                                        mXmppConnectionService.notifyOnCommentReceived(originalPostUuid, comment);
+                                    } else {
+                                        Post post = Post.fromElement(entry);
+                                        mXmppConnectionService.onPostReceived(post, account);
+                                    }
+                                } catch (Exception e) {
+                                    Log.d(Config.LOGTAG, "error creating post/comment from pubsub item in message", e);
+                                }
+                            }
+                        } else if ("retract".equals(child.getName())) {
+                            final String postId = child.getAttribute("id");
+                            mXmppConnectionService.onPostRetracted(postId);
+                        }
+                    }
+                } else {
+                    parseEvent(event, original.getFrom(), account);
+                }
             } else if (event.hasChild("delete")) {
                 parseDeleteEvent(event, original.getFrom(), account);
             } else if (event.hasChild("purge")) {

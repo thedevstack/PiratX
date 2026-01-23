@@ -109,7 +109,7 @@ import org.whispersystems.libsignal.state.SignedPreKeyRecord;
 public class DatabaseBackend extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "history";
-    private static final int DATABASE_VERSION = 64;
+    private static final int DATABASE_VERSION = 66;
 
     private static boolean requiresMessageIndexRebuild = false;
     private static DatabaseBackend instance = null;
@@ -139,6 +139,8 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + " TEXT, "
                     + Contact.LAST_PRESENCE
                     + " TEXT, "
+                    + Contact.CALLS_DISABLED +
+                    " boolean DEFAULT 0,"
                     + Contact.LAST_TIME
                     + " NUMBER, "
                     + Contact.RTP_CAPABILITY
@@ -374,6 +376,21 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     private static final String COPY_PREEXISTING_ENTRIES =
             "INSERT INTO messages_index(messages_index) VALUES('rebuild');";
 
+    private static final String CREATE_POSTS_TABLE =
+            "CREATE TABLE " + eu.siacs.conversations.entities.Post.TABLENAME + " ("
+                    + eu.siacs.conversations.entities.Post.UUID + " TEXT PRIMARY KEY,"
+                    + eu.siacs.conversations.entities.Post.ACCOUNT_UUID + " TEXT,"
+                    + eu.siacs.conversations.entities.Post.AUTHOR_JID + " TEXT,"
+                    + eu.siacs.conversations.entities.Post.TITLE + " TEXT,"
+                    + eu.siacs.conversations.entities.Post.CONTENT + " TEXT,"
+                    + eu.siacs.conversations.entities.Post.ATTACHMENT_URL + " TEXT,"
+                    + eu.siacs.conversations.entities.Post.ATTACHMENT_TYPE + " TEXT,"
+                    + eu.siacs.conversations.entities.Post.PUBLISHED + " NUMBER,"
+                    + eu.siacs.conversations.entities.Post.COMMENTS_NODE + " TEXT,"
+                    + "FOREIGN KEY(" + eu.siacs.conversations.entities.Post.ACCOUNT_UUID + ") REFERENCES "
+                    + eu.siacs.conversations.entities.Account.TABLENAME
+                    + "(" + eu.siacs.conversations.entities.Account.UUID + ") ON DELETE CASCADE);";
+
     protected Context context;
 
     private DatabaseBackend(Context context) {
@@ -454,7 +471,8 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         + " TEXT,"
                         + Account.FAST_TOKEN
                         + " TEXT,"
-                        + "ordering INTEGER DEFAULT 0,"
+                        + Account.ORDERING
+                        + " INTEGER DEFAULT 0,"
                         + Account.PORT
                         + " NUMBER DEFAULT 5222)");
         db.execSQL(
@@ -565,6 +583,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_MESSAGE_INSERT_TRIGGER);
         db.execSQL(CREATE_MESSAGE_UPDATE_TRIGGER);
         db.execSQL(CREATE_MESSAGE_DELETE_TRIGGER);
+        db.execSQL(CREATE_POSTS_TABLE);
         monoclesDatabase(db);
     }
 
@@ -1298,10 +1317,16 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         }
         if (oldVersion < 64 && newVersion >= 64) {
             try {
-                db.execSQL("ALTER TABLE " + Account.TABLENAME + " ADD COLUMN ordering INTEGER DEFAULT 0");
+                db.execSQL("ALTER TABLE " + Account.TABLENAME + " ADD COLUMN " + Account.ORDERING + " INTEGER DEFAULT 0");
             } catch (Exception e) {
                 Log.e(Config.LOGTAG, "Failed to add ordering column to account table", e);
             }
+        }
+        if (oldVersion < 65 && newVersion >= 65) {
+            db.execSQL("ALTER TABLE " + Contact.TABLENAME + " ADD COLUMN " + Contact.CALLS_DISABLED + " boolean DEFAULT 0");
+        }
+        if (oldVersion < 66 && newVersion >= 66) {
+            db.execSQL(CREATE_POSTS_TABLE);
         }
     }
 
@@ -1607,7 +1632,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     public void createAccount(Account account) {
         final var db = this.getWritableDatabase();
         final ContentValues values = account.getContentValues();
-        values.put("ordering", account.getOrdering());
         db.insert(Account.TABLENAME, null, values);
     }
 
@@ -2200,6 +2224,19 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         return message;
     }
 
+    public boolean updateContact(final Contact contact) {
+        final SQLiteDatabase db = this.getWritableDatabase();final ContentValues values = contact.getContentValues();
+        final String[] args = {contact.getAccount().getUuid(), contact.getJid().asBareJid().toString()};
+        try {
+            final int count = db.update(Contact.TABLENAME, values,
+                    Contact.ACCOUNT + "=? AND " + Contact.JID + "=?",
+                    args);
+            return count > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public static class FilePath {
         public final UUID uuid;
         public final String path;
@@ -2339,13 +2376,11 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     private List<Account> getAccounts(SQLiteDatabase db) {
         final List<Account> list = new ArrayList<>();
         try (final Cursor cursor =
-                     db.query(Account.TABLENAME, null, null, null, null, null, "ordering ASC")) {
+                     db.query(Account.TABLENAME, null, null, null, null, null, Account.ORDERING + " ASC")) { // Use constant here
             while (cursor != null && cursor.moveToNext()) {
                 list.add(Account.fromCursor(cursor));
             }
         }
-        // Ensure you read the value if needed, though typically we just rely on the sort order
-        // account.setOrder(cursor.getInt(cursor.getColumnIndex("ordering")));
         return list;
     }
 
@@ -2353,7 +2388,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         final var db = this.getWritableDatabase();
         final String[] args = {account.getUuid()};
         final ContentValues values = account.getContentValues();
-        values.put("ordering", account.getOrdering());
         final int rows =
                 db.update(Account.TABLENAME, values, Account.UUID + "=?", args);
         return rows == 1;
@@ -3353,5 +3387,79 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 super.finalize();
             }
         };
+    }
+
+    // New helper method that accepts an existing database connection
+    public Conversation findConversationByUuid(final String uuid, final SQLiteDatabase db) {
+        final String[] selectionArgs = {uuid};
+        try (final Cursor cursor =
+                     db.query(
+                             Conversation.TABLENAME,
+                             null,
+                             Conversation.UUID + "=?",
+                             selectionArgs,
+                             null,
+                             null,
+                             null)) {
+            if (!cursor.moveToFirst()) {
+                return null;
+            }
+            final Conversation conversation = Conversation.fromCursor(cursor);
+            if (conversation.getJid() instanceof Jid.Invalid) {
+                return null;
+            }
+            return conversation;
+        }
+    }
+
+    public ArrayList<Message> getMessages(Conversation conversation, int type, int limit) {
+        ArrayList<Message> list = new ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+        Cursor cursor = db.query(Message.TABLENAME,
+                null,
+                Message.CONVERSATION + "=? AND " + Message.TYPE + "=?",
+                new String[]{conversation.getUuid(), String.valueOf(type)},
+                null,
+                null,
+                Message.TIME_SENT + " DESC",
+                String.valueOf(limit));
+        if (cursor.getCount() > 0) {
+            cursor.moveToFirst();
+            do {
+                try {
+                    list.add(Message.fromCursor(cursor, conversation));
+                } catch (final Exception e) {
+                    Log.d(Config.LOGTAG,"unable to load message from database",e);
+                }
+            } while (cursor.moveToNext());
+        }
+        cursor.close();
+        return list;
+    }
+
+    public void createPost(eu.siacs.conversations.entities.Post post, eu.siacs.conversations.entities.Account account) {
+        final android.database.sqlite.SQLiteDatabase db = this.getWritableDatabase();
+        db.insertWithOnConflict(eu.siacs.conversations.entities.Post.TABLENAME, null, post.getContentValues(account), android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public java.util.List<eu.siacs.conversations.entities.Post> getPosts() {
+        final java.util.List<eu.siacs.conversations.entities.Post> list = new java.util.ArrayList<>();
+        final android.database.sqlite.SQLiteDatabase db = this.getReadableDatabase();
+        android.database.Cursor cursor = db.query(eu.siacs.conversations.entities.Post.TABLENAME, null, null, null, null, null, eu.siacs.conversations.entities.Post.PUBLISHED + " DESC");
+        while (cursor.moveToNext()) {
+            list.add(eu.siacs.conversations.entities.Post.fromCursor(cursor));
+        }
+        cursor.close();
+        return list;
+    }
+
+    public void deletePost(String uuid) {
+        final android.database.sqlite.SQLiteDatabase db = this.getWritableDatabase();
+        db.delete(eu.siacs.conversations.entities.Post.TABLENAME, eu.siacs.conversations.entities.Post.UUID + "=?", new String[]{uuid});
+    }
+
+    public void clearPosts() {
+        final android.database.sqlite.SQLiteDatabase db = this.getWritableDatabase();
+        db.delete(eu.siacs.conversations.entities.Post.TABLENAME, null, null);
     }
 }

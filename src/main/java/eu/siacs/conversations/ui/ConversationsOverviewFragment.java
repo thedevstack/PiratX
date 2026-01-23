@@ -57,7 +57,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.common.base.Optional;
 import com.google.common.collect.Collections2;
-import eu.siacs.conversations.BuildConfig;
+
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.FragmentConversationsOverviewBinding;
@@ -66,7 +66,6 @@ import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Conversational;
 import eu.siacs.conversations.services.XmppConnectionService;
-import eu.siacs.conversations.services.QuickConversationsService;
 import eu.siacs.conversations.ui.adapter.ConversationAdapter;
 import eu.siacs.conversations.ui.interfaces.OnConversationArchived;
 import eu.siacs.conversations.ui.interfaces.OnConversationSelected;
@@ -77,11 +76,7 @@ import eu.siacs.conversations.ui.util.ScrollState;
 import eu.siacs.conversations.ui.util.SoftKeyboardUtils;
 import eu.siacs.conversations.utils.AccountUtils;
 import eu.siacs.conversations.utils.EasyOnboardingInvite;
-import eu.siacs.conversations.utils.ThemeHelper;
 import eu.siacs.conversations.xmpp.jingle.OngoingRtpSession;
-
-import static androidx.recyclerview.widget.ItemTouchHelper.LEFT;
-import static androidx.recyclerview.widget.ItemTouchHelper.RIGHT;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -91,8 +86,7 @@ public class ConversationsOverviewFragment extends XmppFragment {
 
 	private static final String STATE_SCROLL_POSITION =
 			ConversationsOverviewFragment.class.getName() + ".scroll_state";
-
-	private final List<Conversation> conversations = new ArrayList<>();
+    private final List<Conversation> conversations = new ArrayList<>();
 	private final PendingItem<Conversation> swipedConversation = new PendingItem<>();
 	private final PendingItem<ScrollState> pendingScrollState = new PendingItem<>();
 	private FragmentConversationsOverviewBinding binding;
@@ -228,7 +222,7 @@ public class ConversationsOverviewFragment extends XmppFragment {
 
 					pendingActionHelper.push(
 							() -> {
-								if (snackbar.isShownOrQueued()) {
+									if (snackbar.isShownOrQueued()) {
 									snackbar.dismiss();
 								}
 								final Conversation conversation = swipedConversation.pop();
@@ -338,7 +332,8 @@ public class ConversationsOverviewFragment extends XmppFragment {
 						inflater, R.layout.fragment_conversations_overview, container, false);
 		this.binding.fab.setOnClickListener(
 				(view) -> StartConversationActivity.launch(getActivity()));
-
+        this.binding.fabStartConversation.setOnClickListener(
+                (view) -> StartConversationActivity.launch(getActivity()));
 		this.conversationsAdapter = new ConversationAdapter(this.activity, this.conversations);
 		this.conversationsAdapter.setConversationClickListener(
 				(view, conversation) -> {
@@ -360,24 +355,29 @@ public class ConversationsOverviewFragment extends XmppFragment {
 		return binding.getRoot();
 	}
 
-	@Override
-	public void onCreateOptionsMenu(Menu menu, MenuInflater menuInflater) {
-		menuInflater.inflate(R.menu.fragment_conversations_overview, menu);
-		AccountUtils.showHideMenuItems(menu);
-		final MenuItem easyOnboardInvite = menu.findItem(R.id.action_easy_invite);
-		MenuItem noteToSelf = menu.findItem(R.id.action_note_to_self);
-		easyOnboardInvite.setVisible(false);
-		if (activity != null && activity.xmppConnectionService != null && activity.xmppConnectionService.isOnboarding()) {
-			final MenuItem manageAccounts = menu.findItem(R.id.action_accounts);
-			if (manageAccounts != null) manageAccounts.setVisible(false);
-
-			final MenuItem settings = menu.findItem(R.id.action_settings);
-			if (settings != null) settings.setVisible(false);
-		}
-		if (activity == null || activity.xmppConnectionService == null || activity.xmppConnectionService.getAccounts().size() != 1) {
-			noteToSelf.setVisible(false);
-		}
-	}
+    @Override
+    public void onCreateOptionsMenu(Menu menu, MenuInflater menuInflater) {
+        menuInflater.inflate(R.menu.fragment_conversations_overview, menu);
+        AccountUtils.showHideMenuItems(menu);
+        final MenuItem easyOnboardInvite = menu.findItem(R.id.action_easy_invite);
+        MenuItem noteToSelf = menu.findItem(R.id.action_note_to_self);
+        easyOnboardInvite.setVisible(EasyOnboardingInvite.anyHasSupport(activity == null ? null : activity.xmppConnectionService));
+        if (activity != null && activity.xmppConnectionService != null && activity.xmppConnectionService.isOnboarding()) {
+            final MenuItem manageAccounts = menu.findItem(R.id.action_accounts);
+            final MenuItem settings = menu.findItem(R.id.action_settings);
+            final MenuItem stories = menu.findItem(R.id.action_stories);
+            final MenuItem calls = menu.findItem(R.id.action_calls);
+            final MenuItem feeds = menu.findItem(R.id.action_feeds);
+            if (manageAccounts != null) manageAccounts.setVisible(false);
+            if (settings != null) settings.setVisible(false);
+            if (stories != null) stories.setVisible(false);
+            if (calls != null) calls.setVisible(false);
+            if (feeds != null) feeds.setVisible(false);
+        }
+        if (activity == null || activity.xmppConnectionService == null || activity.xmppConnectionService.getAccounts().size() != 1) {
+            noteToSelf.setVisible(false);
+        }
+    }
 
 	@Override
 	public void onCreateContextMenu(ContextMenu menu, View view, ContextMenu.ContextMenuInfo menuInfo) {
@@ -486,11 +486,13 @@ public class ConversationsOverviewFragment extends XmppFragment {
 		super.onPrepareOptionsMenu(menu);
 
 		boolean navBarVisible = activity instanceof ConversationsActivity && ((ConversationsActivity) activity).navigationBarVisible();
-		MenuItem manageAccount = menu.findItem(R.id.action_account);
-		MenuItem manageAccounts = menu.findItem(R.id.action_accounts);
+        MenuItem stories = menu.findItem(R.id.action_stories);
+        MenuItem calls = menu.findItem(R.id.action_calls);
+        MenuItem feeds = menu.findItem(R.id.action_feeds);
 		if (navBarVisible) {
-			manageAccount.setVisible(false);
-			manageAccounts.setVisible(false);
+            stories.setVisible(false);
+            calls.setVisible(false);
+            feeds.setVisible(false);
 		} else {
 			AccountUtils.showHideMenuItems(menu);
 		}
@@ -508,9 +510,11 @@ public class ConversationsOverviewFragment extends XmppFragment {
 
 			if (showed) {
 				this.binding.fab.setVisibility(View.GONE);
+                this.binding.fabStartConversation.setVisibility(View.VISIBLE);
 			} else {
 				this.binding.fab.setVisibility(View.VISIBLE);
-			}
+                this.binding.fabStartConversation.setVisibility(View.GONE);
+            }
 		}
 	}
 
@@ -520,30 +524,39 @@ public class ConversationsOverviewFragment extends XmppFragment {
 		Log.d(Config.LOGTAG, "ConversationsOverviewFragment.onResume()");
 	}
 
-	@Override
-	public boolean onOptionsItemSelected(final MenuItem item) {
-		if (MenuDoubleTabUtil.shouldIgnoreTap()) {
-			return false;
-		}
-		switch (item.getItemId()) {
-			case R.id.action_search:
-				startActivity(new Intent(getActivity(), SearchActivity.class));
-				return true;
-			case R.id.action_easy_invite:
-				selectAccountToStartEasyInvite();
-				return true;
-			case R.id.action_note_to_self:
-				final List<Account> accounts = activity.xmppConnectionService.getAccounts();
-				if (accounts.size() == 1) {
-					final Contact self = new Contact(accounts.get(0).getSelfContact());
-					Conversation conversation = activity.xmppConnectionService.findOrCreateConversation(self.getAccount(), self.getJid(), false, false, null, true, null);
-					SoftKeyboardUtils.hideSoftKeyboard(activity);
-					activity.switchToConversation(conversation);
-				}
-		}
-		return super.onOptionsItemSelected(item);
-	}
-
+    @Override
+    public boolean onOptionsItemSelected(final MenuItem item) {
+        if (MenuDoubleTabUtil.shouldIgnoreTap()) {
+            return false;
+        }
+        switch (item.getItemId()) {
+            case R.id.action_search:
+                startActivity(new Intent(getActivity(), SearchActivity.class));
+                return true;
+            case R.id.action_easy_invite:
+                selectAccountToStartEasyInvite();
+                return true;
+            case R.id.action_note_to_self:
+                final List<Account> accounts = activity.xmppConnectionService.getAccounts();
+                if (accounts.size() == 1) {
+                    final Contact self = new Contact(accounts.get(0).getSelfContact());
+                    Conversation conversation = activity.xmppConnectionService.findOrCreateConversation(self.getAccount(), self.getJid(), false, false, null, true, null);
+                    SoftKeyboardUtils.hideSoftKeyboard(activity);
+                    activity.switchToConversation(conversation);
+                }
+                return true;
+            case R.id.action_feeds:
+                startActivity(new Intent(getActivity(), PostsActivity.class));
+                return true;
+            case R.id.action_stories:
+                startActivity(new Intent(getActivity(), StoriesActivity.class));
+                return true;
+            case R.id.action_calls:
+                startActivity(new Intent(getActivity(), CallsActivity.class));
+                return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
 	private void selectAccountToStartEasyInvite() {
 		final List<Account> accounts =
 				EasyOnboardingInvite.getSupportingAccounts(activity.xmppConnectionService);
@@ -578,85 +591,86 @@ public class ConversationsOverviewFragment extends XmppFragment {
 		EasyOnboardingInviteActivity.launch(account, activity);
 	}
 
-	@Override
-	protected void refresh() {
-		if (binding == null || this.activity == null) {
-			Log.d(Config.LOGTAG,"ConversationsOverviewFragment.refresh() skipped updated because view binding or activity was null");
-			return;
-		}
-		this.activity.populateWithOrderedConversations(this.conversations);
-		Conversation removed = this.swipedConversation.peek();
-		if (removed != null) {
-			if (removed.isRead(activity == null ? null : activity.xmppConnectionService)) {
-				this.conversations.remove(removed);
-			} else {
-				pendingActionHelper.execute();
-			}
-		}
-		this.conversationsAdapter.notifyDataSetChanged();
-		ScrollState scrollState = pendingScrollState.pop();
-		if (scrollState != null) {
-			setScrollPosition(scrollState);
-		}
+    protected void refresh() {
+        if (binding == null || this.activity == null) {
+            Log.d(Config.LOGTAG,"ConversationsOverviewFragment.refresh() skipped updated because view binding or activity was null");
+            return;
+        }
+        this.activity.populateWithOrderedConversations(this.conversations);
+        Conversation removed = this.swipedConversation.peek();
+        if (removed != null) {
+            if (removed.isRead(activity == null ? null : activity.xmppConnectionService)) {
+                this.conversations.remove(removed);
+            } else {
+                pendingActionHelper.execute();
+            }
+        }
+        this.conversationsAdapter.notifyDataSetChanged();
+        ScrollState scrollState = pendingScrollState.pop();
+        if (scrollState != null) {
+            setScrollPosition(scrollState);
+        }
+        if (activity.xmppConnectionService != null && activity.xmppConnectionService.isOnboarding()) {
+            binding.fab.setVisibility(View.GONE);
+            binding.fabStartConversation.setVisibility(View.GONE);
 
-		if (activity.xmppConnectionService != null && activity.xmppConnectionService.isOnboarding()) {
-			binding.fab.setVisibility(View.GONE);
+            if (this.conversations.size() == 1) {
+                if (activity instanceof OnConversationSelected) {
+                    ((OnConversationSelected) activity).onConversationSelected(this.conversations.get(0));
+                } else {
+                    Log.w(ConversationsOverviewFragment.class.getCanonicalName(), "Activity does not implement OnConversationSelected");
+                }
+            }
+        } else {
+            if (activity instanceof ConversationsActivity) {
+                boolean showed = ((ConversationsActivity) activity).showNavigationBar();
 
-			if (this.conversations.size() == 1) {
-				if (activity instanceof OnConversationSelected) {
-					((OnConversationSelected) activity).onConversationSelected(this.conversations.get(0));
-				} else {
-					Log.w(ConversationsOverviewFragment.class.getCanonicalName(), "Activity does not implement OnConversationSelected");
-				}
-			}
-		} else {
-			if (activity instanceof ConversationsActivity) {
-				boolean showed = ((ConversationsActivity) activity).showNavigationBar();
+                if (showed) {
+                    this.binding.fab.setVisibility(View.GONE);
+                    binding.fabStartConversation.setVisibility(View.VISIBLE);
+                } else {
+                    this.binding.fab.setVisibility(View.VISIBLE);
+                    binding.fabStartConversation.setVisibility(View.GONE);
+                }
+            }
+        }
+        if (activity.getPreferences().getBoolean("swipe_to_archive", true)) setupSwipe();
 
-				if (showed) {
-					this.binding.fab.setVisibility(View.GONE);
-				} else {
-					this.binding.fab.setVisibility(View.VISIBLE);
-				}
-			}
-		}
-		if (activity.getPreferences().getBoolean("swipe_to_archive", true)) setupSwipe();
+        if (activity.xmppConnectionService == null || binding == null || binding.overviewSnackbar == null) return;
+        binding.overviewSnackbar.setVisibility(View.GONE);
+        for (final var account : activity.xmppConnectionService.getAccounts()) {
+            if (activity.getPreferences().getBoolean("no_mam_pref_warn:" + account.getUuid(), false)) continue;
+            if (account.mamPrefs() != null && !"always".equals(account.mamPrefs().getAttribute("default"))) {
+                binding.overviewSnackbar.setVisibility(View.VISIBLE);
+                binding.overviewSnackbarMessage.setText(R.string.your_account + " " + account.getJid().asBareJid().toString() + " " + R.string.archiving_not_enabled_text);
+                binding.overviewSnackbarAction.setOnClickListener((v) -> {
+                    final var prefs = account.mamPrefs();
+                    prefs.setAttribute("default", "always");
+                    activity.xmppConnectionService.pushMamPreferences(account, prefs);
+                    refresh();
+                });
 
-		if (activity.xmppConnectionService == null || binding == null || binding.overviewSnackbar == null) return;
-		binding.overviewSnackbar.setVisibility(View.GONE);
-		for (final var account : activity.xmppConnectionService.getAccounts()) {
-			if (activity.getPreferences().getBoolean("no_mam_pref_warn:" + account.getUuid(), false)) continue;
-			if (account.mamPrefs() != null && !"always".equals(account.mamPrefs().getAttribute("default"))) {
-				binding.overviewSnackbar.setVisibility(View.VISIBLE);
-				binding.overviewSnackbarMessage.setText(R.string.your_account + " " + account.getJid().asBareJid().toString() + " " + R.string.archiving_not_enabled_text);
-				binding.overviewSnackbarAction.setOnClickListener((v) -> {
-					final var prefs = account.mamPrefs();
-					prefs.setAttribute("default", "always");
-					activity.xmppConnectionService.pushMamPreferences(account, prefs);
-					refresh();
-				});
-
-				binding.overviewSnackbarAction.setOnLongClickListener((v) -> {
-					PopupMenu popupMenu = new PopupMenu(getActivity(), v);
-					popupMenu.inflate(R.menu.mam_pref_fix);
-					popupMenu.setOnMenuItemClickListener(menuItem -> {
-						switch (menuItem.getItemId()) {
-							case R.id.ignore:
-								final var editor = activity.getPreferences().edit();
-								editor.putBoolean("no_mam_pref_warn:" + account.getUuid(), true).apply();
-								editor.apply();
-								refresh();
-								return true;
-						}
-						return true;
-					});
-					popupMenu.show();
-					return true;
-				});
-				break;
-			}
-		}
-	}
+                binding.overviewSnackbarAction.setOnLongClickListener((v) -> {
+                    PopupMenu popupMenu = new PopupMenu(getActivity(), v);
+                    popupMenu.inflate(R.menu.mam_pref_fix);
+                    popupMenu.setOnMenuItemClickListener(menuItem -> {
+                        switch (menuItem.getItemId()) {
+                            case R.id.ignore:
+                                final var editor = activity.getPreferences().edit();
+                                editor.putBoolean("no_mam_pref_warn:" + account.getUuid(), true).apply();
+                                editor.apply();
+                                refresh();
+                                return true;
+                        }
+                        return true;
+                    });
+                    popupMenu.show();
+                    return true;
+                });
+                break;
+            }
+        }
+    }
 
 	private void setScrollPosition(ScrollState scrollPosition) {
 		if (scrollPosition != null) {
@@ -666,4 +680,5 @@ public class ConversationsOverviewFragment extends XmppFragment {
 					scrollPosition.position, scrollPosition.offset);
 		}
 	}
+
 }

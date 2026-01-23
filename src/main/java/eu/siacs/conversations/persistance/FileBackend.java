@@ -2256,6 +2256,13 @@ public class FileBackend {
         }
     }
 
+    public DownloadableFile getTemporaryFile(String mimeType) {
+        final String extension = MimeUtils.guessExtensionFromMimeType(mimeType);
+        final String filename = UUID.randomUUID().toString() + (extension == null ? "" : "." + extension);
+        final File file = new File(mXmppConnectionService.getCacheDir(), filename);
+        return new DownloadableFile(file.getAbsolutePath());
+    }
+
     private int getMediaRuntime(final File file) {
         try {
             final MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
@@ -2427,6 +2434,46 @@ public class FileBackend {
 
     public boolean deleteFile(File file) {
         return file.delete();
+    }
+
+    public File getStoryCacheDirectory() {
+        File cacheDir = mXmppConnectionService.getCacheDir();
+        File storyCache = new File(cacheDir, "stories");
+        if (!storyCache.exists()) {
+            storyCache.mkdirs();
+        }
+        return storyCache;
+    }
+
+    public File getStoryCacheFile(String url) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            digest.update(url.getBytes());
+            byte[] messageDigest = digest.digest();
+            String sha1 = CryptoHelper.bytesToHex(messageDigest);
+            return new File(getStoryCacheDirectory(), sha1);
+        } catch (NoSuchAlgorithmException e) {
+            // This should not happen, but as a fallback, use a random name
+            return new File(getStoryCacheDirectory(), UUID.randomUUID().toString());
+        }
+    }
+
+    public Uri getTakeVideoUri() {
+        final String filename =
+                String.format("IMG_%s.%s", IMAGE_DATE_FORMAT.format(new Date()), "mp4");
+        final File directory;
+        if (Config.ONLY_INTERNAL_STORAGE) {
+            directory = new File(mXmppConnectionService.getCacheDir(), "Camera");
+        } else {
+            directory =
+                    new File(
+                            Environment.getExternalStoragePublicDirectory(
+                                    Environment.DIRECTORY_DCIM),
+                            "Camera");
+        }
+        final File file = new File(directory, filename);
+        file.getParentFile().mkdirs();
+        return getUriForFile(mXmppConnectionService, file, filename);
     }
 
     private static class Dimensions {

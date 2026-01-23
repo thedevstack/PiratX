@@ -299,6 +299,7 @@ public class ConversationFragment extends XmppFragment
     public static final int ATTACHMENT_CHOICE_INVALID = 0x0306;
     public static final int ATTACHMENT_CHOICE_RECORD_VIDEO = 0x0307;
     public static final int ATTACHMENT_CHOICE_EDIT_PHOTO = 0x0308;
+    private static final int REQUEST_EDIT_BACKGROUND = 9124;
 
     public static final String RECENTLY_USED_QUICK_ACTION = "recently_used_quick_action";
     public static final String STATE_CONVERSATION_UUID =
@@ -1273,20 +1274,22 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void sendMessage(Long sendAt) {
-        if (sendAt != null && sendAt < System.currentTimeMillis()) sendAt = null; // No sending in past plz
-        Editable body = this.binding.textinput.getText();
-        if (mediaPreviewAdapter.getItemCount() > 1 || (mediaPreviewAdapter.getItemCount() == 1 && body == null)) {
-            commitAttachments();
-            return;
+        if (sendAt != null && sendAt < System.currentTimeMillis()) {
+            sendAt = null; // No sending in past plz
         }
-        if (body == null) body = new SpannableStringBuilder("");
+        Editable body = this.binding.textinput.getText();
+        if (body == null) {
+            body = new SpannableStringBuilder("");
+        }
+        final Conversation conversation = this.conversation;
+        final boolean hasAttachments = mediaPreviewAdapter.getItemCount() > 0;
+        final boolean hasSubject = binding.textinputSubject.getText().length() > 0;
+
         if (body.length() > Config.MAX_DISPLAY_MESSAGE_CHARS) {
             Toast.makeText(activity, activity.getString(R.string.message_is_too_long), Toast.LENGTH_SHORT).show();
             return;
         }
-        final Conversation conversation = this.conversation;
-        final boolean hasSubject = binding.textinputSubject.getText().length() > 0;
-        if (conversation == null || (body.length() == 0 && mediaPreviewAdapter.getItemCount() == 0 && (conversation.getThread() == null || !hasSubject))) {
+        if (conversation == null || (body.length() == 0 && !hasAttachments && (conversation.getThread() == null || !hasSubject))) {
             /*
             if (Build.VERSION.SDK_INT >= 24) {
                 binding.textSendButton.showContextMenu(0, 0);
@@ -1300,16 +1303,30 @@ public class ConversationFragment extends XmppFragment
         if (trustKeysIfNeeded(conversation, REQUEST_TRUST_KEYS_TEXT)) {
             return;
         }
+
+        if (hasAttachments) {
+            conversation.setCaption(body.toString());
+            commitAttachments();
+            messageSent();
+            restoreDraft();
+            return;
+        }
+
         final Message message;
         if (conversation.getCorrectingMessage() == null) {
             boolean attention = false;
             if (Pattern.compile("\\A@here\\s.*").matcher(body).find()) {
                 attention = true;
                 body.delete(0, 6);
-                while (body.length() > 0 && Character.isWhitespace(body.charAt(0))) body.delete(0, 1);
+                while (body.length() > 0 && Character.isWhitespace(body.charAt(0))) {
+                    body.delete(0, 1);
+                }
             }
+
             if (conversation.getReplyTo() != null) {
-                if (Emoticons.isEmoji(body.toString().replaceAll("\\s", "")) && conversation.getNextCounterpart() == null && !conversation.getReplyTo().isPrivateMessage()) {
+                if (((activity.getBooleanPreference("allow_unencrypted_reactions", R.bool.allow_unencrypted_reactions) && conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL) || conversation.getNextEncryption() == Message.ENCRYPTION_NONE)
+                        && Emoticons.isEmoji(body.toString().replaceAll("\\s", ""))
+                        && conversation.getNextCounterpart() == null && !conversation.getReplyTo().isPrivateMessage()) {
                     final var aggregated = conversation.getReplyTo().getAggregatedReactions();
                     final ImmutableSet.Builder<String> reactionBuilder = new ImmutableSet.Builder<>();
                     reactionBuilder.addAll(aggregated.ourReactions);
@@ -1350,17 +1367,11 @@ public class ConversationFragment extends XmppFragment
                         }
                     }
                 }
-                // Set caption when only one attachment
-                /*
-                if (mediaPreviewAdapter.getItemCount() == 1) {
-                 */
-                if (mediaPreviewAdapter.getItemCount() == 1 && !message.isGeoUri()) {
-                    conversation.setCaption(message);
-                    commitAttachments();
-                    return;
-                }
             }
-            if (hasSubject) message.setSubject(binding.textinputSubject.getText().toString());
+
+            if (hasSubject) {
+                message.setSubject(binding.textinputSubject.getText().toString());
+            }
             if (activity.xmppConnectionService != null && activity.xmppConnectionService.getBooleanPreference("show_thread_feature", R.bool.show_thread_feature)) {
                 message.setThread(conversation.getThread());
             }
@@ -1368,9 +1379,12 @@ public class ConversationFragment extends XmppFragment
                 message.addPayload(new Element("attention", "urn:xmpp:attention:0"));
             }
             Message.configurePrivateMessage(message);
+
         } else {
             message = conversation.getCorrectingMessage();
-            if (hasSubject) message.setSubject(binding.textinputSubject.getText().toString());
+            if (hasSubject) {
+                message.setSubject(binding.textinputSubject.getText().toString());
+            }
             if (activity.xmppConnectionService != null && activity.xmppConnectionService.getBooleanPreference("show_thread_feature", R.bool.show_thread_feature)) {
                 message.setThread(conversation.getThread());
             }
@@ -1763,7 +1777,29 @@ public class ConversationFragment extends XmppFragment
         } else {
             this.postponedActivityResult.push(activityResult);
         }
-        if (conversation != null && conversation.getUuid() != null) ChatBackgroundHelper.onActivityResult(activity, requestCode, resultCode, data, conversation.getUuid());
+        if (resultCode == Activity.RESULT_OK) {
+            if (requestCode == ChatBackgroundHelper.REQUEST_IMPORT_BACKGROUND) {
+                final Uri imageUri = data == null ? null : data.getData();
+                if (imageUri != null) {
+                    final Intent editIntent = new Intent(getActivity(), EditActivity.class);
+                    editIntent.setData(imageUri);
+                    editIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivityForResult(editIntent, REQUEST_EDIT_BACKGROUND);
+                    return;
+                }
+            } else if (requestCode == REQUEST_EDIT_BACKGROUND) {
+                Uri uri = data != null ? (Uri) data.getParcelableExtra(EditActivity.KEY_EDITED_URI) : null;
+                if (uri == null && data != null) {
+                    uri = data.getData();
+                }
+                if (uri != null) {
+                    Intent resultIntent = new Intent();
+                    resultIntent.setData(uri);
+                    if (conversation != null && conversation.getUuid() != null) ChatBackgroundHelper.onActivityResult(activity, ChatBackgroundHelper.REQUEST_IMPORT_BACKGROUND, resultCode, resultIntent, conversation.getUuid());
+                }
+                return;
+            }
+        }
 
         if (requestCode == ChatBackgroundHelper.REQUEST_IMPORT_BACKGROUND) {
             refresh();
@@ -6845,7 +6881,6 @@ public class ConversationFragment extends XmppFragment
         if (cid == null) {
             return false;
         }
-        // Add null checks for activity and the service to prevent crashes.
         if (activity == null || activity.xmppConnectionService == null) {
             return false;
         }
@@ -6861,6 +6896,9 @@ public class ConversationFragment extends XmppFragment
 
     private boolean isAudioCid(Cid cid) {
         if (cid == null) return false;
+        if (activity == null || activity.xmppConnectionService == null) {
+            return false;
+        }
         File file = activity.xmppConnectionService.getFileForCid(cid);
         if (file == null) return false;
         String lowerFilePath = file.getAbsolutePath();

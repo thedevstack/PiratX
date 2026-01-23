@@ -253,6 +253,17 @@ public class ConversationsActivity extends XmppActivity
         bottomBadge.setVisible(unreadCount > 0);
         bottomBadge.setHorizontalOffset(20);
 
+        // Show badge for new stories in bottom nav
+        long lastRead = getPreferences().getLong("last_read_story_timestamp", 0);
+        boolean hasNewStories = xmppConnectionService.getStories().stream().anyMatch(s -> s.getPublished() > lastRead);
+        var storiesBadge = bottomnav.getOrCreateBadge(R.id.stories);
+        storiesBadge.setVisible(hasNewStories);
+
+        // Show badge for missed calls in bottom nav
+        boolean hasNewMissedCalls = xmppConnectionService.getNotificationService().hasNewMissedCalls();
+        var callsBadge = bottomnav.getOrCreateBadge(R.id.calls);
+        callsBadge.setVisible(hasNewMissedCalls);
+
         final var chatRequestsPref = xmppConnectionService.getStringPreference("chat_requests", R.string.default_chat_requests);
         final var accountUnreads = new HashMap<Account, Integer>();
         binding.drawer.apply(dr -> {
@@ -1128,16 +1139,23 @@ public class ConversationsActivity extends XmppActivity
                 case R.id.chats -> {
                     return true;
                 }
-                case R.id.contactslist -> {
-                    Intent i = new Intent(getApplicationContext(), StartConversationActivity.class);
+                case R.id.feeds -> {
+                    Intent i = new Intent(getApplicationContext(), PostsActivity.class);
                     i.putExtra("show_nav_bar", true);
                     startActivity(i);
 
                     overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
                     return true;
                 }
-                case R.id.manageaccounts -> {
-                    Intent i = new Intent(getApplicationContext(), MANAGE_ACCOUNT_ACTIVITY);
+                case R.id.stories -> {
+                    Intent i = new Intent(getApplicationContext(), StoriesActivity.class);
+                    i.putExtra("show_nav_bar", true);
+                    startActivity(i);
+                    overridePendingTransition(R.animator.fade_in, R.animator.fade_out);
+                    return true;
+                }
+                case R.id.calls -> {
+                    Intent i = new Intent(getApplicationContext(), CallsActivity.class);
                     i.putExtra("show_nav_bar", true);
                     startActivity(i);
                     overridePendingTransition(R.animator.fade_in, R.animator.fade_out);

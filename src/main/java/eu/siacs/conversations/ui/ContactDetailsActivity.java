@@ -1,6 +1,7 @@
 package eu.siacs.conversations.ui;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -42,6 +43,7 @@ import de.monocles.chat.Util;
 
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
 
@@ -99,6 +101,8 @@ import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.OnKeyStatusUpdated;
 import eu.siacs.conversations.xmpp.OnUpdateBlocklist;
 import eu.siacs.conversations.xmpp.XmppConnection;
+import im.conversations.android.xmpp.model.stanza.Iq;
+
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -118,6 +122,8 @@ public class ContactDetailsActivity extends OmemoActivity
     protected MenuItem save = null;
 
     private Contact contact;
+    private MaterialSwitch mDisableCallsSwitch;
+    private MaterialSwitch mFollowFeedSwitch;
     private final DialogInterface.OnClickListener removeFromRoster =
             new DialogInterface.OnClickListener() {
 
@@ -178,6 +184,9 @@ public class ContactDetailsActivity extends OmemoActivity
                     }
                 }
             };
+
+    private OnCheckedChangeListener mOnFollowFeedCheckedChange;
+
     private Jid accountJid;
     private Jid contactJid;
     private boolean showDynamicTags = false;
@@ -309,6 +318,76 @@ public class ContactDetailsActivity extends OmemoActivity
                     populateView();
                 });
         binding.addContactButton.setOnClickListener(v -> showAddToRosterDialog(contact));
+        mDisableCallsSwitch = binding.disableCalls;
+        mFollowFeedSwitch = binding.followFeedSwitch;
+
+        this.mOnFollowFeedCheckedChange =
+                (buttonView, isChecked) -> {
+                    if (contact != null) {
+                        // Disable the switch to show an operation is in progress
+                        mFollowFeedSwitch.setEnabled(false);
+                        if (isChecked) {
+                            xmppConnectionService.subscribeTo(
+                                    contact.getAccount(),
+                                    contact.getJid(),
+                                    Namespace.MICROBLOG,
+                                    packet -> {
+                                        runOnUiThread(
+                                                () -> {
+                                                    // Always re-enable the switch
+                                                    mFollowFeedSwitch.setEnabled(true);
+                                                    if (packet.getType() == Iq.Type.RESULT) {
+                                                        contact.setFollowed(true);
+                                                        xmppConnectionService.updateContact(contact);
+                                                        setResult(Activity.RESULT_OK);
+                                                    } else {
+                                                        // Revert switch on failure, detaching listener to prevent loop
+                                                        mFollowFeedSwitch.setOnCheckedChangeListener(null);
+                                                        mFollowFeedSwitch.setChecked(false);
+                                                        mFollowFeedSwitch.setOnCheckedChangeListener(
+                                                                this.mOnFollowFeedCheckedChange);
+                                                        Toast.makeText(
+                                                                        ContactDetailsActivity.this,
+                                                                        R.string
+                                                                                .error_subscribing_to_feed,
+                                                                        Toast.LENGTH_SHORT)
+                                                                .show();
+                                                    }
+                                                });
+                                    });
+                        } else {
+                            xmppConnectionService.unsubscribeFrom(
+                                    contact.getAccount(),
+                                    contact.getJid(),
+                                    Namespace.MICROBLOG,
+                                    packet -> {
+                                        runOnUiThread(
+                                                () -> {
+                                                    // Always re-enable the switch
+                                                    mFollowFeedSwitch.setEnabled(true);
+                                                    if (packet.getType() == Iq.Type.RESULT) {
+                                                        contact.setFollowed(false);
+                                                        xmppConnectionService.updateContact(contact);
+                                                        setResult(Activity.RESULT_OK);
+                                                    } else {
+                                                        // Revert switch on failure, detaching listener to prevent loop
+                                                        mFollowFeedSwitch.setOnCheckedChangeListener(null);
+                                                        mFollowFeedSwitch.setChecked(true);
+                                                        mFollowFeedSwitch.setOnCheckedChangeListener(
+                                                                this.mOnFollowFeedCheckedChange);
+                                                        Toast.makeText(
+                                                                        ContactDetailsActivity.this,
+                                                                        R.string
+                                                                                .error_unsubscribing_from_feed,
+                                                                        Toast.LENGTH_SHORT)
+                                                                .show();
+                                                    }
+                                                });
+                                    });
+                        }
+                    }
+                };
+        mFollowFeedSwitch.setOnCheckedChangeListener(mOnFollowFeedCheckedChange);
 
         mMediaAdapter = new MediaAdapter(this, R.dimen.media_size);
         this.binding.media.setAdapter(mMediaAdapter);
@@ -603,6 +682,15 @@ public class ContactDetailsActivity extends OmemoActivity
             binding.detailsSendPresence.setOnCheckedChangeListener(null);
             binding.detailsReceivePresence.setOnCheckedChangeListener(null);
 
+            mDisableCallsSwitch.setChecked(contact.areCallsDisabled());
+            mDisableCallsSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                contact.setCallsDisabled(isChecked);
+                xmppConnectionService.updateContact(contact);
+            });
+            mFollowFeedSwitch.setVisibility(View.VISIBLE);
+            mFollowFeedSwitch.setOnCheckedChangeListener(mOnFollowFeedCheckedChange);
+            mFollowFeedSwitch.setChecked(contact.isFollowed());
+
             List<String> statusMessages = contact.getPresences().getStatusMessages();
             if (statusMessages.isEmpty()) {
                 binding.statusMessage.setVisibility(View.GONE);
@@ -685,6 +773,7 @@ public class ContactDetailsActivity extends OmemoActivity
             binding.detailsSendPresence.setVisibility(View.GONE);
             binding.detailsReceivePresence.setVisibility(View.GONE);
             binding.statusMessage.setVisibility(View.GONE);
+            mFollowFeedSwitch.setVisibility(View.GONE);
         }
 
         if (contact.isBlocked() && !this.showDynamicTags) {
@@ -879,6 +968,9 @@ public class ContactDetailsActivity extends OmemoActivity
             this.binding.recentThreads.setAdapter(threads);
             this.binding.recentThreadsWrapper.setVisibility(View.VISIBLE);
             Util.justifyListViewHeightBasedOnChildren(binding.recentThreads);
+        }
+        if (contact != null) {
+            mFollowFeedSwitch.setChecked(contact.isFollowed());
         }
     }
 

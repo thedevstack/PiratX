@@ -54,6 +54,7 @@ import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
+import androidx.core.util.Pair;
 import androidx.core.view.ViewCompat;
 import androidx.core.widget.ImageViewCompat;
 import androidx.customview.widget.ViewDragHelper;
@@ -91,8 +92,10 @@ import com.google.common.collect.ImmutableSet;
 import com.lelloman.identicon.view.GithubIdenticonView;
 
 import de.monocles.chat.ui.DraggableListView;
-import de.thedevstack.piratx.utils.PiratXMessageUtil;
+import eu.siacs.conversations.entities.Story;
+import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.AddReactionActivity;
+import eu.siacs.conversations.ui.StoryViewActivity;
 import io.ipfs.cid.Cid;
 
 import java.io.IOException;
@@ -100,6 +103,8 @@ import java.lang.ref.WeakReference;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -583,6 +588,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             BubbleMessageItemViewHolder viewHolder,
             CharSequence text,
             final BubbleColor bubbleColor) {
+        viewHolder.storyPreview().setVisibility(View.GONE);
         viewHolder.downloadButton().setVisibility(View.GONE);
         viewHolder.audioPlayer().setVisibility(View.GONE);
         viewHolder.image().setVisibility(View.GONE);
@@ -600,6 +606,52 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                 .messageBody()
                 .setTextColor(bubbleToOnSurfaceVariant(viewHolder.messageBody(), bubbleColor));
         viewHolder.messageBody().setTextIsSelectable(false);
+    }
+
+    private void displayPubSubMessage(
+            final BubbleMessageItemViewHolder viewHolder,
+            final Message message,
+            final BubbleColor bubbleColor) {
+
+        // First, handle the text part of the message.
+        // This ensures the text is always displayed for a story reply.
+        displayTextMessage(viewHolder, message, bubbleColor);
+
+        // Now, find and display the story preview.
+        final Pair<Jid, String> storyReference = message.getStoryReference();
+        Story story = null;
+        if (storyReference != null) {
+            final XmppConnectionService xmppService = activity.xmppConnectionService;
+            if (xmppService != null) {
+                for (final Story s : activity.xmppConnectionService.getStories()) {
+                    if (s.getUuid().equals(storyReference.second)) {
+                        story = s;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Only show the preview if a valid story was actually found.
+        if (story != null) {
+            viewHolder.storyPreview().setVisibility(View.VISIBLE);
+            viewHolder.storyTitle().setText(story.getTitle());
+            Glide.with(activity).load(story.getUrl()).into(viewHolder.storyThumbnail());
+            final Story finalStory = story;
+            viewHolder.storyPreview().setOnClickListener(v -> {
+                final Intent intent = new Intent(activity, StoryViewActivity.class);
+                intent.putExtra(StoryViewActivity.EXTRA_URLS, new ArrayList<>(Collections.singletonList(finalStory.getUrl())));
+                intent.putExtra(StoryViewActivity.EXTRA_TITLES, new ArrayList<>(Collections.singletonList(finalStory.getTitle())));
+                intent.putExtra(StoryViewActivity.EXTRA_STORY_IDS, new ArrayList<>(Collections.singletonList(finalStory.getUuid())));
+                intent.putExtra(StoryViewActivity.EXTRA_MIME_TYPES, new ArrayList<>(Collections.singletonList(finalStory.getType())));
+                intent.putExtra(StoryViewActivity.EXTRA_CONTACT, finalStory.getContact().asBareJid().toString());
+                intent.putExtra(StoryViewActivity.EXTRA_ACCOUNT, message.getConversation().getAccount().getUuid());
+                activity.startActivity(intent);
+            });
+        } else {
+            // If no story is found, we MUST hide the preview to prevent recycling issues.
+            viewHolder.storyPreview().setVisibility(View.GONE);
+        }
     }
 
     private void displayEmojiMessage(
@@ -746,6 +798,8 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             final BubbleMessageItemViewHolder viewHolder,
             final Message message,
             final BubbleColor bubbleColor) {
+        if (message.getType() != Message.TYPE_STORY)
+            viewHolder.storyPreview().setVisibility(View.GONE);
         viewHolder.inReplyToQuote().setVisibility(GONE);
         viewHolder.downloadButton().setVisibility(GONE);
         viewHolder.image().setVisibility(GONE);
@@ -1532,6 +1586,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             final int position,
             final Message message,
             final BubbleMessageItemViewHolder viewHolder) {
+        viewHolder.storyPreview().setVisibility(View.GONE); //reset view state
         final boolean omemoEncryption = message.getEncryption() == Message.ENCRYPTION_AXOLOTL;
         final boolean isInValidSession =
                 message.isValidInSession() && (!omemoEncryption || message.isTrusted());
@@ -1627,7 +1682,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         /*
         reactionsPopup(message, viewHolder);
          */
-        if (!PiratXMessageUtil.isRetracted(message)) { // Do not show reaction popup on retracted message bubbles
+        if (!de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)) { // Do not show reaction popup on retracted message bubbles
             reactionsPopup(message, viewHolder);
         }
 
@@ -1661,7 +1716,6 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                             }
                         });
 
-        boolean footerWrap = false;
         final Transferable transferable = message.getTransferable();
         final boolean unInitiatedButKnownSize = MessageUtils.unInitiatedButKnownSize(message);
 
@@ -1669,6 +1723,8 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         if (muted) {
             // Muted MUC participant
             displayInfoMessage(viewHolder, "Muted", bubbleColor);
+        } else if (message.getType() == Message.TYPE_STORY || message.getStoryReference() != null) {
+            displayPubSubMessage(viewHolder, message, bubbleColor);
         /*
         } else if (unInitiatedButKnownSize || message.isDeleted() || (transferable != null && transferable.getStatus() != Transferable.STATUS_UPLOADING)) {
          */
@@ -2670,6 +2726,9 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         protected abstract TextView username();
 
         protected abstract TextView showMore();
+        protected abstract LinearLayout storyPreview();
+        protected abstract ShapeableImageView storyThumbnail();
+        protected abstract TextView storyTitle();
     }
 
     private static class StartBubbleMessageItemViewHolder extends BubbleMessageItemViewHolder {
@@ -2798,6 +2857,21 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         protected TextView showMore() {
             return this.binding.messageContent.showMore;
         }
+
+        @Override
+        protected LinearLayout storyPreview() {
+            return this.binding.messageContent.storyPreview;
+        }
+
+        @Override
+        protected ShapeableImageView storyThumbnail() {
+            return this.binding.messageContent.storyThumbnail;
+        }
+
+        @Override
+        protected TextView storyTitle() {
+            return this.binding.messageContent.storyTitle;
+        }
     }
 
     private static class EndBubbleMessageItemViewHolder extends BubbleMessageItemViewHolder {
@@ -2822,6 +2896,21 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         @Override
         protected TextView showMore() {
             return this.binding.messageContent.showMore;
+        }
+
+        @Override
+        protected LinearLayout storyPreview() {
+            return this.binding.messageContent.storyPreview;
+        }
+
+        @Override
+        protected ShapeableImageView storyThumbnail() {
+            return this.binding.messageContent.storyThumbnail;
+        }
+
+        @Override
+        protected TextView storyTitle() {
+            return this.binding.messageContent.storyTitle;
         }
 
         @Override
