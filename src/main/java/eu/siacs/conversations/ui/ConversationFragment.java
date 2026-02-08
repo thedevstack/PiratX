@@ -1305,7 +1305,7 @@ public class ConversationFragment extends XmppFragment
         }
 
         if (hasAttachments) {
-            conversation.setCaption(body.toString());
+            conversation.setCaption(body.length() > 0 ? body.toString() : null);
             commitAttachments();
             messageSent();
             restoreDraft();
@@ -2801,103 +2801,63 @@ public class ConversationFragment extends XmppFragment
                         .setTitle(R.string.retract_message)
                         .setMessage(R.string.do_you_really_want_to_retract_this_message)
                         .setPositiveButton(R.string.yes, (dialog, whichButton) -> {
-                            final var message = selectedMessage;
-                            final Editable editable = binding.textinput.getText();
-                            if (editable != null && !editable.toString().isEmpty()) {
-                                this.conversation.setDraftMessage(editable.toString());
-                            }
-                            if (message.getStatus() == Message.STATUS_WAITING || message.getStatus() == Message.STATUS_OFFERED) {
-                                activity.xmppConnectionService.deleteMessage(message);
+				/* PiratX draft handling and delete if not yet sent */				
+				final Editable editable = binding.textinput.getText();
+		                    if (editable != null && !editable.toString().isEmpty()) {
+		                        this.conversation.setDraftMessage(editable.toString());
+		                    }
+		                    if (selectedMessage.getStatus() == Message.STATUS_WAITING || selectedMessage.getStatus() == Message.STATUS_OFFERED) {
+		                        activity.xmppConnectionService.deleteMessage(selectedMessage);
+		                        return;
+		                    }
+				/* PiratX draft handling and delete if not yet sent */
+			    if (!(selectedMessage.getConversation() instanceof Conversation)) {
                                 return;
                             }
-                            Element reactions = message.getReactionsEl();
-                            if (reactions != null) {
-                                final Message previousReaction = conversation.findMessageReactingTo(reactions.getAttribute("id"), null);
-                                if (previousReaction != null) reactions = previousReaction.getReactionsEl();
-                                for (Element el : reactions.getChildren()) {
-                                    if (message.getRawBody().endsWith(el.getContent())) {
-                                        reactions.removeChild(el);
-                                    }
-                                }
-                                message.setReactions(reactions);
-                                if (previousReaction != null) {
-                                    previousReaction.setReactions(reactions);
-                                    activity.xmppConnectionService.updateMessage(previousReaction);
-                                }
-                            } else {
-                                message.setInReplyTo(null);
-                                message.clearPayloads();
+                            final Conversation conversation = activity.xmppConnectionService.findConversationByUuid(selectedMessage.getConversation().getUuid());
+                            if (conversation == null) {
+                                return;
                             }
-                            message.setBody(getString(R.string.retract_message_fallback));
-                            message.setSubject(null);
-                            message.setDeleted(true);
-                            if (message.isCarbon()) {
-                                message.putEdited(message.getRemoteMsgId(), message.getServerMsgId());
-                            } else {
-                                message.putEdited(message.getUuid(), message.getServerMsgId());
+                            final Message messageToRetract = conversation.findMessageWithUuid(selectedMessage.getUuid());
+                            if (messageToRetract == null) {
+                                return;
                             }
-                            message.setRetractId(message.getEditedIdWireFormat());
-                            message.setCarbon(false);
-                            message.setServerMsgId(null);
-                            message.setUuid(UUID.randomUUID().toString());
-                            sendMessage(message);
-                            /*
-                            //fadeOutMessage(message.getUuid());
-                            binding.messagesView.postDelayed(() -> {
-                                final Message finalMessage = message;
-                                if (message.getConversation() instanceof Conversation) {
+                            final Message retractionMessage = new Message(
+                                    conversation,
+                                    "",
+                                    Message.ENCRYPTION_NONE,
+                                    Message.STATUS_SEND
+                            );
+                            final String idToRetract;
+                            if (conversation.getMode() == Conversation.MODE_MULTI && messageToRetract.getServerMsgId() != null) {
+                                idToRetract = messageToRetract.getServerMsgId();
+                            } else {
+                                idToRetract = messageToRetract.getRemoteMsgId() != null ? messageToRetract.getRemoteMsgId() : messageToRetract.getUuid();
+                            }
+                            retractionMessage.setRetractId(idToRetract);
+                            retractionMessage.setDeleted(true);
+                            retractionMessage.setType(Message.TYPE_TEXT);
+                            retractionMessage.setCounterpart(messageToRetract.getCounterpart());
+                            retractionMessage.setRemoteMsgId(UUID.randomUUID().toString());
+                            if (messageToRetract.getStatus() >= Message.STATUS_SEND) {
+                                sendMessage(retractionMessage);
+                            }
 
-                                    Message retractedMessage = finalMessage;
-                                    retractedMessage.setDeleted(true);
-
-                                    long time = System.currentTimeMillis();
-                                    Message retractmessage = new Message(conversation,
-                                            "",
-                                            message.getEncryption(),        // Message.ENCRYPTION_NONE doesn't work for encrypted messages
-                                            Message.STATUS_SEND);
-                                    if (retractedMessage.getEditedList().size() > 0) {
-                                        retractmessage.setRetractId(retractedMessage.getEditedList().get(0).getEditedId());
-                                    } else {
-                                        retractmessage.setRetractId(retractedMessage.getRemoteMsgId() != null ? retractedMessage.getRemoteMsgId() : retractedMessage.getUuid());
-                                    }
-
-                                    retractedMessage.putEdited(retractedMessage.getUuid(), retractedMessage.getServerMsgId());  //TODO: Maybe add: , retractedMessage.getBody(), retractedMessage.getTimeSent());
-                                    retractedMessage.setBody(Message.DELETED_MESSAGE_BODY);
-                                    retractedMessage.setServerMsgId(null);
-                                    retractedMessage.setRemoteMsgId(message.getRemoteMsgId());
-                                    retractedMessage.setDeleted(true);
-
-                                    retractmessage.setType(Message.TYPE_TEXT);
-                                    retractmessage.setCounterpart(message.getCounterpart());
-                                    retractmessage.setTrueCounterpart(message.getTrueCounterpart());
-                                    retractmessage.setTime(time);
-                                    retractmessage.setUuid(UUID.randomUUID().toString());
-                                    retractmessage.setCarbon(false);
-                                    retractmessage.setOob(false);
-                                    retractmessage.resetFileParams();   //TODO: Check if we need this
-                                    retractmessage.setRemoteMsgId(retractmessage.getUuid());
-                                    retractmessage.setDeleted(true);
-                                    retractedMessage.setTime(time); //set new time here to keep original timestamps
-                                    for (Edit itm : retractedMessage.getEditedList()) {
-                                        Message tmpRetractedMessage = conversation.findMessageWithUuidOrRemoteId(itm.getEditedId());
-                                        if (tmpRetractedMessage != null) {
-                                            tmpRetractedMessage.setDeleted(true);
-                                            activity.xmppConnectionService.updateMessage(tmpRetractedMessage, tmpRetractedMessage.getUuid());
-                                        }
-                                    }
-                                    activity.xmppConnectionService.updateMessage(retractedMessage, retractedMessage.getUuid());
-                                    if (finalMessage.getStatus() >= Message.STATUS_SEND) {
-                                        //only send retraction messages for outgoing messages!
-                                        sendMessage(retractmessage);
-                                    }
-                                    activity.xmppConnectionService.deleteMessage(retractedMessage);
-                                    activity.xmppConnectionService.deleteMessage(retractmessage);
-                                }
-                                activity.xmppConnectionService.deleteMessage(message);
-                                activity.onConversationsListItemUpdated();
-                                refresh();
-                            }, 300L);
-                            */
+                            // Mark the message as retracted locally to prevent it from reappearing after restart
+                            messageToRetract.setCarbon(false);
+                            messageToRetract.setOob(false);
+                            messageToRetract.resetFileParams();
+                            messageToRetract.setBody(Message.DELETED_MESSAGE_BODY);
+                            messageToRetract.setType(Message.TYPE_TEXT);
+                            messageToRetract.setRelativeFilePath(null);
+                            messageToRetract.setFileParams(null);
+                            messageToRetract.setDeleted(true);
+                            // Persist the retracted state. The 'true' ensures the body is updated.
+                            activity.xmppConnectionService.updateMessage(messageToRetract, false);
+                            activity.xmppConnectionService.deleteMessage(messageToRetract);
+                            activity.xmppConnectionService.deleteMessage(retractionMessage);
+                            activity.onConversationsListItemUpdated();
+                            refresh();
                         })
                         .setNegativeButton(R.string.no, null).show();
                 return true;

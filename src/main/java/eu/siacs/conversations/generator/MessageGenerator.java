@@ -37,7 +37,6 @@ public class MessageGenerator extends AbstractGenerator {
     public static final String OTR_FALLBACK_MESSAGE = "I would like to start a private (OTR encrypted) conversation but your client doesn’t seem to support that";
     private static final String OMEMO_FALLBACK_MESSAGE =
             "I sent you an OMEMO encrypted message but your client doesn’t seem to support that.";
-                    // + " Find more information on https://conversations.im/omemo";
     private static final String PGP_FALLBACK_MESSAGE =
             "I sent you a PGP encrypted message but your client doesn’t seem to support that.";
 
@@ -51,6 +50,29 @@ public class MessageGenerator extends AbstractGenerator {
         Account account = conversation.getAccount();
         im.conversations.android.xmpp.model.stanza.Message packet =
                 new im.conversations.android.xmpp.model.stanza.Message();
+        packet.setFrom(account.getJid());
+        packet.setId(message.getUuid());
+
+        if (message.isDeleted() && message.getRetractId() != null) {
+            if (conversation.getMode() == Conversation.MODE_SINGLE || message.isPrivateMessage()) {
+                packet.setTo(message.getCounterpart());
+                packet.setType(im.conversations.android.xmpp.model.stanza.Message.Type.CHAT);
+            } else {
+                packet.setTo(message.getCounterpart().asBareJid());
+                packet.setType(im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT);
+            }
+            if (message.isPrivateMessage()) {
+                packet.addChild("x", "http://jabber.org/protocol/muc#user");
+            }
+            packet.addExtension(new Retract(message.getRetractId()));
+            packet.addExtension(new Fallback(Retract.NAMESPACE));
+            Element body = new Element("body");
+            body.setContent("This message has been retracted by the sender.");
+            packet.addChild(body);
+            packet.addChild("store", "urn:xmpp:hints");
+            return packet;
+        }
+
         final boolean isWithSelf = conversation.getContact().isSelf();
         if (conversation.getMode() == Conversation.MODE_SINGLE) {
             packet.setTo(message.getCounterpart());
@@ -70,27 +92,17 @@ public class MessageGenerator extends AbstractGenerator {
         if (conversation.isSingleOrPrivateAndNonAnonymous() && !message.isPrivateMessage()) {
             packet.addChild("markable", "urn:xmpp:chat-markers:0");
         }
-        packet.setFrom(account.getJid());
-        packet.setId(message.getUuid());
         if (conversation.getMode() == Conversational.MODE_MULTI
                 && !message.isPrivateMessage()
                 && !conversation.getMucOptions().stableId()) {
+            packet.addExtension(new OriginId(message.getUuid()));
+        } else if (conversation.getMode() == Conversational.MODE_SINGLE) {
             packet.addExtension(new OriginId(message.getUuid()));
         }
         if (message.edited() && !message.isDeleted()) {
             packet.addExtension(new Replace(message.getEditedIdWireFormat()));
         }
-        if (message.isDeleted()) {
-            /*
-            Element apply = packet.addChild("apply-to", "urn:xmpp:fasten:0").setAttribute("id", (message.getRetractId() != null ? message.getRetractId() : (message.getRemoteMsgId() != null ? message.getRemoteMsgId() : (message.getEditedIdWireFormat() != null ? message.getEditedIdWireFormat() : message.getUuid()))));
-            apply.addChild("retract", "urn:xmpp:message-retract:0");
-            packet.addChild("fallback", "urn:xmpp:fallback:0");
-            packet.addChild("store", "urn:xmpp:hints");
-            packet.setBody("This person attempted to retract a previous message, but it's unsupported by your client.");
-             */
-            packet.addExtension(new Retract(message.getRetractId()));
-            packet.addExtension(new Fallback(Retract.NAMESPACE));
-        }
+
         if (!legacyEncryption) {
             if (message.getSubject() != null && message.getSubject().length() > 0) packet.addChild("subject").setContent(message.getSubject());
             // Legacy encryption can't handle advanced payloads
