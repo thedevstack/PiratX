@@ -44,6 +44,7 @@ public class CreatePostActivity extends XmppActivity {
     private String accountUuid;
     private String postTitle;
     private String postContent;
+    private String linkUrl;
 
     private List<Account> onlineAccounts = new ArrayList<>();
 
@@ -123,6 +124,7 @@ public class CreatePostActivity extends XmppActivity {
         postTitle = getIntent().getStringExtra("post_title");
         postContent = getIntent().getStringExtra("post_content");
         accountUuid = getIntent().getStringExtra("account");
+        this.linkUrl = getIntent().getStringExtra("link_url");
         if (inReplyToNode != null) {
             setTitle(R.string.add_a_comment);
             binding.postTitleEditText.setVisibility(View.GONE);
@@ -130,6 +132,7 @@ public class CreatePostActivity extends XmppActivity {
             binding.attachFileButton.setVisibility(View.GONE);
             binding.attachImageButton.setVisibility(View.GONE);
             binding.attachVideoButton.setVisibility(View.GONE);
+            binding.postLinkEditText.setVisibility(View.GONE);
             binding.postPreview.setVisibility(View.VISIBLE);
             binding.postPreviewTitle.setText(postTitle);
             binding.postPreviewContent.setText(postContent);
@@ -140,6 +143,7 @@ public class CreatePostActivity extends XmppActivity {
         if (postId != null) {
             binding.postTitleEditText.setText(getIntent().getStringExtra("title"));
             binding.postContentEditText.setText(getIntent().getStringExtra("content"));
+            binding.postLinkEditText.setText(getIntent().getStringExtra("link_url"));
             if (accountUuid != null) {
                 binding.accountSpinner.setVisibility(View.GONE);
             }
@@ -242,8 +246,9 @@ public class CreatePostActivity extends XmppActivity {
     private void publishPost() {
         String title = binding.postTitleEditText.getText().toString();
         String content = binding.postContentEditText.getText().toString();
+        String linkUrl = binding.postLinkEditText.getText().toString();
 
-        if (title.isEmpty() && content.isEmpty() && attachmentUri == null) {
+        if (title.isEmpty() && content.isEmpty() && attachmentUri == null && linkUrl.isEmpty()) {
             Toast.makeText(this, R.string.title_or_content_or_attachment_required, Toast.LENGTH_SHORT).show();
             return;
         }
@@ -269,6 +274,8 @@ public class CreatePostActivity extends XmppActivity {
                 return;
             }
 
+            binding.publishButton.setEnabled(false);
+
             if (inReplyToNode != null) {
                 xmppConnectionService.publishComment(selectedAccount, inReplyToNode, content, new XmppConnectionService.OnPostPublished() {
                     @Override
@@ -284,6 +291,7 @@ public class CreatePostActivity extends XmppActivity {
                     public void onPostPublishFailed() {
                         runOnUiThread(() -> {
                             Toast.makeText(CreatePostActivity.this, R.string.error_publish_comment, Toast.LENGTH_SHORT).show();
+                            binding.publishButton.setEnabled(true);
                         });
                     }
                 });
@@ -291,7 +299,7 @@ public class CreatePostActivity extends XmppActivity {
                 final String mimeType = this.attachmentType != null ? this.attachmentType : getContentResolver().getType(attachmentUri);
                 final String scheme = attachmentUri.getScheme();
                 if (scheme != null && (scheme.equals("http") || scheme.equals("https"))) {
-                    publish(selectedAccount, title, content, attachmentUri.toString(), mimeType);
+                    publish(selectedAccount, title, content, attachmentUri.toString(), mimeType, linkUrl);
                 } else {
                     Toast.makeText(this, R.string.uploading_attachment, Toast.LENGTH_SHORT).show();
                     setResult(RESULT_OK);
@@ -299,28 +307,31 @@ public class CreatePostActivity extends XmppActivity {
                     xmppConnectionService.uploadFileForUrl(selectedAccount, attachmentUri, mimeType, new UiCallback<String>() {
                         @Override
                         public void success(String url) {
-                            publish(selectedAccount, title, content, url, mimeType);
+                            publish(selectedAccount, title, content, url, mimeType, linkUrl);
                         }
 
                         @Override
                         public void error(int errorCode, String object) {
-                            runOnUiThread(() -> Toast.makeText(CreatePostActivity.this, errorCode, Toast.LENGTH_SHORT).show());
+                            runOnUiThread(() -> {
+                                Toast.makeText(CreatePostActivity.this, errorCode, Toast.LENGTH_SHORT).show();
+                                binding.publishButton.setEnabled(true);
+                            });
                         }
 
                         @Override
                         public void userInputRequired(PendingIntent pi, String object) {
-
+                            runOnUiThread(() -> binding.publishButton.setEnabled(true));
                         }
                     });
                 }
             } else {
-                publish(selectedAccount, title, content, null, null);
+                publish(selectedAccount, title, content, null, null, linkUrl);
             }
         }
     }
 
-    private void publish(Account account, String title, String content, String attachmentUrl, String attachmentType) {
-        xmppConnectionService.publishPost(account, title, content, attachmentUrl, attachmentType, postId, new XmppConnectionService.OnPostPublished() {
+    private void publish(Account account, String title, String content, String attachmentUrl, String attachmentType, String linkUrl) {
+        xmppConnectionService.publishPost(account, title, content, attachmentUrl, attachmentType, postId, linkUrl, new XmppConnectionService.OnPostPublished() {
             @Override
             public void onPostPublished() {
                 runOnUiThread(() -> {
@@ -334,6 +345,7 @@ public class CreatePostActivity extends XmppActivity {
             public void onPostPublishFailed() {
                 runOnUiThread(() -> {
                     Toast.makeText(CreatePostActivity.this, R.string.error_publish_post, Toast.LENGTH_SHORT).show();
+                    binding.publishButton.setEnabled(true);
                 });
             }
         });
