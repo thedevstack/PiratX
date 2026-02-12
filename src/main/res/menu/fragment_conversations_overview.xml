@@ -37,6 +37,8 @@
         android:title="@string/action_account"
         app:showAsAction="never" />
     <item
+        android:enabled="false"
+        android:visible="false"
         android:id="@+id/action_stories"
         android:orderInCategory="92"
         android:title="@string/stories"
