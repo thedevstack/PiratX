@@ -50,7 +50,7 @@
         app:fragment="eu.siacs.conversations.ui.fragment.settings.UpSettingsFragment"
         app:summary="@string/unified_push_summary"
         app:title="@string/unified_push_distributor" />
-    <Preference
+    <de.thedevstack.piratx.ui.PiratXLongClickAboutPreference
         android:key="about"
         android:icon="@drawable/monocleslogo_chat_signet"
         android:title="@string/title_activity_about_x">
@@ -58,5 +58,5 @@
             android:action="android.intent.action.VIEW"
             android:targetClass="eu.siacs.conversations.ui.AboutActivity"
             android:targetPackage="@string/applicationId" />
-    </Preference>
+    </de.thedevstack.piratx.ui.PiratXLongClickAboutPreference>
 </PreferenceScreen>

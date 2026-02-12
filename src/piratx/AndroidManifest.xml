@@ -8,6 +8,7 @@
         <!--activity-alias android:name="de.monocles.chat.RegisterMonoclesActivity"
             android:targetActivity="de.thedevstack.piratx.ui.PiratXWelcomeActivity"
             /-->
+        <activity android:name="de.thedevstack.logviewer.LogViewerActivity"/>
     </application>
 
 </manifest>

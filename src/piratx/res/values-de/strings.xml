@@ -24,4 +24,7 @@
     <string name="pref_show_avatars_summary">Avatare der Kontakte in allen Chats anzeigen, nicht nur in Gruppenunterhaltungen.</string>
     <string name="retract_message_fallback">/me hat eine vorherige Nachricht zurückgezogen, Dein Client unterstützt dies nicht.</string>
     <string name="message_retracted">Diese Nachricht wurde zurückgezogen.</string>
+    <string name="action_logs">Logs</string>
+    <string name="copied_to_clipboard">\"%s\" in Zwischenablage kopiert.</string>
+    <string name="copy">Kopieren</string>
 </resources>

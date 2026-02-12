@@ -137,6 +137,7 @@ dependencies {
 	
 	implementation 'com.kizitonwose.calendar:view:2.5.4'
     implementation "io.noties.markwon:core:4.6.2"
+    implementation 'de.thedevstack.android:logviewer:0.0.7'
 }
 
 ext {
