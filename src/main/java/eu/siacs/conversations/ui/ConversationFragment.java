@@ -878,6 +878,8 @@ public class ConversationFragment extends XmppFragment
                                 break;
                             case CANCEL:
                                 if (conversation != null) {
+                                    binding.correctionContainer.setVisibility(View.GONE);
+                                    binding.correctionText.setText("");
                                     conversation.setUserSelectedThread(false);
                                     if (conversation.setCorrectingMessage(null)) {
                                         binding.textinput.setText("");
@@ -891,6 +893,7 @@ public class ConversationFragment extends XmppFragment
                                     }
                                     binding.textinputSubject.setText("");
                                     binding.textinputSubject.setVisibility(View.GONE);
+                                    setupReply(null);
                                     updateChatMsgHint();
                                     updateSendButton();
                                     updateEditablity();
@@ -905,6 +908,32 @@ public class ConversationFragment extends XmppFragment
                 }
             };
 
+    private final OnClickListener mCancelCorrectionListener = new OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (conversation != null) {
+                binding.correctionContainer.setVisibility(View.GONE);
+                binding.correctionText.setText("");
+                conversation.setUserSelectedThread(false);
+                if (conversation.setCorrectingMessage(null)) {
+                    binding.textinput.setText("");
+                    binding.textinput.append(conversation.getDraftMessage());
+                    conversation.setDraftMessage(null);
+                } else if (conversation.getMode() == Conversation.MODE_MULTI) {
+                    conversation.setNextCounterpart(null);
+                    binding.textinput.setText("");
+                } else {
+                    binding.textinput.setText("");
+                }
+                binding.textinputSubject.setText("");
+                binding.textinputSubject.setVisibility(View.GONE);
+                setupReply(null);
+                updateChatMsgHint();
+                updateSendButton();
+                updateEditablity();
+            }
+        }
+    };
 
     private final OnClickListener mCancelVoiceRecord = new OnClickListener() {
         @Override
@@ -1426,6 +1455,8 @@ public class ConversationFragment extends XmppFragment
                 sendMessage(message);
         }
         setupReply(null);
+        binding.correctionContainer.setVisibility(View.GONE);
+        binding.correctionText.setText("");
     }
 
     public boolean requireTrustKeys() {
@@ -2010,6 +2041,7 @@ public class ConversationFragment extends XmppFragment
         binding.timer.setOnClickListener(this.mTimerClickListener);
         binding.takePictureButton.setOnClickListener(this.mtakePictureButtonListener);
         binding.scrollToBottomButton.setOnClickListener(this.mScrollButtonListener);
+        binding.cancelCorrection.setOnClickListener(this.mCancelCorrectionListener);
         binding.messagesView.setOnScrollListener(mOnScrollListener);
         binding.messagesView.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
         mediaPreviewAdapter = new MediaPreviewAdapter(this);
@@ -4103,6 +4135,8 @@ public class ConversationFragment extends XmppFragment
             this.binding.textinputSubject.setVisibility(View.VISIBLE);
         }
         setupReply(message.getInReplyTo());
+        binding.correctionContainer.setVisibility(View.VISIBLE);
+        binding.correctionText.setText(message.getBody(true));
     }
 
     private void highlightInConference(String nick) {
