@@ -696,6 +696,7 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
 
         List<String> fallbacksToRemove = new ArrayList<>();
         fallbacksToRemove.add("http://jabber.org/protocol/address");
+        fallbacksToRemove.add("urn:xmpp:message-correct:0");
         if (getOob() != null || isGeoUri()) fallbacksToRemove.add(Namespace.OOB);
         if (removeQuoteFallbacks) fallbacksToRemove.add("urn:xmpp:reply:0");
         Pair<StringBuilder, Boolean> result = bodyMinusFallbacks(fallbacksToRemove.toArray(new String[0]));
