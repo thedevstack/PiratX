@@ -103,6 +103,6 @@
         android:visible="false" />
     <item
         android:id="@+id/message_info"
-        android:title="Info"
-        android:visible="true"/>
+        android:title="@string/info"
+        android:visible="false"/>
 </menu>

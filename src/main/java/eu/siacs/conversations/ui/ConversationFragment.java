@@ -2627,6 +2627,7 @@ public class ConversationFragment extends XmppFragment
         /*
         if (m.getType() != Message.TYPE_STATUS && m.getType() != Message.TYPE_RTP_SESSION) {
          */
+        // monocles upstream is hiding retracted messages completely, so we have to exclude those msgs also here
         if (m.getType() != Message.TYPE_STATUS && m.getType() != Message.TYPE_RTP_SESSION && !de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(m)) {
 
             if (m.getEncryption() == Message.ENCRYPTION_AXOLOTL_NOT_FOR_THIS_DEVICE
@@ -2806,7 +2807,7 @@ public class ConversationFragment extends XmppFragment
                 openWith.setVisible(true);
             }
         }
-        else if (BuildConfig.DEBUG && de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(m)) {
+        if (BuildConfig.DEBUG && de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(m)) {
             activity.getMenuInflater().inflate(R.menu.message_context, menu);
             for (int i = 0; i < menu.size(); i++) {
                 MenuItem item = menu.getItem(i);
@@ -2815,6 +2816,11 @@ public class ConversationFragment extends XmppFragment
                 } else {
                     item.setVisible(false);
                 }
+            }
+        } else if (BuildConfig.DEBUG) {
+            MenuItem messageInfoMenuItem = menu.findItem(R.id.message_info);
+            if (null != messageInfoMenuItem) {
+                messageInfoMenuItem.setVisible(true);
             }
         }
     }
