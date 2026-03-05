@@ -6219,9 +6219,6 @@ public class ConversationFragment extends XmppFragment
                 } else {
                     hideTextFormat();
                 }
-                if (reactionPopup != null && reactionPopup.isShowing()) {
-                    reactionPopup.dismiss();
-                }
                 return ViewCompat.onApplyWindowInsets(v, insets);
             });
         } else {

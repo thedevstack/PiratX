@@ -44,6 +44,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.Spinner;
+import android.webkit.PermissionRequest;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebMessage;
 import android.webkit.WebView;
@@ -620,8 +621,9 @@ public class Conversation extends AbstractEntity
     public Message findSentMessageWithUuidOrRemoteId(String id, boolean ignorestatus, boolean withedits) {
         synchronized (this.messages) {
             for (Message message : this.messages) {
-
-                if (id.equals(message.getUuid()) || ((message.getStatus() >= Message.STATUS_SEND || ignorestatus) && id.equals(message.getRemoteMsgId()))) {
+                if (id.equals(message.getUuid())
+                        || ((message.getStatus() >= Message.STATUS_SEND || ignorestatus)
+                        && (id.equals(message.getRemoteMsgId()) || (getMode() == MODE_MULTI && id.equals(message.getServerMsgId()))))) {
                     return message;
                 }
 
@@ -3122,6 +3124,7 @@ public class Conversation extends AbstractEntity
                 public void bind(Item oob) {
                     setTextOrHide(binding.desc, Optional.fromNullable(oob.el.findChildContent("desc", "jabber:x:oob")));
                     binding.webview.getSettings().setJavaScriptEnabled(true);
+                    binding.webview.getSettings().setMediaPlaybackRequiresUserGesture(false);
                     binding.webview.getSettings().setUserAgentString("Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.106 Mobile Safari/537.36");
                     binding.webview.getSettings().setDatabaseEnabled(true);
                     binding.webview.getSettings().setDomStorageEnabled(true);
@@ -3130,6 +3133,13 @@ public class Conversation extends AbstractEntity
                         public void onProgressChanged(WebView view, int newProgress) {
                             binding.progressbar.setVisibility(newProgress < 100 ? View.VISIBLE : View.GONE);
                             binding.progressbar.setProgress(newProgress);
+                        }
+
+                        @Override
+                        public void onPermissionRequest(final PermissionRequest request) {
+                            getView().post(() -> {
+                                request.grant(request.getResources());
+                            });
                         }
                     });
                     binding.webview.setWebViewClient(new WebViewClient() {
