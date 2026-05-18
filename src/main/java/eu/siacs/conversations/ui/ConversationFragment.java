@@ -3329,7 +3329,7 @@ public class ConversationFragment extends XmppFragment
         if (itemId == R.id.share_with) return R.drawable.ic_share_24dp;
         if (itemId == R.id.correct_message) return R.drawable.ic_edit_24dp;
         if (itemId == R.id.retract_message) return R.drawable.outline_delete_red_24;
-        if (itemId == R.id.moderate_message) return R.drawable.outline_report_24;
+        if (itemId == R.id.moderate_message) return R.drawable.ic_report_24dp;
         if (itemId == R.id.pin_message_to_top) return R.drawable.outline_push_pin_24;
         if (itemId == R.id.copy_message) return R.drawable.outline_article_24;
         if (itemId == R.id.copy_link || itemId == R.id.copy_url) return R.drawable.ic_link_24dp;
@@ -3342,11 +3342,11 @@ public class ConversationFragment extends XmppFragment
         if (itemId == R.id.cancel_transmission) return R.drawable.ic_cancel_24dp;
         if (itemId == R.id.block_media) return R.drawable.ic_link_off_24dp;
         if (itemId == R.id.delete_file) return R.drawable.outline_delete_red_24;
-        if (itemId == R.id.save_to_downloads) return R.drawable.outline_save_24;
+        if (itemId == R.id.save_to_downloads) return R.drawable.ic_save_24dp;
         if (itemId == R.id.save_as_sticker) return R.drawable.outline_emoji_emotions_24;
-        if (itemId == R.id.show_error_message) return R.drawable.outline_error_24;
+        if (itemId == R.id.show_error_message) return R.drawable.ic_error_24dp;
         if (itemId == R.id.open_with) return R.drawable.ic_open_with_24dp;
-        if (itemId == R.id.action_report_and_block) return R.drawable.outline_report_24;
+        if (itemId == R.id.action_report_and_block) return R.drawable.ic_report_24dp;
         return R.drawable.ic_more_horiz_24dp;
     }
 
