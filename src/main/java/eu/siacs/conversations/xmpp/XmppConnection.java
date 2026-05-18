@@ -222,14 +222,23 @@ public class XmppConnection implements Runnable {
     }
 
     private static void fixResource(final Context context, final Account account) {
-        String resource = account.getResource();
-        int fixedPartLength =
-                context.getString(R.string.app_name).length() + 1; // include the trailing dot
-        int randomPartLength = 4; // 3 bytes
-        if (resource != null && resource.length() > fixedPartLength + randomPartLength) {
+        final String resource = account.getResource();
+        final String clientName = getEffectiveClientName(new AppSettings(context));
+        final String expectedPrefix = clientName + ".";
+        final int fixedPartLength = expectedPrefix.length();
+        final int randomPartLength = 4; // 3 bytes base64-encoded
+        if (resource == null || !resource.startsWith(expectedPrefix)) {
+            // Resource doesn't match our format (e.g. server-assigned or accumulated conflicts);
+            // strip the resource so bind() generates a fresh one.
+            account.setJid(account.getJid().asBareJid());
+            return;
+        }
+        if (resource.length() > fixedPartLength + randomPartLength) {
             if (validBase64(
                     resource.substring(fixedPartLength, fixedPartLength + randomPartLength))) {
                 account.setResource(resource.substring(0, fixedPartLength + randomPartLength));
+            } else {
+                account.setJid(account.getJid().asBareJid());
             }
         }
     }
@@ -659,12 +668,13 @@ public class XmppConnection implements Runnable {
             keyManager = null;
         }
         final String domain = account.getServer();
+        final boolean enforceDane = isDANEnforced();
         sc.init(
                 keyManager,
                 new X509TrustManager[] {
                         mInteractive
-                                ? trustManager.getInteractive(domain, verifiedHostname, port, daneCb)
-                                : trustManager.getNonInteractive(domain, verifiedHostname, port, daneCb)
+                                ? trustManager.getInteractive(domain, verifiedHostname, port, daneCb, enforceDane)
+                                : trustManager.getNonInteractive(domain, verifiedHostname, port, daneCb, enforceDane)
                 },
                 SECURE_RANDOM);
         return sc.getSocketFactory();
@@ -1240,7 +1250,7 @@ public class XmppConnection implements Runnable {
     }
 
     private void changeStatusToOnline() {
-        if (mXmppConnectionService.getBooleanPreference("enforce_dane",R.bool.enforce_dane)) {
+        if (isDANEnforced()) {
             if (daneVerified()) {
                 Log.d(
                         Config.LOGTAG,
@@ -1251,6 +1261,7 @@ public class XmppConnection implements Runnable {
                         Config.LOGTAG,
                         account.getJid().asBareJid() + ": offline with enforced DANE with resource " + account.getResource());
                 changeStatus(Account.State.DANE_FAILED);
+                disconnect(false);
             }
         } else {
             Log.d(
@@ -1533,10 +1544,22 @@ public class XmppConnection implements Runnable {
             throw new StateChangingException(Account.State.TLS_ERROR);
         }
         final InetAddress address = socket.getInetAddress();
-        final SSLSocket sslSocket =
-                (SSLSocket)
-                        sslSocketFactory.createSocket(
-                                socket, address.getHostAddress(), socket.getPort(), true);
+        final SSLSocket sslSocket;
+        try {
+            sslSocket =
+                    (SSLSocket)
+                            sslSocketFactory.createSocket(
+                                    socket, address.getHostAddress(), socket.getPort(), true);
+        } catch (final IOException e) {
+            Throwable cause = e.getCause();
+            while (cause != null) {
+                if (cause.getClass().getName().endsWith("DaneEnforcementException")) {
+                    throw new StateChangingException(Account.State.DANE_FAILED, cause);
+                }
+                cause = cause.getCause();
+            }
+            throw e;
+        }
         SSLSockets.setSecurity(sslSocket, isRequireTlsV13());
         SSLSockets.setHostname(sslSocket, IDN.toASCII(account.getServer()));
         SSLSockets.setApplicationProtocol(sslSocket, "xmpp-client");
@@ -1910,7 +1933,7 @@ public class XmppConnection implements Runnable {
     private Bind generateBindRequest(final Collection<String> bindFeatures) {
         Log.d(Config.LOGTAG, "inline bind features: " + bindFeatures);
         final var bind = new Bind();
-        bind.setTag(BuildConfig.APP_NAME);
+        bind.setTag(getEffectiveClientName(appSettings));
         if (bindFeatures.contains(Namespace.CARBONS)) {
             bind.addExtension(new im.conversations.android.xmpp.model.carbons.Enable());
         }
@@ -2119,10 +2142,11 @@ public class XmppConnection implements Runnable {
             return;
         }
         clearIqCallbacks();
+        if (!account.getJid().isBareJid()) {
+            fixResource(mXmppConnectionService, account);
+        }
         if (account.getJid().isBareJid()) {
             account.setResource(createNewResource());
-        } else {
-            fixResource(mXmppConnectionService, account);
         }
         final Iq iq = new Iq(Iq.Type.SET);
         final String resource =
@@ -2630,6 +2654,11 @@ public class XmppConnection implements Runnable {
                 || appSettings.isRequireTlsV13();
     }
 
+    private boolean isDANEnforced() {
+        return AppSettings.SECURE_DOMAINS.contains(account.getDomain())
+                || appSettings.isDANEnforced();
+    }
+
     private void sendStartStream(final boolean from, final boolean flush) throws IOException {
         final Tag stream = Tag.start("stream:stream");
         stream.setAttribute("to", account.getServer());
@@ -2643,8 +2672,13 @@ public class XmppConnection implements Runnable {
         tagWriter.writeTag(stream, flush);
     }
 
-    private static String createNewResource() {
-        return String.format("%s.%s", BuildConfig.APP_NAME, CryptoHelper.random(3));
+    private static String getEffectiveClientName(final AppSettings settings) {
+        final String custom = settings.getCustomResourceName();
+        return custom.isEmpty() ? BuildConfig.APP_NAME : custom;
+    }
+
+    private String createNewResource() {
+        return getEffectiveClientName(appSettings) + "." + CryptoHelper.random(3);
     }
 
     public String sendIqPacket(final Iq packet, final Consumer<Iq> callback) {
@@ -3131,6 +3165,16 @@ public class XmppConnection implements Runnable {
         private final Account.State state;
 
         public StateChangingException(Account.State state) {
+            this.state = state;
+        }
+
+        public StateChangingException(Account.State state, String message) {
+            super(message);
+            this.state = state;
+        }
+
+        public StateChangingException(Account.State state, Throwable cause) {
+            super(cause);
             this.state = state;
         }
     }

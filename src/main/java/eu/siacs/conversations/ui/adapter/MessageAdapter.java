@@ -63,9 +63,6 @@ import androidx.media3.common.util.Log;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.github.pgreze.reactions.ReactionPopup;
-import com.github.pgreze.reactions.ReactionsConfig;
-import com.github.pgreze.reactions.ReactionsConfigBuilder;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.imageview.ShapeableImageView;
 import com.google.android.material.shape.CornerFamily;
@@ -87,7 +84,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-import com.google.common.collect.ImmutableSet;
 import com.lelloman.identicon.view.GithubIdenticonView;
 
 import de.monocles.chat.ui.DraggableListView;
@@ -110,7 +106,6 @@ import java.util.Map;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -514,6 +509,17 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             }
         } else {
             viewHolder.indicatorEdit().setVisibility(View.GONE);
+        }
+
+        if (message.getEphemeralTimer() > 0) {
+            viewHolder.indicatorEphemeral().setVisibility(View.VISIBLE);
+            if (error && sent) {
+                setImageTintError(viewHolder.indicatorEphemeral());
+            } else {
+                setImageTint(viewHolder.indicatorEphemeral(), bubbleColor);
+            }
+        } else {
+            viewHolder.indicatorEphemeral().setVisibility(View.GONE);
         }
 
         final String formattedTime =
@@ -1082,6 +1088,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                 imagePreviewLayout(width, height, viewHolder.image(), message.getInReplyTo() != null, true, viewHolder);
                 activity.loadBitmap(message, viewHolder.image());
                 viewHolder.image().setOnClickListener(v -> ConversationFragment.downloadFile(activity, message));
+                viewHolder.image().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
 
                 break;
             }
@@ -1101,6 +1108,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         viewHolder
                 .downloadButton()
                 .setOnClickListener(v -> ConversationFragment.downloadFile(activity, message));
+        viewHolder.downloadButton().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
     }
 
     private void displayWebxdcMessage(BubbleMessageItemViewHolder viewHolder, final Message message, final BubbleColor bubbleColor) {
@@ -1124,12 +1132,14 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                 conversation.startWebxdc(webxdc);
             }
         });
+        viewHolder.downloadButton().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
         viewHolder.image().setOnClickListener(v -> {
             Conversation conversation = (Conversation) message.getConversation();
             if (!conversation.switchToSession("webxdc\0" + message.getUuid())) {
                 conversation.startWebxdc(webxdc);
             }
         });
+        viewHolder.image().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
 
         final WebxdcUpdate lastUpdate;
         synchronized (lastWebxdcUpdate) {
@@ -1196,6 +1206,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         final @DrawableRes int imageResource = MediaAdapter.getImageDrawable(attachment);
         viewHolder.downloadButton().setIconResource(imageResource);
         viewHolder.downloadButton().setOnClickListener(v -> openDownloadable(message));
+        viewHolder.downloadButton().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
     }
 
     private void displayURIMessage(
@@ -1244,6 +1255,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             viewHolder.downloadButton().setText("Send " + formattedAmount + "Taler");
         }
         viewHolder.downloadButton().setOnClickListener(v -> new FixedURLSpan(message.getRawBody()).onClick(v));
+        viewHolder.downloadButton().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
     }
 
     private void displayLocationMessage(
@@ -1273,6 +1285,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             viewHolder.image().setVisibility(View.VISIBLE);
             imagePreviewLayout(540, 540, viewHolder.image(), message.getInReplyTo() != null, true, viewHolder);
             viewHolder.image().setOnClickListener(v -> showLocation(message));
+            viewHolder.image().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
             viewHolder.downloadButton().setVisibility(GONE);
         } else {
             viewHolder.image().setVisibility(GONE);
@@ -1282,6 +1295,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             final @DrawableRes int imageResource = MediaAdapter.getImageDrawable(attachment);
             viewHolder.downloadButton().setIconResource(imageResource);
             viewHolder.downloadButton().setOnClickListener(v -> showLocation(message));
+            viewHolder.downloadButton().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
         }
     }
 
@@ -1302,6 +1316,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         audioPlayer.setVisibility(View.VISIBLE);
         AudioPlayer.ViewHolder.get(audioPlayer).setBubbleColor(bubbleColor);
         this.audioPlayer.init(audioPlayer, message);
+        audioPlayer.setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
     }
 
     private void displayMediaPreviewMessage(
@@ -1329,6 +1344,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         imagePreviewLayout(params.width, params.height, viewHolder.image(), message.getInReplyTo() != null, viewHolder.messageBody().getVisibility() != GONE, viewHolder);
         activity.loadBitmap(message, viewHolder.image());
         viewHolder.image().setOnClickListener(v -> openDownloadable(message));
+        viewHolder.image().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
     }
 
     private void imagePreviewLayout(int w, int h, ShapeableImageView image, boolean otherAbove, boolean otherBelow, BubbleMessageItemViewHolder viewHolder) {
@@ -1678,11 +1694,38 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             }
         });
 
-        /*
-        reactionsPopup(message, viewHolder);
-         */
+        final float[] lastTouchRaw = {0f, 0f};
+        viewHolder.messageBox().setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                lastTouchRaw[0] = event.getRawX();
+                lastTouchRaw[1] = event.getRawY();
+            }
+            return false;
+        });
+        viewHolder.messageBox().setOnLongClickListener(v -> {
+            if (MessageAdapter.this.mOnMessageLongPressListener != null) {
+                MessageAdapter.this.mOnMessageLongPressListener.onMessageLongPress(message, viewHolder.messageBox(), lastTouchRaw[0], lastTouchRaw[1]);
+                return true;
+            }
+            return false;
+        });
+        viewHolder.messageBody().setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                lastTouchRaw[0] = event.getRawX();
+                lastTouchRaw[1] = event.getRawY();
+            }
+            return false;
+        });
+        viewHolder.messageBody().setOnLongClickListener(v -> {
+            if (MessageAdapter.this.mOnMessageLongPressListener != null) {
+                MessageAdapter.this.mOnMessageLongPressListener.onMessageLongPress(message, viewHolder.messageBox(), lastTouchRaw[0], lastTouchRaw[1]);
+                return true;
+            }
+            return false;
+        });
+
         if (!de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)) { // Do not show reaction popup on retracted message bubbles
-            reactionsPopup(message, viewHolder);
+            //reactionsPopup(message, viewHolder); // TODO Check what needs to be done now
         }
 
         viewHolder.messageBody().setOnClickListener(v -> {
@@ -1717,11 +1760,14 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
         final Transferable transferable = message.getTransferable();
         final boolean unInitiatedButKnownSize = MessageUtils.unInitiatedButKnownSize(message);
+        final boolean expired = message.getExpireAt() > 0 && message.getExpireAt() < System.currentTimeMillis();
 
         final boolean muted = message.getStatus() == Message.STATUS_RECEIVED && conversation.getMode() == Conversation.MODE_MULTI && activity.xmppConnectionService.isMucUserMuted(new MucOptions.User(null, conversation.getJid(), message.getOccupantId(), null, null));
         if (muted) {
             // Muted MUC participant
             displayInfoMessage(viewHolder, "Muted", bubbleColor);
+        } else if (expired || Message.DELETED_MESSAGE_BODY.equals(message.getBody())) {
+            displayInfoMessage(viewHolder, activity.getString(R.string.message_has_disappeared), bubbleColor);
         } else if (message.getType() == Message.TYPE_STORY || message.getStoryReference() != null) {
             displayPubSubMessage(viewHolder, message, bubbleColor);
         /*
@@ -1993,190 +2039,6 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         });
         return viewHolder.root();
     }
-
-    private void reactionsPopup(
-            final Message message,
-            final BubbleMessageItemViewHolder viewHolder) {
-
-        // new reactions popup
-        Consumer<Collection<String>> callback = reactions -> {
-            if (mConversationFragment.requireTrustKeys()) {
-                return;
-            }
-            activity.xmppConnectionService.sendReactions(message, reactions);
-        };
-        ReactionsConfig config = new ReactionsConfigBuilder(activity)
-                .withReactions(new int[]{
-                        R.drawable.heart,
-                        R.drawable.thumbs_up,
-                        R.drawable.thumbs_down,
-                        R.drawable.tears_of_joy,
-                        R.drawable.astonished,
-                        R.drawable.crying,
-                        R.drawable.ic_more_horiz_24dp
-                })
-                .withPopupAlpha(255)
-                .withPopupColor(MaterialColors.getColor(viewHolder.messageBox(), com.google.android.material.R.attr.colorSurface))
-                .build();
-        ReactionPopup popup = new ReactionPopup(activity, config, (positionPopup) -> {
-            if (positionPopup.equals(0)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\u2764\uFE0F")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\u2764\uFE0F");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(1)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDC4D")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDC4D");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(2)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDC4E")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDC4E");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(3)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDE02")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDE02");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(4)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDE32")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDE32");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(5)) {
-                final var aggregated = message.getAggregatedReactions();
-                if (aggregated.ourReactions.contains("\uD83D\uDE22")) {
-                    callback.accept(aggregated.ourReactions);
-                } else {
-                    final ImmutableSet.Builder<String> reactionBuilder =
-                            new ImmutableSet.Builder<>();
-                    reactionBuilder.addAll(aggregated.ourReactions);
-                    reactionBuilder.add("\uD83D\uDE22");
-                    callback.accept(reactionBuilder.build());
-                }
-            } else if (positionPopup.equals(6)) {
-                if (mConversationFragment.requireTrustKeys()) {
-                    return true;
-                }
-
-                final var intent = new Intent(activity, AddReactionActivity.class);
-                intent.putExtra("conversation", message.getConversation().getUuid());
-                intent.putExtra("message", message.getUuid());
-                activity.startActivity(intent);
-            }
-            return true; // true is closing popup, false is requesting a new selection
-        });
-
-        final boolean showError =
-                message.getStatus() == Message.STATUS_SEND_FAILED
-                        && message.getErrorMessage() != null
-                        && !Message.ERROR_MESSAGE_CANCELLED.equals(message.getErrorMessage());
-        final Conversational conversational = message.getConversation();
-        if (conversational instanceof Conversation c) {
-            if (!showError
-                    && !message.isPrivateMessage()
-                    && (message.getEncryption() == Message.ENCRYPTION_NONE
-                    || activity.getBooleanPreference("allow_unencrypted_reactions", R.bool.allow_unencrypted_reactions))
-                    && !de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)
-                    && !message.isDeleted()
-                    && (c.getMode() == Conversational.MODE_SINGLE
-                    || (c.getMucOptions().occupantId()
-                    && c.getMucOptions().participating()))) {
-                viewHolder.messageBox().setOnTouchListener((v, event) -> {
-                    if (event.getAction() == MotionEvent.ACTION_UP) {
-                        if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
-                            popup.setFocusable(false);
-                            popup.onTouch(v, event);
-                            if (mConversationFragment != null) {
-                                // Store it in fragment to be able to cancel it.
-                                mConversationFragment.reactionPopup = popup;
-                            }
-                        }
-                    }
-                    return false;
-                });
-
-                final boolean[] isLinkGesture = {
-                        false
-                };
-                viewHolder.messageBody().setOnTouchListener((v, event) -> {
-                    if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                        Layout layout = viewHolder.messageBody().getLayout();
-                        isLinkGesture[0] = false;
-                        if (layout != null) {
-                            int x = (int) event.getX() - viewHolder.messageBody().getTotalPaddingLeft() + viewHolder.messageBody().getScrollX();
-                            int y = (int) event.getY() - viewHolder.messageBody().getTotalPaddingTop() + viewHolder.messageBody().getScrollY();
-                            if (y >= 0 && y <= layout.getHeight()) {
-                                int line = layout.getLineForVertical(y);
-                                if (x >= layout.getLineLeft(line) && x <= layout.getLineRight(line)) {
-                                    int off = layout.getOffsetForHorizontal(line, x);
-                                    CharSequence text = viewHolder.messageBody().getText();
-                                    if (text instanceof Spannable spannable) {
-                                        ClickableSpan[] links = spannable.getSpans(off, off, ClickableSpan.class);
-                                        isLinkGesture[0] = links.length > 0;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (isLinkGesture[0]) {
-                        return false;
-                    }
-
-                    if (event.getAction() == MotionEvent.ACTION_UP) {
-                        if (MessageAdapter.this.mOnMessageBoxClickedListener != null) {
-                            popup.setFocusable(false);
-                            popup.onTouch(v, event);
-                            if (mConversationFragment != null) {
-                                mConversationFragment.reactionPopup = popup;
-                            }
-
-                            MotionEvent cancelEvent = MotionEvent.obtain(event.getDownTime(),
-                                    event.getEventTime(), MotionEvent.ACTION_CANCEL, 0.0f, 0.0f, 0);
-                            v.onTouchEvent(cancelEvent);
-                            cancelEvent.recycle();
-
-                            return true;
-                        }
-                    }
-                    return false;
-                });
-            }
-        }
-    }
-
 
     private View render(
             final Message message, final DateSeperatorMessageItemViewHolder viewHolder) {
@@ -2534,7 +2396,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         final var fp = message.getFileParams();
         final var name = fp == null ? null : fp.getName();
         final var displayName = name == null ? file.getName() : name;
-        ViewUtil.view(activity, file, message.getMimeType(), displayName, message.getConversation().getUuid(), message.getUuid());
+        ViewUtil.view(activity, file, displayName, message.getConversation().getUuid(), message.getUuid());
     }
 
     private void showLocation(Message message) {
@@ -2752,6 +2614,8 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
         protected abstract TextView subject();
 
+        protected abstract ImageView indicatorEphemeral();
+
         protected abstract TextView username();
 
         protected abstract TextView showMore();
@@ -2777,6 +2641,11 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         @Override
         protected ImageView indicatorEdit() {
             return this.binding.editIndicator;
+        }
+
+        @Override
+        protected ImageView indicatorEphemeral() {
+            return this.binding.ephemeralIndicator;
         }
 
         @Override
@@ -2945,6 +2814,11 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         @Override
         protected ImageView indicatorEdit() {
             return this.binding.editIndicator;
+        }
+
+        @Override
+        protected ImageView indicatorEphemeral() {
+            return this.binding.ephemeralIndicator;
         }
 
         @Override
@@ -3165,6 +3039,17 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
     public interface MessageBoxSwipedListener {
         void onMessageBoxReleasedAfterSwipe(Message message);
         void onMessageBoxSwipedEnough();
+    }
+
+
+    private OnMessageLongPressListener mOnMessageLongPressListener;
+
+    public interface OnMessageLongPressListener {
+        void onMessageLongPress(Message message, View messageView, float rawX, float rawY);
+    }
+
+    public void setOnMessageLongPressListener(OnMessageLongPressListener listener) {
+        this.mOnMessageLongPressListener = listener;
     }
 
 }

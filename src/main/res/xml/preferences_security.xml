@@ -23,6 +23,18 @@
             android:summary="@string/pref_enable_otr_summary"
             android:title="@string/pref_enable_otr" />
 
+        <Preference
+            android:icon="@drawable/outline_delete_red_24"
+            android:key="delete_omemo_identities"
+            android:summary="@string/pref_delete_omemo_identities_summary"
+            android:title="@string/pref_delete_omemo_identities" />
+
+        <ListPreference
+            android:defaultValue="@integer/omemo_auto_expiry"
+            android:icon="@drawable/ic_auto_delete_24dp"
+            android:key="omemo_auto_expiry"
+            android:title="@string/pref_omemo_auto_expiry" />
+
     </PreferenceCategory>
     <PreferenceCategory
         android:key="server_connection"
@@ -72,6 +84,16 @@
             android:key="automatic_message_deletion"
             android:summary="@string/pref_automatically_delete_messages_description"
             android:title="@string/pref_automatically_delete_messages" />
+        <Preference
+            android:key="database_encryption"
+            android:icon="@drawable/ic_lock_24dp"
+            android:title="@string/pref_database_encryption" />
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:icon="@drawable/ic_lock_24dp"
+            android:key="require_password_on_startup"
+            android:title="@string/pref_require_startup_password_title"
+            android:summary="@string/pref_require_startup_password_summary" />
     </PreferenceCategory>
 
 </PreferenceScreen>

@@ -28,6 +28,7 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
+import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.EditText;
@@ -321,6 +322,11 @@ public class ContactDetailsActivity extends OmemoActivity
         mDisableCallsSwitch = binding.disableCalls;
         mFollowFeedSwitch = binding.followFeedSwitch;
 
+        final var ephemeralDurationEntries = getResources().getStringArray(R.array.ephemeral_durations);
+        final var spinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, ephemeralDurationEntries);
+        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        binding.ephemeralMessagesDurationSpinner.setAdapter(spinnerAdapter);
+
         this.mOnFollowFeedCheckedChange =
                 (buttonView, isChecked) -> {
                     if (contact != null) {
@@ -389,7 +395,7 @@ public class ContactDetailsActivity extends OmemoActivity
                 };
         mFollowFeedSwitch.setOnCheckedChangeListener(mOnFollowFeedCheckedChange);
 
-        mMediaAdapter = new MediaAdapter(this, R.dimen.media_size);
+        mMediaAdapter = new MediaAdapter(this, R.dimen.media_size, false);
         this.binding.media.setAdapter(mMediaAdapter);
         GridManager.setupLayoutManager(this, this.binding.media, R.dimen.media_size);
         this.binding.recentThreads.setOnItemClickListener((a0, v, pos, a3) -> {
@@ -972,6 +978,89 @@ public class ContactDetailsActivity extends OmemoActivity
         if (contact != null) {
             mFollowFeedSwitch.setChecked(contact.isFollowed());
         }
+
+        binding.ephemeralMessagesSwitch.setOnCheckedChangeListener(null);
+        int timer = conversation.getEphemeralTimer();
+        final var ephemeralDurationValues = getResources().getIntArray(R.array.ephemeral_duration_values);
+        if (timer > 0) {
+            binding.ephemeralMessagesSwitch.setChecked(true);
+            binding.ephemeralMessagesDurationLayout.setVisibility(View.VISIBLE);
+            int index = 0;
+            for (int i = 0; i < ephemeralDurationValues.length; i++) {
+                if (ephemeralDurationValues[i] == timer) {
+                    index = i;
+                    break;
+                }
+            }
+            binding.ephemeralMessagesDurationSpinner.setSelection(index);
+        } else {
+            binding.ephemeralMessagesSwitch.setChecked(false);
+            binding.ephemeralMessagesDurationLayout.setVisibility(View.GONE);
+        }
+        binding.ephemeralMessagesDurationSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                int seconds = ephemeralDurationValues[position];
+                if (conversation.getEphemeralTimer() != seconds && binding.ephemeralMessagesSwitch.isChecked()) {
+                    if (conversation.setEphemeralTimer(seconds)) {
+                        conversation.setEphemeralBy(null);
+                        xmppConnectionService.databaseBackend.updateConversation(conversation);
+                        xmppConnectionService.sendEphemeralImplicitNegotiation(conversation, seconds);
+                    }
+                }
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
+            }
+        });
+        binding.ephemeralMessagesSwitch.setOnClickListener(v -> {
+            boolean isChecked = binding.ephemeralMessagesSwitch.isChecked();
+            if (isChecked) {
+                final SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
+                if (sp.getBoolean(AppSettings.HIDE_EPHEMERAL_WARNING, false)) {
+                    binding.ephemeralMessagesDurationLayout.setVisibility(View.VISIBLE);
+                    int seconds = ephemeralDurationValues[binding.ephemeralMessagesDurationSpinner.getSelectedItemPosition()];
+                    if (conversation.setEphemeralTimer(seconds)) {
+                        conversation.setEphemeralBy(null);
+                        xmppConnectionService.databaseBackend.updateConversation(conversation);
+                        xmppConnectionService.sendEphemeralImplicitNegotiation(conversation, seconds);
+                    }
+                    return;
+                }
+                final View dialogView = getLayoutInflater().inflate(R.layout.dialog_ephemeral_warning, null);
+                final CheckBox dontShowAgain = dialogView.findViewById(R.id.dont_show_again);
+                new MaterialAlertDialogBuilder(this)
+                        .setView(dialogView)
+                        .setPositiveButton(R.string.ok, (dialog, which) -> {
+                            if (dontShowAgain.isChecked()) {
+                                sp.edit().putBoolean(AppSettings.HIDE_EPHEMERAL_WARNING, true).apply();
+                            }
+                            binding.ephemeralMessagesDurationLayout.setVisibility(View.VISIBLE);
+                            int seconds = ephemeralDurationValues[binding.ephemeralMessagesDurationSpinner.getSelectedItemPosition()];
+                            if (conversation.setEphemeralTimer(seconds)) {
+                                conversation.setEphemeralBy(null);
+                                xmppConnectionService.databaseBackend.updateConversation(conversation);
+                                xmppConnectionService.sendEphemeralImplicitNegotiation(conversation, seconds);
+                            }
+                        })
+                        .setNegativeButton(R.string.cancel, (dialog, which) -> {
+                            binding.ephemeralMessagesSwitch.setChecked(false);
+                            binding.ephemeralMessagesDurationLayout.setVisibility(View.GONE);
+                        })
+                        .setOnCancelListener(dialog -> {
+                            binding.ephemeralMessagesSwitch.setChecked(false);
+                            binding.ephemeralMessagesDurationLayout.setVisibility(View.GONE);
+                        })
+                        .show();
+            } else {
+                binding.ephemeralMessagesDurationLayout.setVisibility(View.GONE);
+                if (conversation.setEphemeralTimer(0)) {
+                    xmppConnectionService.databaseBackend.updateConversation(conversation);
+                    xmppConnectionService.sendEphemeralIWantOut(conversation);
+                }
+            }
+        });
     }
 
     private void onBadgeClick(final View view) {
@@ -1058,10 +1147,10 @@ public class ContactDetailsActivity extends OmemoActivity
             });
 
             final var conversation = xmppConnectionService.findOrCreateConversation(account, contact.getJid(), false, true);
-            binding.storeInCache.setEnabled(true);
-            binding.storeInCache.setChecked(conversation.storeInCache(xmppConnectionService));
-            binding.storeInCache.setOnCheckedChangeListener((v, checked) -> {
-                conversation.setStoreInCache(checked);
+            binding.storeSecurely.setEnabled(true);
+            binding.storeSecurely.setChecked(conversation.storeSecurely(xmppConnectionService));
+            binding.storeSecurely.setOnCheckedChangeListener((v, checked) -> {
+                conversation.setStoreSecurely(checked);
                 xmppConnectionService.updateConversation(conversation);
             });
 

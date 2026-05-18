@@ -30,9 +30,13 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
+import androidx.core.widget.ImageViewCompat;
+import eu.siacs.conversations.ui.AddReactionActivity;
 import android.icu.util.Calendar;
 import android.icu.util.TimeZone;
 import android.media.MediaRecorder;
@@ -65,7 +69,6 @@ import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
-import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
@@ -79,10 +82,12 @@ import android.widget.AdapterView;
 import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.CheckBox;
 import android.widget.ImageView;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.PopupMenu;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.widget.TextView.OnEditorActionListener;
 import android.widget.Toast;
 
@@ -112,13 +117,13 @@ import de.monocles.chat.BobTransfer;
 import de.monocles.chat.EmojiSearch;
 import de.monocles.chat.GifsAdapter;
 import de.monocles.chat.KeyboardHeightProvider;
+import de.monocles.chat.MediaViewerActivity;
 import de.monocles.chat.StickersAdapter;
 import de.monocles.chat.StickersMigration;
 import de.monocles.chat.WebxdcPage;
 import de.monocles.chat.WebxdcStore;
 import de.monocles.chat.EditMessageSelectionActionModeCallback;
 
-import com.github.pgreze.reactions.ReactionPopup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.common.base.Optional;
 import com.google.common.collect.Collections2;
@@ -147,9 +152,11 @@ import eu.siacs.conversations.xmpp.pep.UserTune;
 import io.ipfs.cid.Cid;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.lang.ref.WeakReference;
 import java.net.URISyntaxException;
 import java.text.SimpleDateFormat;
+import java.time.Duration;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -275,7 +282,7 @@ public class ConversationFragment extends XmppFragment
 
     private FileObserver mFileObserver;
 
-    public ReactionPopup reactionPopup = null;
+    private Dialog messageOptionsDialog = null;
 
 
     public static final int REQUEST_TRUST_KEYS_NONE = 0x0;
@@ -350,6 +357,10 @@ public class ConversationFragment extends XmppFragment
 
     private KeyboardHeightProvider.KeyboardHeightListener keyboardHeightListener = null;
     private KeyboardHeightProvider keyboardHeightProvider = null;
+    private static final String PREF_KEYBOARD_HEIGHT = "keyboard_height_px";
+    private int lastKnownKeyboardHeight = 0;
+    private boolean keyboardCurrentlyVisible = false;
+    private boolean emojiPickerRequestedByUser = false;
     private static final String PINNED_MESSAGE_KEY_PREFIX = "pinned_message_";
     private Vibrator vibrator;
 
@@ -1385,9 +1396,9 @@ public class ConversationFragment extends XmppFragment
                         if (source != null && source.length() > 0 && source.substring(0, 4).equals("cid:")) {
                             try {
                                 final Cid cid = BobTransfer.cid(Uri.parse(source));
-                                final String url = activity.xmppConnectionService.getUrlForCid(cid);
                                 final File f = activity.xmppConnectionService.getFileForCid(cid);
-                                if (url != null) {
+                                // Only convert to file upload for E2EE (BoB is not encrypted)
+                                if (f != null && (message.getEncryption() == Message.ENCRYPTION_AXOLOTL || message.getEncryption() == Message.ENCRYPTION_PGP || message.getEncryption() == Message.ENCRYPTION_OTR)) {
                                     message.setBody("");
                                     message.setRelativeFilePath(f.getAbsolutePath());
                                     activity.xmppConnectionService.getFileBackend().updateFileParams(message);
@@ -1990,14 +2001,8 @@ public class ConversationFragment extends XmppFragment
             public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {}
 
             public void onPageSelected(int position) {
-                if (position == 0) {
-                    if (activity != null) {
-                        activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
-                    }
-                } else {
-                    if (activity != null) {
-                        activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-                    }
+                if (activity != null) {
+                    activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
                 }
             }
         });
@@ -2081,10 +2086,10 @@ public class ConversationFragment extends XmppFragment
         binding.textinput.addTextChangedListener(
                 new StylingHelper.MessageEditorStyler(binding.textinput, messageListAdapter));
 
-        registerForContextMenu(binding.messagesView);
         /*
         registerForContextMenu(binding.textSendButton);
          */
+	messageListAdapter.setOnMessageLongPressListener(this::showMessageOptionsDialog);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             this.binding.textinput.setCustomInsertionActionModeCallback(
@@ -2321,7 +2326,7 @@ public class ConversationFragment extends XmppFragment
         super.onDestroyView();
         Log.d(Config.LOGTAG, "ConversationFragment.onDestroyView()");
         if (activity != null) {
-            activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+            activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         messageListAdapter.setOnContactPictureClicked(null);
         messageListAdapter.setOnContactPictureLongClicked(null);
@@ -2499,21 +2504,21 @@ public class ConversationFragment extends XmppFragment
 
         Runnable updateSelectionRunnable = () -> {
             FragmentConversationBinding binding = ConversationFragment.this.binding;
+            if (binding == null) return;
+            final int height = binding.messagesView.getHeight();
+            final int effectiveOffset = offsetFormTop != null && offsetFormTop > 0 ? offsetFormTop : (height > 0 ? height / 2 : 200);
 
             Runnable performRunnable = () -> {
-                if (offsetFormTop != null) {
-                    binding.messagesView.setSelectionFromTop(pos, offsetFormTop);
-                    return;
-                }
-
-                binding.messagesView.setSelection(pos);
+                binding.messagesView.setTranscriptMode(ListView.TRANSCRIPT_MODE_DISABLED);
+                binding.messagesView.setSelectionFromTop(pos, effectiveOffset);
+                binding.messagesView.post(() -> binding.messagesView.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL));
             };
 
             performRunnable.run();
             binding.messagesView.post(performRunnable);
 
             if (selectionUpdatedRunnable != null) {
-                selectionUpdatedRunnable.run();
+                binding.messagesView.post(selectionUpdatedRunnable);
             }
         };
 
@@ -2621,7 +2626,7 @@ public class ConversationFragment extends XmppFragment
         }
     }
 
-    private void populateContextMenu(final ContextMenu menu) {
+    private void populateContextMenu(final Menu menu) {
         final Message m = this.selectedMessage;
         final Transferable t = m.getTransferable();
         /*
@@ -2827,7 +2832,12 @@ public class ConversationFragment extends XmppFragment
 
     @Override
     public boolean onContextItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
+        if (handleMessageContextAction(item.getItemId())) return true;
+        return onOptionsItemSelected(item);
+    }
+
+    private boolean handleMessageContextAction(final int itemId) {
+        switch (itemId) {
             case R.id.share_with:
                 ShareUtil.share(activity, selectedMessage);
                 return true;
@@ -2896,6 +2906,7 @@ public class ConversationFragment extends XmppFragment
                             activity.xmppConnectionService.deleteMessage(retractionMessage);
                             activity.onConversationsListItemUpdated();
                             refresh();
+                            Toast.makeText(activity, R.string.message_retracted, Toast.LENGTH_SHORT).show();
                         })
                         .setNegativeButton(R.string.no, null).show();
                 return true;
@@ -2972,7 +2983,12 @@ public class ConversationFragment extends XmppFragment
                 deleteFile(selectedMessage);
                 return true;
             case R.id.save_to_downloads:
-                saveToDownloads(selectedMessage);
+                new MaterialAlertDialogBuilder(activity)
+                        .setTitle(R.string.action_save_to_downloads)
+                        .setMessage(R.string.save_to_downloads_warning)
+                        .setPositiveButton(R.string.confirm, (dialog, which) -> saveToDownloads(selectedMessage))
+                        .setNegativeButton(R.string.cancel, null)
+                        .show();
                 return true;
             case R.id.show_error_message:
                 showErrorMessage(selectedMessage);
@@ -2997,8 +3013,341 @@ public class ConversationFragment extends XmppFragment
                 }
             /* End: PiratX debug additional dialog jump to show technical message details */
             default:
-                return onOptionsItemSelected(item);
+                return false;
         }
+    }
+
+    private void showMessageOptionsDialog(final Message message, final View messageView, final float rawX, final float rawY) {
+        this.selectedMessage = message;
+
+        messageView.setForeground(new ColorDrawable(Color.argb(50, 0, 120, 255)));
+        final Runnable clearHighlight = () -> messageView.setForeground(null);
+
+        final int[] msgLoc = new int[2];
+        messageView.getLocationOnScreen(msgLoc);
+        final int msgTop = msgLoc[1];
+        final int msgBottom = msgTop + messageView.getHeight();
+        final int msgWidth = messageView.getWidth();
+        final int screenW = getResources().getDisplayMetrics().widthPixels;
+        final int screenH = getResources().getDisplayMetrics().heightPixels;
+        final float density = getResources().getDisplayMetrics().density;
+        final int statusBarH = getStatusBarHeightPx();
+        final int navBarH = getNavBarHeightPx();
+        final int imeH = getImeHeightPx();
+        // Visible window height: excludes status bar, nav bar, and keyboard when open.
+        // FLAG_NOT_FOCUSABLE keeps the keyboard from hiding, so this is always accurate.
+        final int windowH = screenH - statusBarH - navBarH - imeH;
+        final int gapPx = (int) (8 * density + 0.5f);
+        final int marginPx = (int) (12 * density + 0.5f);
+        final int widthPx = (int) (280 * density + 0.5f);
+        // Message position in window-content coordinates (Y=0 is just below the status bar)
+        final int msgTopW = msgTop - statusBarH;
+        final int msgBottomW = msgBottom - statusBarH;
+
+        // Single full-screen transparent dialog — both elements share one window so touch dispatch works correctly
+        final Dialog dialog = new Dialog(activity);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        final FrameLayout container = new FrameLayout(activity);
+        container.setOnClickListener(v -> dialog.dismiss());
+
+        // ── Measure both elements before deciding positions ──────────────────
+        final boolean hasReactions = canMessageReceiveReactions(message);
+        View reactionPillView = null;
+        int popupH = 0, popupW = 0;
+        if (hasReactions) {
+            reactionPillView = getLayoutInflater().inflate(R.layout.popup_reactions, container, false);
+            setupDialogReactionRow(reactionPillView.findViewById(R.id.reaction_row), message, () -> {
+                clearHighlight.run();
+                dialog.dismiss();
+            });
+            reactionPillView.measure(
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            popupH = reactionPillView.getMeasuredHeight();
+            popupW = reactionPillView.getMeasuredWidth();
+            reactionPillView.setClickable(true);
+        }
+
+        final View menuView = getLayoutInflater().inflate(R.layout.dialog_context_menu, container, false);
+        final LinearLayout menuContainer = menuView.findViewById(R.id.menu_container);
+        final Menu menu = new PopupMenu(activity, menuView).getMenu();
+        activity.getMenuInflater().inflate(R.menu.message_context, menu);
+        populateContextMenu(menu);
+        final List<MenuItem> visible = new ArrayList<>();
+        for (int i = 0; i < menu.size(); i++) {
+            if (menu.getItem(i).isVisible()) visible.add(menu.getItem(i));
+        }
+        for (int i = 0; i < visible.size(); i++) {
+            final MenuItem item = visible.get(i);
+            final int itemId = item.getItemId();
+            final boolean isLast = i == visible.size() - 1;
+            addDialogMenuRow(menuContainer, getMessageMenuIcon(itemId), item.getTitle(), isLast, () -> {
+                dialog.dismiss();
+                handleMessageContextAction(itemId);
+            });
+        }
+        menuView.measure(
+                View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        final int menuH = menuView.getMeasuredHeight();
+        menuView.setClickable(true);
+
+        // ── Positioning: pick the arrangement that gives the menu the most room ─
+        // Four possible arrangements (message is the anchor):
+        //   A: reactions above,  menu below   → menu space = spaceBelow
+        //   B: reactions below,  menu above   → menu space = spaceAbove
+        //   C: both above (reactions closer to message, menu above reactions)
+        //   D: both below (reactions closer to message, menu below reactions)
+        final int spaceAbove = msgTopW - marginPx;
+        final int spaceBelow = windowH - msgBottomW - marginPx;
+        final boolean rFitsAbove = hasReactions && spaceAbove >= popupH + gapPx;
+        final boolean rFitsBelow = hasReactions && spaceBelow >= popupH + gapPx;
+
+        // 0=A, 1=B, 2=C, 3=D;  -1 = no reactions
+        final int arrangement;
+        if (!hasReactions) {
+            arrangement = -1;
+        } else if (rFitsAbove && rFitsBelow) {
+            // Both sides have room for reactions: give menu the larger side
+            arrangement = (spaceBelow >= spaceAbove) ? 0 : 1;
+        } else if (rFitsAbove) {
+            arrangement = 2; // reactions only fit above → both above
+        } else {
+            arrangement = 3; // reactions only fit below (or nowhere) → both below
+        }
+
+        // Available height for the menu in each arrangement
+        final int menuSideSpace = switch (arrangement) {
+            case 0  -> spaceBelow;
+            case 1  -> spaceAbove;
+            case 2  -> spaceAbove - popupH - gapPx;
+            case 3  -> spaceBelow - popupH - gapPx;
+            default -> Math.max(spaceAbove, spaceBelow); // no reactions
+        };
+        // Cap menu height to available space; NestedScrollView handles overflow
+        final int effectiveMenuH = Math.max(0, Math.min(menuH, menuSideSpace - gapPx));
+
+        final int menuY;
+        final int reactionY;
+        final boolean reactionAbove;
+        switch (arrangement) {
+            case 0 -> { // reactions ↑, menu ↓
+                reactionAbove = true;
+                reactionY = Math.max(marginPx, msgTopW - popupH - gapPx);
+                menuY = Math.min(windowH - effectiveMenuH - marginPx, msgBottomW + gapPx);
+            }
+            case 1 -> { // reactions ↓, menu ↑
+                reactionAbove = false;
+                reactionY = Math.min(windowH - popupH - marginPx, msgBottomW + gapPx);
+                menuY = Math.max(marginPx, msgTopW - effectiveMenuH - gapPx);
+            }
+            case 2 -> { // both ↑: reactions adjacent to message, menu above them
+                reactionAbove = true;
+                reactionY = Math.max(marginPx, msgTopW - popupH - gapPx);
+                menuY = Math.max(marginPx, reactionY - effectiveMenuH - gapPx);
+            }
+            case 3 -> { // both ↓: reactions adjacent to message, menu below them
+                reactionAbove = false;
+                reactionY = Math.min(windowH - popupH - marginPx, msgBottomW + gapPx);
+                menuY = Math.min(windowH - effectiveMenuH - marginPx, reactionY + popupH + gapPx);
+            }
+            default -> { // no reactions: centre menu on message, clamped
+                reactionAbove = false;
+                reactionY = 0;
+                int cy = msgTopW + (messageView.getHeight() - effectiveMenuH) / 2;
+                menuY = Math.max(marginPx, Math.min(windowH - effectiveMenuH - marginPx, cy));
+            }
+        }
+
+        // ── Add views to container ───────────────────────────────────────────
+        if (hasReactions && reactionPillView != null) {
+            int reactionX = msgLoc[0] + (msgWidth - popupW) / 2;
+            reactionX = Math.max(marginPx, Math.min(screenW - popupW - marginPx, reactionX));
+            final FrameLayout.LayoutParams rp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+            rp.gravity = Gravity.TOP | Gravity.START;
+            rp.topMargin = reactionY;
+            rp.leftMargin = reactionX;
+            container.addView(reactionPillView, rp);
+        }
+
+        final int menuX = (screenW - widthPx) / 2;
+        final FrameLayout.LayoutParams mp = new FrameLayout.LayoutParams(widthPx, effectiveMenuH);
+        mp.gravity = Gravity.TOP | Gravity.START;
+        mp.topMargin = menuY;
+        mp.leftMargin = menuX;
+        container.addView(menuView, mp);
+
+        dialog.setContentView(container);
+        dialog.setOnDismissListener(d -> clearHighlight.run());
+        messageOptionsDialog = dialog;
+
+        final android.view.Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            w.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        }
+        dialog.show();
+    }
+
+    private int getStatusBarHeightPx() {
+        final View root = getView();
+        if (root != null) {
+            final WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+            if (insets != null) {
+                return insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
+            }
+        }
+        final int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
+    }
+
+    private int getNavBarHeightPx() {
+        final View root = getView();
+        if (root != null) {
+            final WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+            if (insets != null) {
+                return insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            }
+        }
+        return 0;
+    }
+
+    private int getImeHeightPx() {
+        final View root = getView();
+        if (root != null) {
+            final WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+            if (insets != null) {
+                return insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+            }
+        }
+        return 0;
+    }
+
+    private boolean canMessageReceiveReactions(final Message message) {
+        final boolean showError = message.getStatus() == Message.STATUS_SEND_FAILED
+                && message.getErrorMessage() != null
+                && !Message.ERROR_MESSAGE_CANCELLED.equals(message.getErrorMessage());
+        if (showError || message.isPrivateMessage() || message.isDeleted()) return false;
+        final boolean encryptionOk = message.getEncryption() == Message.ENCRYPTION_NONE
+                || activity.getBooleanPreference("allow_unencrypted_reactions", R.bool.allow_unencrypted_reactions);
+        if (!encryptionOk) return false;
+        final Conversational c = message.getConversation();
+        if (!(c instanceof Conversation conv)) return false;
+        return conv.getMode() == Conversational.MODE_SINGLE
+                || (conv.getMucOptions().occupantId() && conv.getMucOptions().participating());
+    }
+
+    private void setupDialogReactionRow(final LinearLayout row, final Message message, final Runnable onDismiss) {
+        final String[] emojis = {"❤️", "👍", "👎", "😂", "😲", "😢"};
+        final var aggregated = message.getAggregatedReactions();
+        final int sizePx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 44, getResources().getDisplayMetrics());
+        final TypedValue selectorTv = new TypedValue();
+        activity.getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, selectorTv, true);
+        for (final String emoji : emojis) {
+            final TextView btn = new TextView(activity);
+            btn.setText(emoji);
+            btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+            btn.setGravity(Gravity.CENTER);
+            btn.setMinimumWidth(sizePx);
+            btn.setMinimumHeight(sizePx);
+            btn.setAlpha(aggregated.ourReactions.contains(emoji) ? 1.0f : 0.6f);
+            btn.setBackgroundResource(selectorTv.resourceId);
+            btn.setOnClickListener(v -> {
+                sendMessageReaction(message, emoji);
+                onDismiss.run();
+            });
+            row.addView(btn);
+        }
+        final ImageView moreBtn = new ImageView(activity);
+        moreBtn.setImageResource(R.drawable.ic_add_reaction_24dp);
+        final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(sizePx, sizePx);
+        moreBtn.setLayoutParams(params);
+        moreBtn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        moreBtn.setAlpha(0.6f);
+        moreBtn.setBackgroundResource(selectorTv.resourceId);
+        final TypedValue colorTv = new TypedValue();
+        activity.getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnSurface, colorTv, true);
+        ImageViewCompat.setImageTintList(moreBtn, ColorStateList.valueOf(colorTv.data));
+        moreBtn.setOnClickListener(v -> {
+            onDismiss.run();
+            final Intent intent = new Intent(activity, AddReactionActivity.class);
+            intent.putExtra("conversation", message.getConversation().getUuid());
+            intent.putExtra("message", message.getUuid());
+            activity.startActivity(intent);
+        });
+        row.addView(moreBtn);
+    }
+
+    private void sendMessageReaction(final Message message, final String emoji) {
+        if (requireTrustKeys()) return;
+        final var aggregated = message.getAggregatedReactions();
+        final ImmutableSet.Builder<String> builder = new ImmutableSet.Builder<>();
+        if (aggregated.ourReactions.contains(emoji)) {
+            for (final String r : aggregated.ourReactions) {
+                if (!r.equals(emoji)) builder.add(r);
+            }
+        } else {
+            builder.addAll(aggregated.ourReactions);
+            builder.add(emoji);
+        }
+        activity.xmppConnectionService.sendReactions(message, builder.build());
+    }
+
+    private void addDialogMenuRow(final LinearLayout container, final int iconRes,
+            final CharSequence title, final boolean isLast, final Runnable action) {
+        final View row = getLayoutInflater().inflate(R.layout.item_message_context_menu, container, false);
+        final ImageView icon = row.findViewById(R.id.menu_icon);
+        final TextView titleView = row.findViewById(R.id.menu_title);
+        icon.setImageResource(iconRes);
+        if (iconRes != R.drawable.outline_delete_red_24) {
+            final int[] colorAttrs = {androidx.appcompat.R.attr.colorControlNormal};
+            final TypedArray ta = activity.obtainStyledAttributes(colorAttrs);
+            final int color = ta.getColor(0, Color.DKGRAY);
+            ta.recycle();
+            ImageViewCompat.setImageTintList(icon, ColorStateList.valueOf(color));
+        }
+        titleView.setText(title);
+        row.setOnClickListener(v -> action.run());
+        container.addView(row);
+        if (!isLast) {
+            final View divider = new View(activity);
+            final int marginStartPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 54, getResources().getDisplayMetrics());
+            final LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1);
+            p.setMarginStart(marginStartPx);
+            divider.setLayoutParams(p);
+            final TypedValue colorTv = new TypedValue();
+            activity.getTheme().resolveAttribute(com.google.android.material.R.attr.colorOutlineVariant, colorTv, true);
+            divider.setBackgroundColor(colorTv.data);
+            container.addView(divider);
+        }
+    }
+
+    private int getMessageMenuIcon(final int itemId) {
+        if (itemId == R.id.share_with) return R.drawable.ic_share_24dp;
+        if (itemId == R.id.correct_message) return R.drawable.ic_edit_24dp;
+        if (itemId == R.id.retract_message) return R.drawable.outline_delete_red_24;
+        if (itemId == R.id.moderate_message) return R.drawable.outline_report_24;
+        if (itemId == R.id.pin_message_to_top) return R.drawable.outline_push_pin_24;
+        if (itemId == R.id.copy_message) return R.drawable.outline_article_24;
+        if (itemId == R.id.copy_link || itemId == R.id.copy_url) return R.drawable.ic_link_24dp;
+        if (itemId == R.id.quote_message) return R.drawable.ic_reply_24dp;
+        if (itemId == R.id.only_this_thread) return R.drawable.ic_thread;
+        if (itemId == R.id.retry_decryption) return R.drawable.ic_refresh_24dp;
+        if (itemId == R.id.send_again) return R.drawable.ic_send_24dp;
+        if (itemId == R.id.send_again_as_p2p) return R.drawable.ic_p2p_24dp;
+        if (itemId == R.id.download_file) return R.drawable.ic_download_24dp;
+        if (itemId == R.id.cancel_transmission) return R.drawable.ic_cancel_24dp;
+        if (itemId == R.id.block_media) return R.drawable.ic_link_off_24dp;
+        if (itemId == R.id.delete_file) return R.drawable.outline_delete_red_24;
+        if (itemId == R.id.save_to_downloads) return R.drawable.outline_save_24;
+        if (itemId == R.id.save_as_sticker) return R.drawable.outline_emoji_emotions_24;
+        if (itemId == R.id.show_error_message) return R.drawable.outline_error_24;
+        if (itemId == R.id.open_with) return R.drawable.ic_open_with_24dp;
+        if (itemId == R.id.action_report_and_block) return R.drawable.outline_report_24;
+        return R.drawable.ic_more_horiz_24dp;
     }
 
     @Override
@@ -3158,6 +3507,7 @@ public class ConversationFragment extends XmppFragment
             ViewGroup.LayoutParams params = emojipickerview.getLayoutParams();
             params.height = 0;
             emojipickerview.setLayoutParams(params);
+            emojiPickerRequestedByUser = false;
             hideSoftKeyboard(activity);
             return false;
         }
@@ -3169,8 +3519,8 @@ public class ConversationFragment extends XmppFragment
             binding.recordingVoiceActivity.setVisibility(View.GONE);
             return false;
         }
-        if (reactionPopup != null && reactionPopup.isShowing()) {
-            reactionPopup.dismiss();
+        if (messageOptionsDialog != null && messageOptionsDialog.isShowing()) {
+            messageOptionsDialog.dismiss();
             return true;
         }
         return false;
@@ -4244,6 +4594,7 @@ public class ConversationFragment extends XmppFragment
     public void onStart() {
         super.onStart();
         if (this.reInitRequiredOnStart && this.conversation != null) {
+            this.reInitRequiredOnStart = false;
             final Bundle extras = pendingExtras.pop();
             reInit(this.conversation, extras != null, extras != null && extras.getString(ConversationsActivity.EXTRA_MESSAGE_UUID) != null);
             if (extras != null) {
@@ -4960,7 +5311,7 @@ public class ConversationFragment extends XmppFragment
                 conversation.refreshSessions();
 
                 if (activity != null && (binding.tabLayout.getVisibility() == View.GONE || binding.conversationViewPager.getCurrentItem() == 0)) {
-                    activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+                    activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
                 }
 
                 if (activity!= null) activity.runOnUiThread(() -> {
@@ -5028,6 +5379,24 @@ public class ConversationFragment extends XmppFragment
                         binding.tuneSubject.setVisibility(View.VISIBLE);
                     } else {
                         binding.tuneSubject.setVisibility(View.GONE);
+                    }
+
+                    int timer = conversation.getEphemeralTimer();
+                    if (timer > 0 && !conversation.ephemeralHintHidden()) {
+                        String by = conversation.getEphemeralBy();
+                        if (by != null) {
+                            binding.ephemeralHintText.setText(getString(R.string.ephemeral_messages_active_by_hint, by, UIHelper.getReadableEphemeralDuration(activity, timer)));
+                        } else {
+                            binding.ephemeralHintText.setText(getString(R.string.ephemeral_messages_active_hint, UIHelper.getReadableEphemeralDuration(activity, timer)));
+                        }
+                        binding.ephemeralHintHide.setOnClickListener(v -> {
+                            conversation.setEphemeralHintHidden(true);
+                            binding.ephemeralHint.setVisibility(View.GONE);
+                            activity.xmppConnectionService.databaseBackend.updateConversation(conversation);
+                        });
+                        binding.ephemeralHint.setVisibility(View.VISIBLE);
+                    } else {
+                        binding.ephemeralHint.setVisibility(View.GONE);
                     }
                 });
             }
@@ -6118,8 +6487,8 @@ public class ConversationFragment extends XmppFragment
         final String filename =
                 String.format("RECORDING_%s.%s", dateFormat.format(new Date()), extension);
         final File parentDirectory;
-        if (conversation.storeInCache(activity.xmppConnectionService)) {
-            parentDirectory = new File(activity.xmppConnectionService.getCacheDir(), "/media");
+        if (conversation.storeSecurely(activity.xmppConnectionService)) {
+            parentDirectory = new File(activity.xmppConnectionService.getFilesDir(), "/media");
         } else {
             parentDirectory =
                    /*
@@ -6178,43 +6547,88 @@ public class ConversationFragment extends XmppFragment
         }
     }
 
-    public void updateinputfield(final boolean me) {
-        LinearLayout emojipickerview = binding.emojisStickerLayout;
-        ViewGroup.LayoutParams params = emojipickerview.getLayoutParams();
-        Fragment secondaryFragment = activity.getFragmentManager().findFragmentById(R.id.secondary_fragment);
-        if (Build.VERSION.SDK_INT > 29) {
-            ViewCompat.setOnApplyWindowInsetsListener(activity.getWindow().getDecorView(), (v, insets) -> {
-                boolean isKeyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
-                int keyboardHeight = 0;
-                if (activity != null && ViewConfiguration.get(activity).hasPermanentMenuKey()) {
-                    keyboardHeight  = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom - insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom - 10;
-                } else if (activity != null) {
-                    keyboardHeight  = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom - insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom - 10;
-                }
-                if (keyboardHeight > 100 && !(secondaryFragment instanceof ConversationFragment)) {
-                    binding.keyboardButton.setVisibility(View.GONE);
-                    binding.emojiButton.setVisibility(View.VISIBLE);
-                    params.height = keyboardHeight;
-                    emojipickerview.setLayoutParams(params);
-                } else if (keyboardHeight > 100) {
-                    binding.keyboardButton.setVisibility(View.GONE);
-                    binding.emojiButton.setVisibility(View.VISIBLE);
-                    params.height = keyboardHeight - 127;
-                    emojipickerview.setLayoutParams(params);
-                } else if (binding.emojiButton.getVisibility() == View.VISIBLE) {
-                    binding.keyboardButton.setVisibility(View.GONE);
+    private int getEmojiPickerHeight() {
+        if (lastKnownKeyboardHeight > 100) return lastKnownKeyboardHeight;
+        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(activity);
+        final int saved = prefs.getInt(PREF_KEYBOARD_HEIGHT, 0);
+        if (saved > 100) {
+            lastKnownKeyboardHeight = saved;
+            return saved;
+        }
+        return (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.4f);
+    }
+
+    private void persistKeyboardHeight(final int height) {
+        if (height > 100) {
+            lastKnownKeyboardHeight = height;
+            PreferenceManager.getDefaultSharedPreferences(activity)
+                    .edit().putInt(PREF_KEYBOARD_HEIGHT, height).apply();
+        }
+    }
+
+    private void onKeyboardStateChanged(final int keyboardHeight, final boolean keyboardOpen) {
+        final LinearLayout emojipickerview = binding.emojisStickerLayout;
+        final ViewGroup.LayoutParams params = emojipickerview.getLayoutParams();
+        keyboardCurrentlyVisible = keyboardOpen;
+        if (keyboardOpen) {
+            if (keyboardHeight > 100) persistKeyboardHeight(keyboardHeight);
+            if (!emojiPickerRequestedByUser) {
+                binding.keyboardButton.setVisibility(View.GONE);
+                binding.emojiButton.setVisibility(View.VISIBLE);
+                if (params.height != 0) {
                     params.height = 0;
                     emojipickerview.setLayoutParams(params);
-                } else if (binding.keyboardButton.getVisibility() == View.VISIBLE && keyboardHeight == 0) {
-                    binding.emojiButton.setVisibility(View.GONE);
-                    params.height = 800;
-                    emojipickerview.setLayoutParams(params);
-                } else if (binding.keyboardButton.getVisibility() == View.VISIBLE && keyboardHeight > 100) {
-                    binding.emojiButton.setVisibility(View.GONE);
-                    params.height = keyboardHeight;
-                    emojipickerview.setLayoutParams(params);
                 }
-                if (activity != null && activity.xmppConnectionService != null && isKeyboardVisible && activity.xmppConnectionService.showTextFormatting()) {
+            }
+        } else {
+            if (emojiPickerRequestedByUser) {
+                emojiPickerRequestedByUser = false;
+                params.height = getEmojiPickerHeight();
+                emojipickerview.setLayoutParams(params);
+            } else if (binding.keyboardButton.getVisibility() != View.VISIBLE && params.height != 0) {
+                params.height = 0;
+                emojipickerview.setLayoutParams(params);
+            }
+        }
+    }
+
+    private void updateEmojiPickerTabStyles() {
+        if (binding.emojiPicker.getVisibility() == VISIBLE) {
+            binding.emojisButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
+            binding.emojisButton.setTypeface(null, Typeface.BOLD);
+        } else {
+            binding.emojisButton.setBackgroundColor(0);
+            binding.emojisButton.setTypeface(null, Typeface.NORMAL);
+        }
+        if (binding.stickersview.getVisibility() == VISIBLE) {
+            binding.stickersButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
+            binding.stickersButton.setTypeface(null, Typeface.BOLD);
+        } else {
+            binding.stickersButton.setBackgroundColor(0);
+            binding.stickersButton.setTypeface(null, Typeface.NORMAL);
+        }
+        if (binding.gifsview.getVisibility() == VISIBLE) {
+            binding.gifsButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
+            binding.gifsButton.setTypeface(null, Typeface.BOLD);
+        } else {
+            binding.gifsButton.setBackgroundColor(0);
+            binding.gifsButton.setTypeface(null, Typeface.NORMAL);
+        }
+    }
+
+    public void updateinputfield(final boolean me) {
+        if (Build.VERSION.SDK_INT > 29) {
+            ViewCompat.setOnApplyWindowInsetsListener(activity.getWindow().getDecorView(), (v, insets) -> {
+                final boolean isKeyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
+                int keyboardHeight = 0;
+                if (isKeyboardVisible && activity != null) {
+                    keyboardHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                            - insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+                    if (keyboardHeight < 0) keyboardHeight = 0;
+                }
+                onKeyboardStateChanged(keyboardHeight, isKeyboardVisible && keyboardHeight > 100);
+                if (activity != null && activity.xmppConnectionService != null
+                        && isKeyboardVisible && activity.xmppConnectionService.showTextFormatting()) {
                     showTextFormat(me);
                 } else {
                     hideTextFormat();
@@ -6222,36 +6636,12 @@ public class ConversationFragment extends XmppFragment
                 return ViewCompat.onApplyWindowInsets(v, insets);
             });
         } else {
-            if (keyboardHeightProvider != null) {
-                return;
-            }
-            RelativeLayout llRoot = binding.conversationsFragment; //The root layout (Linear, Relative, Contraint, etc...)
-            keyboardHeightListener = (int keyboardHeight, boolean keyboardOpen, boolean isLandscape) -> {
-                Log.i("keyboard listener", "keyboardHeight: " + keyboardHeight + " keyboardOpen: " + keyboardOpen + " isLandscape: " + isLandscape);
-                if (keyboardOpen && !(secondaryFragment instanceof ConversationFragment)) {
-                    binding.keyboardButton.setVisibility(View.GONE);
-                    binding.emojiButton.setVisibility(View.VISIBLE);
-                    params.height = keyboardHeight - 10;
-                    emojipickerview.setLayoutParams(params);
-                } else if (keyboardOpen) {
-                    binding.keyboardButton.setVisibility(View.GONE);
-                    binding.emojiButton.setVisibility(View.VISIBLE);
-                    params.height = keyboardHeight - 135;
-                    emojipickerview.setLayoutParams(params);
-                } else if (binding.emojiButton.getVisibility() == View.VISIBLE) {
-                    binding.keyboardButton.setVisibility(View.GONE);
-                    params.height = 0;
-                    emojipickerview.setLayoutParams(params);
-                } else if (binding.keyboardButton.getVisibility() == View.VISIBLE && keyboardHeight == 0) {
-                    binding.emojiButton.setVisibility(View.GONE);
-                    params.height = 600;
-                    emojipickerview.setLayoutParams(params);
-                } else if (binding.keyboardButton.getVisibility() == View.VISIBLE && keyboardHeight > 100) {
-                    binding.emojiButton.setVisibility(View.GONE);
-                    params.height = keyboardHeight;
-                    emojipickerview.setLayoutParams(params);
-                }
-                if (activity != null && activity.xmppConnectionService != null && keyboardOpen && activity.xmppConnectionService.showTextFormatting()) {
+            if (keyboardHeightProvider != null) return;
+            final RelativeLayout llRoot = binding.conversationsFragment;
+            keyboardHeightListener = (keyboardHeight, keyboardOpen, isLandscape) -> {
+                onKeyboardStateChanged(keyboardHeight, keyboardOpen);
+                if (activity != null && activity.xmppConnectionService != null
+                        && keyboardOpen && activity.xmppConnectionService.showTextFormatting()) {
                     showTextFormat(me);
                 } else {
                     hideTextFormat();
@@ -6264,75 +6654,28 @@ public class ConversationFragment extends XmppFragment
     private final OnClickListener memojiButtonListener = new OnClickListener() {
         @Override
         public void onClick(View v) {
-            if (binding.emojiButton.getVisibility() == VISIBLE && binding.emojisStickerLayout.getHeight() > 100) {
-                binding.emojiButton.setVisibility(GONE);
-                binding.keyboardButton.setVisibility(VISIBLE);
-                hideSoftKeyboard(activity);
-                EmojiPickerView emojiPickerView = binding.emojiPicker;
-                backPressedLeaveEmojiPicker.setEnabled(true);
-                binding.textinput.requestFocus();
-                emojiPickerView.setOnEmojiPickedListener(emojiViewItem -> {
-                    int start = binding.textinput.getSelectionStart(); //this is to get the the cursor position
-                    binding.textinput.getText().insert(start, emojiViewItem.getEmoji()); //this will get the text and insert the emoji into   the current position
-                });
+            if (binding.emojiButton.getVisibility() != VISIBLE) return;
 
-                if (binding.emojiPicker.getVisibility() == VISIBLE) {
-                    binding.emojisButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                    binding.emojisButton.setTypeface(null, Typeface.BOLD);
-                } else {
-                    binding.emojisButton.setBackgroundColor(0);
-                    binding.emojisButton.setTypeface(null, Typeface.NORMAL);
-                }
-                if (binding.stickersview.getVisibility() == VISIBLE) {
-                    binding.stickersButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                    binding.stickersButton.setTypeface(null, Typeface.BOLD);
-                } else {
-                    binding.stickersButton.setBackgroundColor(0);
-                    binding.stickersButton.setTypeface(null, Typeface.NORMAL);
-                }
-                if (binding.gifsview.getVisibility() == VISIBLE) {
-                    binding.gifsButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                    binding.gifsButton.setTypeface(null, Typeface.BOLD);
-                } else {
-                    binding.gifsButton.setBackgroundColor(0);
-                    binding.gifsButton.setTypeface(null, Typeface.NORMAL);
-                }
-            } else if (binding.emojiButton.getVisibility() == VISIBLE && binding.emojisStickerLayout.getHeight() < 100) {
-                LinearLayout emojipickerview = binding.emojisStickerLayout;
-                ViewGroup.LayoutParams params = emojipickerview.getLayoutParams();
-                params.height = 800;
-                emojipickerview.setLayoutParams(params);
-                binding.emojiButton.setVisibility(GONE);
-                binding.keyboardButton.setVisibility(VISIBLE);
-                hideSoftKeyboard(activity);
-                EmojiPickerView emojiPickerView = binding.emojiPicker;
-                backPressedLeaveEmojiPicker.setEnabled(true);
-                binding.textinput.requestFocus();
-                emojiPickerView.setOnEmojiPickedListener(emojiViewItem -> {
-                    int start = binding.textinput.getSelectionStart(); //this is to get the the cursor position
-                    binding.textinput.getText().insert(start, emojiViewItem.getEmoji()); //this will get the text and insert the emoji into   the current position
-                });
+            binding.emojiButton.setVisibility(GONE);
+            binding.keyboardButton.setVisibility(VISIBLE);
+            backPressedLeaveEmojiPicker.setEnabled(true);
+            binding.textinput.requestFocus();
 
-                if (binding.emojiPicker.getVisibility() == VISIBLE) {
-                    binding.emojisButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                    binding.emojisButton.setTypeface(null, Typeface.BOLD);
-                } else {
-                    binding.emojisButton.setBackgroundColor(0);
-                    binding.emojisButton.setTypeface(null, Typeface.NORMAL);
-                }
-                if (binding.stickersview.getVisibility() == VISIBLE) {
-                    binding.stickersButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                    binding.stickersButton.setTypeface(null, Typeface.BOLD);
-                } else {
-                    binding.stickersButton.setBackgroundColor(0);
-                    binding.stickersButton.setTypeface(null, Typeface.NORMAL);
-                }
-                if (binding.gifsview.getVisibility() == VISIBLE) {
-                    binding.gifsButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                    binding.gifsButton.setTypeface(null, Typeface.BOLD);
-                } else {
-                    binding.gifsButton.setBackgroundColor(0);
-                    binding.gifsButton.setTypeface(null, Typeface.NORMAL);
+            binding.emojiPicker.setOnEmojiPickedListener(emojiViewItem -> {
+                final int start = binding.textinput.getSelectionStart();
+                binding.textinput.getText().insert(start, emojiViewItem.getEmoji());
+            });
+            updateEmojiPickerTabStyles();
+
+            if (keyboardCurrentlyVisible) {
+                emojiPickerRequestedByUser = true;
+                hideSoftKeyboard(activity);
+            } else {
+                final LinearLayout emojipickerview = binding.emojisStickerLayout;
+                final ViewGroup.LayoutParams params = emojipickerview.getLayoutParams();
+                if (params.height < 100) {
+                    params.height = getEmojiPickerHeight();
+                    emojipickerview.setLayoutParams(params);
                 }
             }
         }
@@ -6463,14 +6806,15 @@ public class ConversationFragment extends XmppFragment
     private final OnClickListener mkeyboardButtonListener = new OnClickListener() {
         @Override
         public void onClick(View v) {
-            if (binding.keyboardButton.getVisibility() == VISIBLE) {
-                binding.keyboardButton.setVisibility(GONE);
-                binding.emojiButton.setVisibility(VISIBLE);
-                InputMethodManager inputMethodManager = (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
-                if (inputMethodManager != null) {
-                    binding.textinput.requestFocus();
-                    inputMethodManager.showSoftInput(binding.textinput, InputMethodManager.SHOW_IMPLICIT);
-                }
+            if (binding.keyboardButton.getVisibility() != VISIBLE) return;
+            binding.keyboardButton.setVisibility(GONE);
+            binding.emojiButton.setVisibility(VISIBLE);
+            // Do NOT collapse height here. Let onKeyboardStateChanged collapse it in sync
+            // with the keyboard sliding up, same as when tapping the input field directly.
+            final InputMethodManager inputMethodManager = (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (inputMethodManager != null) {
+                binding.textinput.requestFocus();
+                inputMethodManager.showSoftInput(binding.textinput, InputMethodManager.SHOW_IMPLICIT);
             }
         }
     };
@@ -6479,17 +6823,43 @@ public class ConversationFragment extends XmppFragment
         @Override
         public void handleOnBackPressed() {
             if (binding.emojisStickerLayout.getHeight() > 100) {
-                LinearLayout emojipickerview = binding.emojisStickerLayout;
-                ViewGroup.LayoutParams params = emojipickerview.getLayoutParams();
+                final LinearLayout emojipickerview = binding.emojisStickerLayout;
+                final ViewGroup.LayoutParams params = emojipickerview.getLayoutParams();
                 params.height = 0;
                 emojipickerview.setLayoutParams(params);
                 binding.keyboardButton.setVisibility(GONE);
                 binding.emojiButton.setVisibility(VISIBLE);
             }
+            emojiPickerRequestedByUser = false;
             this.setEnabled(false);
             refresh();
         }
     };
+
+    private void insertStickerIntoInput(final SpannableStringBuilder span) {
+        if (binding == null) return;
+        final Editable editable = binding.textinput.getText();
+        final int start = Math.max(binding.textinput.getSelectionStart(), 0);
+        final int end = Math.max(binding.textinput.getSelectionEnd(), 0);
+        editable.replace(Math.min(start, end), Math.max(start, end), span);
+    }
+
+    private void insertStickerFromFile(final File stickerFile, final String shortcode, final Drawable icon) {
+        new Thread(() -> {
+            try {
+                final Cid[] cids = activity.xmppConnectionService.getFileBackend()
+                        .calculateCids(new FileInputStream(stickerFile));
+                try { activity.xmppConnectionService.saveCid(cids[0], stickerFile); }
+                catch (final XmppConnectionService.BlockedMediaException ignored) { }
+                final SpannableStringBuilder span = new EmojiSearch.CustomEmoji(
+                        shortcode, cids[0].toString(), icon,
+                        stickerFile.getParentFile().getName()).toInsert();
+                activity.runOnUiThread(() -> insertStickerIntoInput(span));
+            } catch (final Exception e) {
+                Log.w(Config.LOGTAG, "sticker insert: " + e);
+            }
+        }).start();
+    }
 
     public void LoadStickers() {
         if (!hasStoragePermission(activity)) return;
@@ -6531,9 +6901,20 @@ public class ConversationFragment extends XmppFragment
                 StickersGrid.setAdapter(new StickersAdapter(activity, StickerfilesNames, StickerfilesPaths));
                 StickersGrid.setOnItemClickListener((parent, view, position, id) -> {
                     if (activity == null || StickerfilesPaths == null || position >= StickerfilesPaths.length) return;
-                    String filePath = StickerfilesPaths[position];
-                    mediaPreviewAdapter.addMediaPreviews(Attachment.of(activity, Uri.fromFile(new File(filePath)), Attachment.Type.IMAGE));
-                    toggleInputMethod();
+                    final String name = StickerfilesNames[position];
+                    final String shortcode = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+                    setupEmojiSearch();
+                    if (emojiSearch != null) {
+                        for (final EmojiSearch.Emoji emoji : emojiSearch.find(shortcode)) {
+                            if (emoji instanceof EmojiSearch.CustomEmoji && emoji.shortcodeMatch(shortcode)) {
+                                insertStickerIntoInput(((EmojiSearch.CustomEmoji) emoji).toInsert());
+                                return;
+                            }
+                        }
+                    }
+                    final ImageView gridItemView = view.findViewById(R.id.grid_item);
+                    final Drawable icon = gridItemView != null ? gridItemView.getDrawable() : null;
+                    insertStickerFromFile(new File(StickerfilesPaths[position]), shortcode, icon);
                 });
 
                 StickersGrid.setOnItemLongClickListener((parent, view, position, id) -> {
@@ -6588,9 +6969,20 @@ public class ConversationFragment extends XmppFragment
                 GifsGrid.setAdapter(new GifsAdapter(activity, GifsfilesNames, GifsfilesPaths));
                 GifsGrid.setOnItemClickListener((parent, view, position, id) -> {
                     if (activity == null || GifsfilesPaths == null || position >= GifsfilesPaths.length) return;
-                    String filePath = GifsfilesPaths[position];
-                    mediaPreviewAdapter.addMediaPreviews(Attachment.of(activity, Uri.fromFile(new File(filePath)), Attachment.Type.IMAGE));
-                    toggleInputMethod();
+                    final String name = GifsfilesNames[position];
+                    final String shortcode = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+                    setupEmojiSearch();
+                    if (emojiSearch != null) {
+                        for (final EmojiSearch.Emoji emoji : emojiSearch.find(shortcode)) {
+                            if (emoji instanceof EmojiSearch.CustomEmoji && emoji.shortcodeMatch(shortcode)) {
+                                insertStickerIntoInput(((EmojiSearch.CustomEmoji) emoji).toInsert());
+                                return;
+                            }
+                        }
+                    }
+                    final ImageView gridItemView = view.findViewById(R.id.grid_item);
+                    final Drawable icon = gridItemView != null ? gridItemView.getDrawable() : null;
+                    insertStickerFromFile(new File(GifsfilesPaths[position]), shortcode, icon);
                 });
 
                 GifsGrid.setOnItemLongClickListener((parent, view, position, id) -> {
@@ -6759,6 +7151,9 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void loadMediaFromBackground() {
+        if (backgroundExecutor.isShutdown()) {
+            return;
+        }
         backgroundExecutor.execute(() -> {
             LoadStickers();
             LoadGifs();
@@ -6772,8 +7167,10 @@ public class ConversationFragment extends XmppFragment
             return;
         }
 
-        // Using a background thread for repository access
-        new Thread(() -> {
+        if (backgroundExecutor.isShutdown()) {
+            return;
+        }
+        backgroundExecutor.execute(() -> {
             final PinnedMessageRepository.DecryptedPinnedMessageData pinnedData =
                     pinnedMessageRepository.getLatestDecryptedPinnedMessageForConversation(conversation.getUuid());
 
@@ -6866,7 +7263,7 @@ public class ConversationFragment extends XmppFragment
                     }
                 });
             }
-        }).start();
+        });
     }
 
     /**
@@ -7046,7 +7443,9 @@ public class ConversationFragment extends XmppFragment
     public void onUnpinClick(PinnedMessageRepository.DecryptedPinnedMessageData messageData) {
         if (conversation != null) {
             // Use your repository to delete the message
-            backgroundExecutor.execute(() -> pinnedMessageRepository.delete(conversation.getUuid(), messageData.messageUuid));
+            if (!backgroundExecutor.isShutdown()) {
+                backgroundExecutor.execute(() -> pinnedMessageRepository.delete(conversation.getUuid(), messageData.messageUuid));
+            }
 
             // Remove the item from the adapter to update the UI instantly
             if (pinnedMessagesPopup != null && pinnedMessagesPopup.getListView() != null) {

@@ -8,8 +8,9 @@ import java.io.IOException;
 
 public class BackupFileHeader {
 
-    private static final int VERSION = 2;
+    public static final int VERSION = 4;
 
+    private final int fileVersion;
     private final String app;
     private final Jid jid;
     private final long timestamp;
@@ -20,7 +21,9 @@ public class BackupFileHeader {
     @Override
     public String toString() {
         return "BackupFileHeader{"
-                + "app='"
+                + "version="
+                + fileVersion
+                + ", app='"
                 + app
                 + '\''
                 + ", jid="
@@ -35,6 +38,11 @@ public class BackupFileHeader {
     }
 
     public BackupFileHeader(String app, Jid jid, long timestamp, byte[] iv, byte[] salt) {
+        this(VERSION, app, jid, timestamp, iv, salt);
+    }
+
+    public BackupFileHeader(int fileVersion, String app, Jid jid, long timestamp, byte[] iv, byte[] salt) {
+        this.fileVersion = fileVersion;
         this.app = app;
         this.jid = jid;
         this.timestamp = timestamp;
@@ -43,7 +51,7 @@ public class BackupFileHeader {
     }
 
     public void write(DataOutputStream dataOutputStream) throws IOException {
-        dataOutputStream.writeInt(VERSION);
+        dataOutputStream.writeInt(fileVersion);
         dataOutputStream.writeUTF(app);
         dataOutputStream.writeUTF(jid.asBareJid().toString());
         dataOutputStream.writeLong(timestamp);
@@ -60,17 +68,21 @@ public class BackupFileHeader {
         inputStream.readFully(iv);
         final byte[] salt = new byte[16];
         inputStream.readFully(salt);
-        if (version < VERSION) {
+        if (version < 2) {
             throw new OutdatedBackupFileVersion();
         }
-        if (version != VERSION) {
+        if (version > VERSION) {
             throw new IllegalArgumentException(
                     "Backup File version was "
                             + version
                             + " but app only supports version "
                             + VERSION);
         }
-        return new BackupFileHeader(app, Jid.of(jid), timestamp, iv, salt);
+        return new BackupFileHeader(version, app, Jid.of(jid), timestamp, iv, salt);
+    }
+
+    public int getVersion() {
+        return fileVersion;
     }
 
     public byte[] getSalt() {

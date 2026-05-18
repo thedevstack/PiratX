@@ -39,15 +39,21 @@
             android:title="@string/pref_hide_media_title"
             android:summary="@string/pref_hide_media_summary" />
         <SwitchPreferenceCompat
-            android:defaultValue="@bool/default_store_media_in_cache"
+            android:defaultValue="@bool/delete_unused_files"
+            android:icon="@drawable/ic_delete_24dp"
+            android:key="delete_unused_files"
+            android:summary="@string/pref_delete_unused_files_summary"
+            android:title="@string/pref_delete_unused_files" />
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/default_store_media_securely"
             android:icon="@drawable/ic_archive_24dp"
-            android:key="default_store_media_in_cache"
+            android:key="default_store_media_securely"
             android:summary="@string/pref_store_media_in_cache"
             android:title="@string/store_media_only_in_cache" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/pref_advanced_options">
         <ListPreference
-            android:defaultValue="30"
+            android:defaultValue="0"
             android:icon="@drawable/ic_auto_delete_24dp"
             android:entries="@array/cache_deletion_entries"
             android:entryValues="@array/cache_deletion_values"

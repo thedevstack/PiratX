@@ -47,6 +47,7 @@ import androidx.viewpager2.widget.ViewPager2;
 
 import com.bumptech.glide.Glide;
 import com.github.chrisbanes.photoview.PhotoView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.leinardi.android.speeddial.SpeedDialActionItem;
 
 import java.io.File;
@@ -61,6 +62,7 @@ import eu.siacs.conversations.databinding.ActivityMediaViewerBinding;
 import eu.siacs.conversations.databinding.ItemMediaViewerBinding;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.persistance.FileBackend;
+import eu.siacs.conversations.ui.MediaBrowserActivity;
 import eu.siacs.conversations.ui.UiCallback;
 import eu.siacs.conversations.ui.XmppActivity;
 import eu.siacs.conversations.ui.interfaces.OnMediaLoaded;
@@ -82,6 +84,7 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
     int rotation = 0;
     boolean isImage = false;
     boolean isVideo = false;
+    boolean isAudio = false;
     private ActivityMediaViewerBinding binding;
     private GestureDetector gestureDetector;
     MediaSession mediaSession;
@@ -212,7 +215,7 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
         Intent openIntent = new Intent(Intent.ACTION_VIEW);
         openIntent.setDataAndType(uri, mime);
         openIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        if (player != null && isVideo) {
+        if (player != null && (isVideo || isAudio)) {
             openIntent.putExtra("position", player.getCurrentPosition());
         }
         try {
@@ -392,7 +395,7 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
 
     @Override
     public void onStop() {
-        if (player != null && isVideo) {
+        if (player != null && (isVideo || isAudio)) {
             player.stop();
         }
         WindowManager.LayoutParams layout = getWindow().getAttributes();
@@ -438,9 +441,20 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
     }
 
     private void setupSingleMediaFallback(Intent intent) {
-        Uri uri = intent.hasExtra("image") ? intent.getParcelableExtra("image") : intent.getParcelableExtra("video");
+        Uri uri = null;
+        String mime = null;
+        if (intent.hasExtra("image")) {
+            uri = intent.getParcelableExtra("image");
+            mime = "image/*";
+        } else if (intent.hasExtra("video")) {
+            uri = intent.getParcelableExtra("video");
+            mime = "video/*";
+        } else if (intent.hasExtra("audio")) {
+            uri = intent.getParcelableExtra("audio");
+            mime = "audio/*";
+        }
+
         if (uri != null) {
-            String mime = intent.hasExtra("image") ? "image/*" : "video/*";
             attachments.add(Attachment.of(UUID.randomUUID(), new File(uri.getPath()), mime));
             pagerAdapter.notifyDataSetChanged();
         }
@@ -506,7 +520,7 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
             attachments.clear();
             for (Attachment a : loadedAttachments) {
                 String mime = a.getMime();
-                if (mime != null && (mime.startsWith("image/") || mime.startsWith("video/"))) {
+                if (mime != null && (mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/"))) {
                     attachments.add(a);
                 }
             }
@@ -534,7 +548,7 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             Attachment attachment = attachments.get(position);
-            if (attachment.getMime().startsWith("video/")) {
+            if (attachment.getMime().startsWith("video/") || attachment.getMime().startsWith("audio/")) {
                 holder.binding.messageImageView.setVisibility(View.GONE);
                 holder.binding.messageVideoView.setVisibility(View.VISIBLE);
                 holder.binding.messageVideoView.hideController();
@@ -582,6 +596,10 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
             } catch (Exception e) {
                 rotation = 0;
             }
+        } else if (mime.startsWith("audio/")) {
+            height = 0;
+            width = 0;
+            rotation = 0;
         }
         if (useAutoRotateScreen()) {
             rotateScreen(width, height, rotation);
@@ -601,8 +619,9 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
             }
         }
 
-        if (attachment.getMime().startsWith("video/")) {
-            isVideo = true;
+        if (attachment.getMime().startsWith("video/") || attachment.getMime().startsWith("audio/")) {
+            isVideo = attachment.getMime().startsWith("video/");
+            isAudio = attachment.getMime().startsWith("audio/");
             isImage = false;
             player.stop();
             player.setMediaItem(MediaItem.fromUri(attachment.getUri()));
@@ -617,6 +636,7 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
             }
         } else {
             isVideo = false;
+            isAudio = false;
             isImage = true;
             player.stop();
         }
@@ -657,7 +677,12 @@ public class MediaViewerActivity extends XmppActivity implements OnMediaLoaded, 
                     open();
                     break;
                 case R.id.action_save:
-                    saveToDownloads(mFile);
+                    new MaterialAlertDialogBuilder(MediaViewerActivity.this)
+                            .setTitle(R.string.action_save_to_downloads)
+                            .setMessage(R.string.save_to_downloads_warning)
+                            .setPositiveButton(R.string.confirm, (dialog, which) -> saveToDownloads(mFile))
+                            .setNegativeButton(R.string.cancel, null)
+                            .show();
                     break;
                 case R.id.action_delete:
                     deleteFile();

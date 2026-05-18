@@ -1,7 +1,9 @@
 package eu.siacs.conversations.ui;
 
 import android.Manifest;
+import android.app.KeyguardManager;
 import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
@@ -10,18 +12,23 @@ import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.security.KeyChain;
 import android.security.KeyChainAliasCallback;
+import android.text.InputType;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.databinding.DataBindingUtil;
 import androidx.viewpager.widget.PagerAdapter;
 import androidx.viewpager.widget.ViewPager;
+
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -35,12 +42,16 @@ import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivityWelcomeBinding;
 import eu.siacs.conversations.entities.Account;
+import eu.siacs.conversations.persistance.DatabaseBackend;
+import eu.siacs.conversations.persistance.UnifiedPushDatabase;
 import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.utils.FileHelper;
 import eu.siacs.conversations.utils.CryptoHelper;
 import eu.siacs.conversations.utils.Compatibility;
 import eu.siacs.conversations.utils.InstallReferrerUtils;
 import eu.siacs.conversations.utils.SignupUtils;
 import eu.siacs.conversations.utils.XmppUri;
+import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.xmpp.Jid;
 
 import static eu.siacs.conversations.AppSettings.ALLOW_SCREENSHOTS;
@@ -54,12 +65,10 @@ import static eu.siacs.conversations.AppSettings.SHOW_MAPS_INSIDE;
 import static eu.siacs.conversations.AppSettings.UNENCRYPTED_REACTIONS;
 import static eu.siacs.conversations.AppSettings.BLIND_TRUST_BEFORE_VERIFICATION;
 import static eu.siacs.conversations.AppSettings.SEND_CRASH_REPORTS;
-import static eu.siacs.conversations.AppSettings.USE_CACHE_STORAGE;
+import static eu.siacs.conversations.AppSettings.USE_INTERNAL_SECURE_STORAGE;
 import static eu.siacs.conversations.utils.PermissionUtils.allGranted;
 import static eu.siacs.conversations.utils.PermissionUtils.writeGranted;
 import static eu.siacs.conversations.xml.Namespace.CHAT_STATES;
-
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public class WelcomeActivity extends XmppActivity implements XmppConnectionService.OnAccountCreated, XmppConnectionService.OnAccountUpdate, KeyChainAliasCallback {
 
@@ -70,15 +79,15 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     static final int ALLOWSCREENSHOTS = 1;
     static final int SHOWWEBLINKS = 2;
     static final int SHOWMAPPREVIEW = 3;
-    static final int UNENCRYPTEDREACTIONS = 4;
     static final int CHATSTATES = 5;
     static final int CONFIRMMESSAGES = 6;
     static final int LASTSEEN = 7;
     static final int BLINDTRUST = 8;
     static final int ENFORCEDANE = 9;
     static final int USESECURETLSCIPHERS = 10;
-    static final int USECACHESTORAGE = 11;
+    static final int USESECURESTORAGE = 11;
     static final int SENDCRASHREPORTS = 12;
+    static final int DATABASEENCRYPTION = 13;
 
     private XmppUri inviteUri;
     private Account onboardingAccount = null;
@@ -151,6 +160,12 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
             onboardingAccount = xmppConnectionService.getAccounts().get(0);
             xmppConnectionService.reconnectAccountInBackground(onboardingAccount);
         }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        updateDatabaseEncryptionButton();
     }
 
     @Override
@@ -255,6 +270,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
                 startActivity(new Intent(this, ImportBackupActivity.class));
             }
         });
+        binding.useCert.setOnClickListener(v -> addAccountFromKey());
         getDefaults();
         createInfoMenu();
     }
@@ -264,31 +280,32 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
         this.binding.actionInfoAllowScreenshots.setOnClickListener(string -> showInfo(ALLOWSCREENSHOTS));
         this.binding.actionInfoShowWeblinks.setOnClickListener(string -> showInfo(SHOWWEBLINKS));
         this.binding.actionInfoShowMapPreviews.setOnClickListener(string -> showInfo(SHOWMAPPREVIEW));
-        this.binding.actionInfoAllowUnencryptedReactions.setOnClickListener(string -> showInfo(UNENCRYPTEDREACTIONS));
         this.binding.actionInfoChatStates.setOnClickListener(string -> showInfo(CHATSTATES));
         this.binding.actionInfoConfirmMessages.setOnClickListener(string -> showInfo(CONFIRMMESSAGES));
         this.binding.actionInfoLastSeen.setOnClickListener(string -> showInfo(LASTSEEN));
         this.binding.actionInfoBlindTrust.setOnClickListener(string -> showInfo(BLINDTRUST));
         this.binding.actionInfoDane.setOnClickListener(string -> showInfo(ENFORCEDANE));
         this.binding.actionInfoUseSecureTls.setOnClickListener(string -> showInfo(USESECURETLSCIPHERS));
-        this.binding.actionInfoStoreInCache.setOnClickListener(string -> showInfo(USECACHESTORAGE));
+        this.binding.actionInfoStoreSecurely.setOnClickListener(string -> showInfo(USESECURESTORAGE));
         this.binding.actionInfoSendCrashReports.setOnClickListener(string -> showInfo(SENDCRASHREPORTS));
+        this.binding.actionInfoDatabaseEncryption.setOnClickListener(string -> showInfo(DATABASEENCRYPTION));
+        this.binding.setupDatabaseEncryption.setOnClickListener(v -> showDatabaseEncryptionDialog());
     }
 
     private void getDefaults() {
-        //this.binding.switchLoadProvidersListExternal.setChecked(getResources().getBoolean(R.bool.load_providers_list_external));
-        this.binding.allowScreenshots.setChecked(getResources().getBoolean(R.bool.allow_screenshots));
-        this.binding.showLinks.setChecked(getResources().getBoolean(R.bool.show_link_previews));
-        this.binding.showMappreview.setChecked(getResources().getBoolean(R.bool.show_maps_inside));
-        this.binding.allowUnencryptedReactions.setChecked(getResources().getBoolean(R.bool.allow_unencrypted_reactions));
-        this.binding.chatStates.setChecked(getResources().getBoolean(R.bool.chat_states));
-        this.binding.confirmMessages.setChecked(getResources().getBoolean(R.bool.confirm_messages));
-        this.binding.lastSeen.setChecked(getResources().getBoolean(R.bool.last_activity));
-        this.binding.blindTrust.setChecked(getResources().getBoolean(R.bool.btbv));
-        this.binding.dane.setChecked(getResources().getBoolean(R.bool.enforce_dane));
-        this.binding.useSecureTls.setChecked(getResources().getBoolean(R.bool.require_tls_v1_3));
-        this.binding.storeInCache.setChecked(getResources().getBoolean(R.bool.default_store_media_in_cache));
-        this.binding.sendCrashReports.setChecked(getResources().getBoolean(R.bool.send_crash_reports));
+        final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        //this.binding.switchLoadProvidersListExternal.setChecked(preferences.getBoolean(LOAD_PROVIDERS_EXTERNAL, getResources().getBoolean(R.bool.load_providers_list_external)));
+        this.binding.allowScreenshots.setChecked(preferences.getBoolean(ALLOW_SCREENSHOTS, getResources().getBoolean(R.bool.allow_screenshots)));
+        this.binding.showLinks.setChecked(preferences.getBoolean(SHOW_LINK_PREVIEWS, getResources().getBoolean(R.bool.show_link_previews)));
+        this.binding.showMappreview.setChecked(preferences.getBoolean(SHOW_MAPS_INSIDE, getResources().getBoolean(R.bool.show_maps_inside)));
+        this.binding.chatStates.setChecked(preferences.getBoolean(CHAT_STATES, getResources().getBoolean(R.bool.chat_states)));
+        this.binding.confirmMessages.setChecked(preferences.getBoolean(CONFIRM_MESSAGES, getResources().getBoolean(R.bool.confirm_messages)));
+        this.binding.lastSeen.setChecked(preferences.getBoolean(BROADCAST_LAST_ACTIVITY, getResources().getBoolean(R.bool.last_activity)));
+        this.binding.blindTrust.setChecked(preferences.getBoolean(BLIND_TRUST_BEFORE_VERIFICATION, getResources().getBoolean(R.bool.btbv)));
+        this.binding.dane.setChecked(preferences.getBoolean(DANE_ENFORCED, getResources().getBoolean(R.bool.enforce_dane)));
+        this.binding.useSecureTls.setChecked(preferences.getBoolean(REQUIRE_TLS_V1_3, getResources().getBoolean(R.bool.require_tls_v1_3)));
+        this.binding.storeSecurely.setChecked(preferences.getBoolean(USE_INTERNAL_SECURE_STORAGE, getResources().getBoolean(R.bool.default_store_media_securely)));
+        this.binding.sendCrashReports.setChecked(preferences.getBoolean(SEND_CRASH_REPORTS, getResources().getBoolean(R.bool.send_crash_reports)));
     }
 
 
@@ -311,10 +328,6 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
             case SHOWMAPPREVIEW:
                 title = getString(R.string.pref_show_mappreview_inside);
                 message = getString(R.string.pref_show_mappreview_inside_summary);
-                break;
-            case UNENCRYPTEDREACTIONS:
-                title = getString(R.string.pref_allow_unencrypted_reactions);
-                message = getString(R.string.pref_allow_unencrypted_reactions_summary);
                 break;
             case CHATSTATES:
                 title = getString(R.string.pref_chat_states);
@@ -340,13 +353,17 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
                 title = getString(R.string.strong_transport_security);
                 message = getString(R.string.require_tls_v1_3);
                 break;
-            case USECACHESTORAGE:
+            case USESECURESTORAGE:
                 title = getString(R.string.store_media_only_in_cache);
                 message = getString(R.string.pref_store_media_in_cache);
                 break;
             case SENDCRASHREPORTS:
                 title = getString(R.string.pref_send_crash_reports);
                 message = getString(R.string.pref_never_send_crash_summary);
+                break;
+            case DATABASEENCRYPTION:
+                title = getString(R.string.pref_database_encryption);
+                message = getString(R.string.pref_database_encryption_summary);
                 break;
             default:
                 title = getString(R.string.error);
@@ -361,20 +378,145 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     }
 
 
+    private void updateDatabaseEncryptionButton() {
+        boolean encrypted;
+        try {
+            encrypted = new AppSettings(this).getDatabasePasswordChars() != null;
+        } catch (Exception e) {
+            encrypted = false;
+        }
+        if (encrypted) {
+            this.binding.setupDatabaseEncryption.setText(R.string.pref_database_encryption_summary_enabled);
+            this.binding.setupDatabaseEncryption.setEnabled(false);
+        } else {
+            this.binding.setupDatabaseEncryption.setEnabled(true);
+        }
+    }
+
+    private void showDatabaseEncryptionDialog() {
+        final var builder = new MaterialAlertDialogBuilder(this);
+        builder.setTitle(R.string.dialog_set_db_password_title);
+
+        final var layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        layout.setPadding(padding, padding, padding, padding);
+
+        final var warningText = new android.widget.TextView(this);
+        warningText.setText(R.string.dialog_db_password_policy_warning);
+        warningText.setTextColor(getColor(android.R.color.holo_red_dark));
+        warningText.setPadding(0, 0, 0, padding);
+        layout.addView(warningText);
+
+        final KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        if (keyguardManager != null && !keyguardManager.isDeviceSecure()) {
+            final var lockWarningText = new android.widget.TextView(this);
+            lockWarningText.setText(R.string.dialog_db_password_no_lock_warning);
+            lockWarningText.setTextColor(getColor(android.R.color.holo_orange_dark));
+            lockWarningText.setPadding(0, 0, 0, padding);
+            layout.addView(lockWarningText);
+        }
+
+        final var passwordInput = new com.google.android.material.textfield.TextInputEditText(this);
+        passwordInput.setHint(R.string.dialog_db_password_hint);
+        passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        layout.addView(passwordInput);
+
+        final var confirmInput = new com.google.android.material.textfield.TextInputEditText(this);
+        confirmInput.setHint(R.string.dialog_db_password_confirm_hint);
+        confirmInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        layout.addView(confirmInput);
+
+        final var noRecoveryCheckbox = new android.widget.CheckBox(this);
+        noRecoveryCheckbox.setText(R.string.dialog_db_password_no_recovery_checkbox);
+        noRecoveryCheckbox.setPadding(0, padding / 2, 0, 0);
+        layout.addView(noRecoveryCheckbox);
+
+        builder.setView(layout);
+        builder.setPositiveButton(android.R.string.ok, null);
+        builder.setNegativeButton(android.R.string.cancel, null);
+        final AlertDialog d = builder.show();
+        final android.widget.Button okButton = d.getButton(AlertDialog.BUTTON_POSITIVE);
+        okButton.setEnabled(false);
+        noRecoveryCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> okButton.setEnabled(isChecked));
+        okButton.setOnClickListener(v -> {
+            final var password = new char[passwordInput.length()];
+            passwordInput.getText().getChars(0, passwordInput.length(), password, 0);
+            final var confirm = new char[confirmInput.length()];
+            confirmInput.getText().getChars(0, confirmInput.length(), confirm, 0);
+
+            if (password.length == 0) {
+                Toast.makeText(this, "Password cannot be empty", Toast.LENGTH_SHORT).show();
+            } else if (password.length < 8) {
+                Toast.makeText(this, R.string.toast_db_password_error_too_short, Toast.LENGTH_SHORT).show();
+            } else if (CryptoHelper.isEqual(password, confirm)) {
+                passwordInput.getText().clear();
+                confirmInput.getText().clear();
+                d.dismiss();
+                performDatabaseMigration(password);
+                FileHelper.zero(confirm);
+                return;
+            } else {
+                Toast.makeText(this, R.string.toast_db_password_error_mismatch, Toast.LENGTH_SHORT).show();
+            }
+            FileHelper.zero(password);
+            FileHelper.zero(confirm);
+        });
+    }
+
+    private void performDatabaseMigration(char[] newPassword) {
+        final var progressBuilder = new MaterialAlertDialogBuilder(this);
+        progressBuilder.setTitle("Database Migration");
+        progressBuilder.setMessage("Please wait...");
+        progressBuilder.setCancelable(false);
+        final var progressBar = new android.widget.ProgressBar(this);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        progressBar.setPadding(padding, padding, padding, padding);
+        progressBuilder.setView(progressBar);
+        final AlertDialog progressDialog = progressBuilder.show();
+
+        new Thread(() -> {
+            try {
+                DatabaseBackend.migrate(this, null, newPassword);
+                UnifiedPushDatabase.migrate(this, null, newPassword);
+                if (xmppConnectionService != null) {
+                    xmppConnectionService.databaseBackend = DatabaseBackend.getInstance(this);
+                }
+                runOnUiThread(() -> {
+                    progressDialog.dismiss();
+                    Toast.makeText(this, R.string.toast_db_password_success_set, Toast.LENGTH_SHORT).show();
+                    this.binding.setupDatabaseEncryption.setText(R.string.pref_database_encryption_summary_enabled);
+                    this.binding.setupDatabaseEncryption.setEnabled(false);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    progressDialog.dismiss();
+                    new MaterialAlertDialogBuilder(this)
+                            .setTitle("Error")
+                            .setMessage(e.getMessage())
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                });
+            } finally {
+                FileHelper.zero(newPassword);
+            }
+        }).start();
+    }
+
+
     private void setSettings() {
         final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         //preferences.edit().putBoolean(LOAD_PROVIDERS_EXTERNAL, this.binding.switchLoadProvidersListExternal.isChecked()).apply();
         preferences.edit().putBoolean(ALLOW_SCREENSHOTS, this.binding.allowScreenshots.isChecked()).apply();
         preferences.edit().putBoolean(SHOW_LINK_PREVIEWS, this.binding.showLinks.isChecked()).apply();
         preferences.edit().putBoolean(SHOW_MAPS_INSIDE, this.binding.showMappreview.isChecked()).apply();
-        preferences.edit().putBoolean(UNENCRYPTED_REACTIONS, this.binding.allowUnencryptedReactions.isChecked()).apply();
         preferences.edit().putBoolean(CHAT_STATES, this.binding.chatStates.isChecked()).apply();
         preferences.edit().putBoolean(CONFIRM_MESSAGES, this.binding.confirmMessages.isChecked()).apply();
         preferences.edit().putBoolean(BROADCAST_LAST_ACTIVITY, this.binding.lastSeen.isChecked()).apply();
         preferences.edit().putBoolean(BLIND_TRUST_BEFORE_VERIFICATION, this.binding.blindTrust.isChecked()).apply();
         preferences.edit().putBoolean(DANE_ENFORCED, this.binding.dane.isChecked()).apply();
         preferences.edit().putBoolean(REQUIRE_TLS_V1_3, this.binding.useSecureTls.isChecked()).apply();
-        preferences.edit().putBoolean(USE_CACHE_STORAGE, this.binding.storeInCache.isChecked()).apply();
+        preferences.edit().putBoolean(USE_INTERNAL_SECURE_STORAGE, this.binding.storeSecurely.isChecked()).apply();
         preferences.edit().putBoolean(SEND_CRASH_REPORTS, this.binding.sendCrashReports.isChecked()).apply();
     }
 
@@ -409,14 +551,18 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
     private void addAccountFromKey() {
         try {
             KeyChain.choosePrivateKeyAlias(this, this, null, null, null, -1, null);
-        } catch (ActivityNotFoundException e) {
+        } catch (final Exception e) {
             Toast.makeText(this, R.string.device_does_not_support_certificates, Toast.LENGTH_LONG).show();
         }
     }
 
     @Override
     public void alias(final String alias) {
-        if (alias != null) {
+        if (alias == null) {
+            runOnUiThread(() -> Toast.makeText(this, R.string.no_certificate_selected, Toast.LENGTH_SHORT).show());
+            return;
+        }
+        if (xmppConnectionService != null) {
             xmppConnectionService.createAccountFromKey(alias, this);
         }
     }

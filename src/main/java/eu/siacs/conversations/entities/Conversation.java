@@ -89,6 +89,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
+import eu.siacs.conversations.AppSettings;
 import io.ipfs.cid.Cid;
 
 import io.michaelrocks.libphonenumber.android.NumberParseException;
@@ -218,6 +219,9 @@ public class Conversation extends AbstractEntity
     private static final String ATTRIBUTE_CRYPTO_TARGETS = "crypto_targets";
     private static final String ATTRIBUTE_NEXT_ENCRYPTION = "next_encryption";
     private static final String ATTRIBUTE_CORRECTING_MESSAGE = "correcting_message";
+    public static final String ATTRIBUTE_EPHEMERAL_TIMER = "ephemeral_timer";
+    public static final String ATTRIBUTE_EPHEMERAL_HINT_HIDDEN = "ephemeral_hint_hidden";
+    public static final String ATTRIBUTE_EPHEMERAL_BY = "ephemeral_by";
     protected final ArrayList<Message> messages = new ArrayList<>();
     protected final ArrayList<Message> historyPartMessages = new ArrayList<>();
     public AtomicBoolean messagesLoaded = new AtomicBoolean(true);
@@ -815,12 +819,13 @@ public class Conversation extends AbstractEntity
             }
         }
         Set<String> extraIds = new HashSet<>();
+        long now = System.currentTimeMillis();
         for (ListIterator<Message> iterator = messages.listIterator(messages.size()); iterator.hasPrevious(); ) {
             Message m = iterator.previous();
 
             /*
-            // **New Check: retracted messages**
-            if (m.getRetractId() != null) {
+            // **New Check: retracted or expired ephemeral messages**
+            if (m.getRetractId() != null || m.isDeleted() || (m.getExpireAt() > 0 && m.getExpireAt() < now)) {
                 iterator.remove();
                 continue; // Move to the next message
             }
@@ -1105,11 +1110,12 @@ public class Conversation extends AbstractEntity
 
     public Message getLatestMessage() {
         synchronized (this.messages) {
+            long now = System.currentTimeMillis();
             for (int i = messages.size() - 1; i >= 0; --i) {
                 final Message message = messages.get(i);
                 /*
-                // **NEW CHECK: Skip retracted messages**
-                if (message.getRetractId() != null) {
+                // **NEW CHECK: Skip retracted and expired messages**
+                if (message.getRetractId() != null || message.isDeleted() || (message.getExpireAt() > 0 && message.getExpireAt() < now)) {
                     message.markRead();
                     continue;
                 }
@@ -1557,10 +1563,10 @@ public class Conversation extends AbstractEntity
         return alwaysNotify() || getBooleanAttribute(ATTRIBUTE_NOTIFY_REPLIES, false);
     }
 
-    public void setStoreInCache(final boolean cache) {
+    public void setStoreSecurely(final boolean cache) {
         setAttribute("storeMedia", cache ? "explicit_on" : "explicit_off");}
 
-    public boolean storeInCache(final XmppConnectionService xmppConnectionService) {
+    public boolean storeSecurely(final XmppConnectionService xmppConnectionService) {
         final String preference = getAttribute("storeMedia");
 
         if ("explicit_on".equals(preference)) {
@@ -1571,7 +1577,7 @@ public class Conversation extends AbstractEntity
         }
 
         if (xmppConnectionService != null) {
-            return xmppConnectionService.getBooleanPreference("default_store_media_in_cache", R.bool.default_store_media_in_cache);
+            return xmppConnectionService.getBooleanPreference(AppSettings.USE_INTERNAL_SECURE_STORAGE, R.bool.default_store_media_securely);
         }
 
         return true;
@@ -1794,10 +1800,20 @@ public class Conversation extends AbstractEntity
 
     public void expireOldMessages(long timestamp) {
         synchronized (this.messages) {
+            long now = System.currentTimeMillis();
             for (ListIterator<Message> iterator = this.messages.listIterator();
                  iterator.hasNext(); ) {
-                if (iterator.next().getTimeSent() < timestamp) {
+                Message message = iterator.next();
+                if (message.getTimeSent() < timestamp) {
                     iterator.remove();
+                } else if (message.getExpireAt() > 0 && message.getExpireAt() < now) {
+                    message.setBody((String) null);
+                    message.setSubject(null);
+                    message.setDeleted(true);
+                    message.setRelativeFilePath(null);
+                    message.setFileParams(null);
+                    message.setEncryption(Message.ENCRYPTION_NONE);
+                    message.setReactions(Collections.emptyList());
                 }
             }
             untieMessages();
@@ -2004,6 +2020,33 @@ public class Conversation extends AbstractEntity
 
     public void setDisplayState(final String stanzaId) {
         this.displayState = stanzaId;
+    }
+
+    public int getEphemeralTimer() {
+        return getIntAttribute(ATTRIBUTE_EPHEMERAL_TIMER, 0);
+    }
+
+    public boolean setEphemeralTimer(int timer) {
+        if (getEphemeralTimer() != timer && timer > 0) {
+            setEphemeralHintHidden(false);
+        }
+        return setAttribute(ATTRIBUTE_EPHEMERAL_TIMER, timer);
+    }
+
+    public boolean ephemeralHintHidden() {
+        return getBooleanAttribute(ATTRIBUTE_EPHEMERAL_HINT_HIDDEN, false);
+    }
+
+    public void setEphemeralHintHidden(boolean hidden) {
+        setAttribute(ATTRIBUTE_EPHEMERAL_HINT_HIDDEN, hidden);
+    }
+
+    public String getEphemeralBy() {
+        return getAttribute(ATTRIBUTE_EPHEMERAL_BY);
+    }
+
+    public void setEphemeralBy(String by) {
+        setAttribute(ATTRIBUTE_EPHEMERAL_BY, by);
     }
 
     public String getDisplayState() {

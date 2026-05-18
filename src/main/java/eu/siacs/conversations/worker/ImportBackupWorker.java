@@ -10,9 +10,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
+import net.zetetic.database.sqlcipher.SQLiteDatabase;
 import android.net.Uri;
+import android.os.Environment;
+import android.os.SystemClock;
 import android.provider.OpenableColumns;
+import android.util.Base64;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
@@ -26,6 +29,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.io.CountingInputStream;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import de.monocles.chat.pinnedmessage.PinnedMessage;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.axolotl.SQLiteAxolotlStore;
@@ -37,15 +41,18 @@ import eu.siacs.conversations.services.QuickConversationsService;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.utils.AccountUtils;
 import eu.siacs.conversations.utils.BackupFileHeader;
+import eu.siacs.conversations.utils.FileHelper;
 import eu.siacs.conversations.xmpp.Jid;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
@@ -86,7 +93,9 @@ public class ImportBackupWorker extends Worker {
                             Conversation.TABLENAME,
                             Message.TABLENAME,
                             "webxdc_updates",
-                            "muted_participants"
+                            "files",
+                            "muted_participants",
+                            PinnedMessage.TABLENAME
                     )
                     .addAll(OMEMO_TABLE_LIST)
                     .build();
@@ -98,6 +107,8 @@ public class ImportBackupWorker extends Worker {
     private final String password;
     private final Uri uri;
     private final boolean includeOmemo;
+
+    private long lastNotificationUpdate = 0;
 
     public ImportBackupWorker(@NonNull Context context, @NonNull WorkerParameters workerParams) {
         super(context, workerParams);
@@ -151,7 +162,23 @@ public class ImportBackupWorker extends Worker {
         final var database = DatabaseBackend.getInstance(context);
         Log.d(Config.LOGTAG, "importing backup from " + uri);
         final Stopwatch stopwatch = Stopwatch.createStarted();
-        final SQLiteDatabase db = database.getWritableDatabase();
+        SQLiteDatabase db;
+        try {
+            db = database.getWritableDatabase();
+        } catch (final net.zetetic.database.sqlcipher.SQLiteNotADatabaseException e) {
+            Log.d(Config.LOGTAG, "database is encrypted but we don't have the password. deleting it to proceed with import");
+            DatabaseBackend.closeInstance();
+            final File dbFile = context.getDatabasePath("history");
+            FileHelper.secureDelete(dbFile);
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
+            if (dbFile.exists()) {
+                throw e;
+            }
+            // Re-create via getInstance so the new DB uses the current AppSettings password,
+            // not the stale constructor-time password from the closed helper.
+            db = DatabaseBackend.getInstance(context).getWritableDatabase();
+        }
         final InputStream inputStream;
         final String path = uri.getPath();
         final long fileSize;
@@ -191,7 +218,12 @@ public class ImportBackupWorker extends Worker {
             return failure(Reason.ACCOUNT_ALREADY_EXISTS);
         }
 
-        final byte[] key = ExportBackupWorker.getKey(password, backupFileHeader.getSalt());
+        final byte[] key;
+        if (backupFileHeader.getVersion() >= 4) {
+            key = ExportBackupWorker.getKey(password, backupFileHeader.getSalt());
+        } else {
+            key = ExportBackupWorker.getLegacyKey(password, backupFileHeader.getSalt());
+        }
 
         final AEADBlockCipher cipher = GCMBlockCipher.newInstance(AESEngine.newInstance());
         cipher.init(
@@ -210,14 +242,22 @@ public class ImportBackupWorker extends Worker {
         }
         db.beginTransaction();
         while (jsonReader.hasNext()) {
+            if (isStopped()) {
+                db.endTransaction();
+                return failure(Reason.GENERIC);
+            }
             if (jsonReader.peek() == JsonToken.BEGIN_OBJECT) {
                 importRow(db, jsonReader, backupFileHeader.getJid(), password);
             } else if (jsonReader.peek() == JsonToken.END_ARRAY) {
                 jsonReader.endArray();
                 continue;
             }
-            updateImportBackupNotification(fileSize, countingInputStream.getCount());
+            if ((SystemClock.elapsedRealtime() - lastNotificationUpdate) > 2_000) {
+                lastNotificationUpdate = SystemClock.elapsedRealtime();
+                updateImportBackupNotification(fileSize, countingInputStream.getCount());
+            }
         }
+        updateImportBackupNotification(fileSize, countingInputStream.getCount());
         db.setTransactionSuccessful();
         db.endTransaction();
         final Jid jid = backupFileHeader.getJid();
@@ -252,6 +292,13 @@ public class ImportBackupWorker extends Worker {
         if (!TABLE_ALLOW_LIST.contains(table)) {
             throw new IOException(String.format("%s is not recognized for import", table));
         }
+
+        if ("files".equals(table)) {
+            importFile(jsonReader);
+            jsonReader.endObject();
+            return;
+        }
+
         final ContentValues contentValues = new ContentValues();
         final String secondParameter = jsonReader.nextName();
         if (!secondParameter.equals("values")) {
@@ -267,7 +314,11 @@ public class ImportBackupWorker extends Worker {
                 } else if (jsonReader.peek() == JsonToken.NUMBER) {
                     contentValues.put(name, jsonReader.nextLong());
                 } else {
-                    contentValues.put(name, jsonReader.nextString());
+                    String value = jsonReader.nextString();
+                    if (Message.TABLENAME.equals(table) && Message.RELATIVE_FILE_PATH.equals(name)) {
+                        value = fromPortablePath(value);
+                    }
+                    contentValues.put(name, value);
                 }
             } else {
                 throw new IOException(String.format("Unexpected column name %s", name));
@@ -304,18 +355,63 @@ public class ImportBackupWorker extends Worker {
             }
             contentValues.put(Account.KEYS, importReadyKeys.toString());
         }
+        final long rowId;
         if (this.includeOmemo) {
-            db.insert(table, null, contentValues);
+            rowId = db.insertWithOnConflict(table, null, contentValues, SQLiteDatabase.CONFLICT_IGNORE);
         } else {
             if (OMEMO_TABLE_LIST.contains(table)) {
                 if (SQLiteAxolotlStore.IDENTITIES_TABLENAME.equals(table)
                         && contentValues.getAsInteger(SQLiteAxolotlStore.OWN) == 0) {
-                    db.insert(table, null, contentValues);
+                    rowId = db.insertWithOnConflict(table, null, contentValues, SQLiteDatabase.CONFLICT_IGNORE);
                 } else {
                     Log.d(Config.LOGTAG, "skipping over omemo key material in table " + table);
+                    rowId = 0;
                 }
             } else {
-                db.insert(table, null, contentValues);
+                rowId = db.insertWithOnConflict(table, null, contentValues, SQLiteDatabase.CONFLICT_IGNORE);
+            }
+        }
+        if (rowId == -1) {
+            Log.w(Config.LOGTAG, "skipped duplicate row in " + table);
+        }
+    }
+
+    private void importFile(JsonReader jsonReader) throws IOException {
+        final String valuesKey = jsonReader.nextName();
+        if (!"values".equals(valuesKey)) {
+            throw new IllegalStateException("Expected key 'values'");
+        }
+        jsonReader.beginObject();
+        String portablePath = null;
+        int sequence = -1;
+        byte[] content = null;
+        while (jsonReader.peek() != JsonToken.END_OBJECT) {
+            final String name = jsonReader.nextName();
+            switch (name) {
+                case "path":
+                    portablePath = jsonReader.nextString();
+                    break;
+                case "sequence":
+                    sequence = jsonReader.nextInt();
+                    break;
+                case "content":
+                    content = Base64.decode(jsonReader.nextString(), Base64.NO_WRAP);
+                    break;
+                default:
+                    jsonReader.skipValue();
+                    break;
+            }
+        }
+        jsonReader.endObject();
+
+        if (portablePath != null && content != null) {
+            final File file = new File(fromPortablePath(portablePath));
+            final File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs();
+            }
+            try (OutputStream os = new FileOutputStream(file, sequence > 0)) {
+                os.write(content);
             }
         }
     }
@@ -402,5 +498,24 @@ public class ImportBackupWorker extends Worker {
                 return GENERIC;
             }
         }
+    }
+
+    private String fromPortablePath(String path) {
+        if (path == null) return null;
+        final String cacheDir = getApplicationContext().getCacheDir().getAbsolutePath();
+        final String filesDir = getApplicationContext().getFilesDir().getAbsolutePath();
+        final String externalDir = Environment.getExternalStorageDirectory().getAbsolutePath();
+        final String documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).getAbsolutePath();
+
+        if (path.startsWith("${CACHE}")) {
+            return cacheDir + path.substring("${CACHE}".length());
+        } else if (path.startsWith("${FILES}")) {
+            return filesDir + path.substring("${FILES}".length());
+        } else if (path.startsWith("${EXTERNAL}")) {
+            return externalDir + path.substring("${EXTERNAL}".length());
+        } else if (path.startsWith("${DOCUMENTS}")) {
+            return documentsDir + path.substring("${DOCUMENTS}".length());
+        }
+        return path;
     }
 }

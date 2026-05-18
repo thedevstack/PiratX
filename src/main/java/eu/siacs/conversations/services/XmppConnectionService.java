@@ -69,6 +69,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
 
 import com.kedia.ogparser.JsoupProxy;
@@ -90,6 +91,10 @@ import org.openintents.openpgp.util.OpenPgpApi;
 import org.openintents.openpgp.util.OpenPgpServiceConnection;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -178,6 +183,7 @@ import eu.siacs.conversations.ui.UiCallback;
 import eu.siacs.conversations.ui.interfaces.OnAvatarPublication;
 import eu.siacs.conversations.ui.interfaces.OnMediaLoaded;
 import eu.siacs.conversations.ui.interfaces.OnSearchResultsAvailable;
+import eu.siacs.conversations.ui.util.Attachment;
 import eu.siacs.conversations.ui.util.QuoteHelper;
 import eu.siacs.conversations.utils.AccountUtils;
 import eu.siacs.conversations.utils.Compatibility;
@@ -225,6 +231,10 @@ import eu.siacs.conversations.xmpp.pep.Avatar;
 import eu.siacs.conversations.xmpp.pep.PublishOptions;
 import im.conversations.android.xmpp.model.stanza.Iq;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.security.Security;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -288,6 +298,7 @@ public class XmppConnectionService extends Service {
     public static final String ACTION_RENEW_UNIFIED_PUSH_ENDPOINTS =
             "eu.siacs.conversations.UNIFIED_PUSH_RENEW";
     public static final String ACTION_QUICK_LOG = "eu.siacs.conversations.QUICK_LOG";
+    public static final String ACTION_EXPIRE_MESSAGES = "eu.siacs.conversations.EXPIRE_MESSAGES";
 
     private static final String SETTING_LAST_ACTIVITY_TS = "last_activity_timestamp";
 
@@ -329,6 +340,16 @@ public class XmppConnectionService extends Service {
                 }
             };
     public DatabaseBackend databaseBackend;
+    private eu.siacs.conversations.EncryptionException mCriticalError = null;
+    private boolean mNeedsPassword = false;
+
+    public eu.siacs.conversations.EncryptionException getCriticalError() {
+        return mCriticalError;
+    }
+
+    public boolean needsPassword() {
+        return mNeedsPassword;
+    }
     private Multimap<String, String> mutedMucUsers;
     private final ReplacingSerialSingleThreadExecutor mContactMergerExecutor = new ReplacingSerialSingleThreadExecutor("ContactMerger");
     private final ReplacingSerialSingleThreadExecutor mStickerScanExecutor = new ReplacingSerialSingleThreadExecutor("StickerScan");
@@ -538,6 +559,7 @@ public class XmppConnectionService extends Service {
                         for (Conversation conversation : pendingJoins) {
                             joinMuc(conversation);
                         }
+                        fetchOwnStories(account);
                         scheduleWakeUpCall(
                                 Config.PING_MAX_INTERVAL * 1000L, account.getUuid().hashCode());
                     } else if (account.getStatus() == Account.State.OFFLINE
@@ -640,9 +662,13 @@ public class XmppConnectionService extends Service {
         COPY_TO_DOWNLOAD_EXECUTOR.execute(() -> {
             try {
                 fileBackend.copyAttachmentToDownloadsFolder(m);
-                callback.success(-1);
+                if (callback != null) {
+                    callback.success(-1);
+                }
             } catch (FileBackend.FileCopyException e) {
-                callback.error(-1, e.getResId());
+                if (callback != null) {
+                    callback.error(-1, e.getResId());
+                }
             }
         });
     }
@@ -651,9 +677,13 @@ public class XmppConnectionService extends Service {
         COPY_TO_DOWNLOAD_EXECUTOR.execute(() -> {
             try {
                 fileBackend.copyAttachmentToDownloadsFolder(file);
-                callback.success(-1);
+                if (callback != null) {
+                    callback.success(-1);
+                }
             } catch (FileBackend.FileCopyException e) {
-                callback.error(-1, e.getResId());
+                if (callback != null) {
+                    callback.error(-1, e.getResId());
+                }
             }
         });
     }
@@ -943,7 +973,40 @@ public class XmppConnectionService extends Service {
         });
     }
 
-    protected void cleanupCache() {
+    private void migrateCacheToInternalStorage() {
+        final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        if (preferences.getBoolean("cache_migrated_to_internal_v2", false)) {
+            return;
+        }
+        final List<String> dirsToMigrate = Arrays.asList("media", "Camera", "avatars", "stories");
+        for (String dirName : dirsToMigrate) {
+            final File oldDir = new File(getCacheDir(), dirName);
+            final File newDir = new File(getFilesDir(), dirName);
+            if (oldDir.exists() && oldDir.isDirectory()) {
+                if (!newDir.exists()) {
+                    newDir.mkdirs();
+                }
+                final File[] files = oldDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        final File newFile = new File(newDir, file.getName());
+                        if (!file.renameTo(newFile)) {
+                            try (InputStream in = new FileInputStream(file);
+                                 OutputStream out = new FileOutputStream(newFile)) {
+                                ByteStreams.copy(in, out);
+                                file.delete();
+                            } catch (IOException e) {
+                                Log.w(Config.LOGTAG, "Failed to migrate " + dirName + " file: " + file.getAbsolutePath());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        preferences.edit().putBoolean("cache_migrated_to_internal_v2", true).apply();
+    }
+
+    protected void cleanupTemporaryStorage() {
         final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         final int deletionTimeDays;
         try {
@@ -961,18 +1024,27 @@ public class XmppConnectionService extends Service {
             Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
             final var now = System.currentTimeMillis();
             final long maxAge = 1000L * 60 * 60 * 24 * deletionTimeDays;
-            try {
-                for (File file : Files.fileTraverser().breadthFirst(getCacheDir())) {
-                    if (file.isFile() && file.canRead() && file.canWrite()) {
-                        final var attrs = java.nio.file.Files.readAttributes(file.toPath(), java.nio.file.attribute.BasicFileAttributes.class);
-                        if ((now - attrs.lastAccessTime().toMillis()) > maxAge) {
-                            Log.d(Config.LOGTAG, "cleanupCache removing file not used recently: " + file);
-                            file.delete();
+            final List<File> directories = new ArrayList<>();
+            directories.add(getCacheDir());
+            directories.add(new File(getFilesDir(), "media"));
+            directories.add(new File(getFilesDir(), "Camera"));
+            for (File directory : directories) {
+                if (!directory.exists()) {
+                    continue;
+                }
+                try {
+                    for (File file : Files.fileTraverser().breadthFirst(directory)) {
+                        if (file.isFile() && file.canRead() && file.canWrite()) {
+                            final var attrs = java.nio.file.Files.readAttributes(file.toPath(), java.nio.file.attribute.BasicFileAttributes.class);
+                            if ((now - attrs.lastAccessTime().toMillis()) > maxAge) {
+                                Log.d(Config.LOGTAG, "cleanupTemporaryStorage removing file not used recently: " + file);
+                                file.delete();
+                            }
                         }
                     }
+                } catch (final Exception e) {
+                    Log.w(Config.LOGTAG, "cleanupTemporaryStorage " + e);
                 }
-            } catch (final Exception e) {
-                Log.w(Config.LOGTAG, "cleanupCache " + e);
             }
         });
     }
@@ -1250,6 +1322,9 @@ public class XmppConnectionService extends Service {
                 break;
             case ACTION_FCM_MESSAGE_RECEIVED:
                 Log.d(Config.LOGTAG, "push message arrived in service. account");
+                break;
+            case ACTION_EXPIRE_MESSAGES:
+                expireOldMessages();
                 break;
             case ACTION_QUICK_LOG:
                 final String message = intent == null ? null : intent.getStringExtra("message");
@@ -1686,25 +1761,51 @@ public class XmppConnectionService extends Service {
     }
 
     public void expireOldMessages(final boolean resetHasMessagesLeftOnServer) {
+        if (databaseBackend == null) return;
         mLastExpiryRun.set(SystemClock.elapsedRealtime());
         mDatabaseWriterExecutor.execute(
                 () -> {
                     long timestamp = getAutomaticMessageDeletionDate();
-                    if (timestamp > 0) {
-                        databaseBackend.expireOldMessages(timestamp);
-                        synchronized (XmppConnectionService.this.conversations) {
-                            for (Conversation conversation :
-                                    XmppConnectionService.this.conversations) {
-                                conversation.expireOldMessages(timestamp);
-                                if (resetHasMessagesLeftOnServer) {
-                                    conversation.messagesLoaded.set(true);
-                                    conversation.setHasMessagesLeftOnServer(true);
-                                }
+                    if (getAppSettings().isDeleteUnusedFiles()) {
+                        final List<String> exclusivePaths = databaseBackend.getExclusiveFilePathsExpiring(timestamp);
+                        if (!exclusivePaths.isEmpty()) {
+                            FILE_ATTACHMENT_EXECUTOR.execute(() -> deleteFilesAsync(exclusivePaths, "background expiry"));
+                        }
+                    }
+                    databaseBackend.expireOldMessages(timestamp);
+                    synchronized (XmppConnectionService.this.conversations) {
+                        for (Conversation conversation :
+                                XmppConnectionService.this.conversations) {
+                            conversation.expireOldMessages(timestamp);
+                            if (resetHasMessagesLeftOnServer) {
+                                conversation.messagesLoaded.set(true);
+                                conversation.setHasMessagesLeftOnServer(true);
                             }
                         }
-                        updateConversationUi();
                     }
+                    updateConversationUi();
+                    scheduleNextExpiry();
                 });
+    }
+
+    public void scheduleNextExpiry() {
+        mDatabaseWriterExecutor.execute(() -> {
+            final long next = databaseBackend.getNextExpiration();
+            if (next > 0) {
+                final AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                if (alarmManager == null) {
+                    return;
+                }
+                final Intent intent = new Intent(this, eu.siacs.conversations.receiver.SystemEventReceiver.class);
+                intent.setAction(ACTION_EXPIRE_MESSAGES);
+                final PendingIntent pendingIntent = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pendingIntent);
+                } else {
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, next, pendingIntent);
+                }
+            }
+        });
     }
 
     public boolean hasInternetConnection() {
@@ -1781,9 +1882,33 @@ public class XmppConnectionService extends Service {
         }
 
         Log.d(Config.LOGTAG, "initializing database...");
-        this.databaseBackend = DatabaseBackend.getInstance(getApplicationContext());
+        try {
+            appSettings.checkEncryptionOrThrow();
+            this.databaseBackend = DatabaseBackend.getInstance(getApplicationContext());
+        } catch (eu.siacs.conversations.EncryptionException e) {
+            this.accounts = new java.util.ArrayList<>();
+            if (e.reason == eu.siacs.conversations.EncryptionException.Reason.NEEDS_SESSION_PASSWORD) {
+                Log.i(Config.LOGTAG, "Database requires startup password — waiting for user");
+                this.mNeedsPassword = true;
+            } else {
+                Log.e(Config.LOGTAG, "Critical keystore failure during service startup", e);
+                this.mCriticalError = e;
+            }
+            return;
+        }
         Log.d(Config.LOGTAG, "restoring accounts...");
-        this.accounts = databaseBackend.getAccounts();
+        try {
+            this.accounts = databaseBackend.getAccounts();
+        } catch (net.zetetic.database.sqlcipher.SQLiteNotADatabaseException e) {
+            Log.e(Config.LOGTAG, "Wrong database key on getAccounts", e);
+            DatabaseBackend.closeInstance();
+            this.databaseBackend = null;
+            eu.siacs.conversations.AppSettings.clearSessionPassword();
+            this.mCriticalError = new eu.siacs.conversations.EncryptionException(
+                    "Wrong database key", e, eu.siacs.conversations.EncryptionException.Reason.DB_WRONG_KEY);
+            this.accounts = new java.util.ArrayList<>();
+            return;
+        }
         for (Account account : this.accounts) {
             final int color = getPreferences().getInt("account_color:" + account.getUuid(), 0);
             if (color != 0) account.setColor(color);
@@ -1799,14 +1924,23 @@ public class XmppConnectionService extends Service {
             CallIntegrationConnectionService.togglePhoneAccountsAsync(this, this.accounts);
         }
 
-        restoreFromDatabase();
+        try {
+            restoreFromDatabase();
+        } catch (net.zetetic.database.sqlcipher.SQLiteNotADatabaseException e) {
+            Log.e(Config.LOGTAG, "Wrong database key on restoreFromDatabase", e);
+            DatabaseBackend.closeInstance();
+            this.databaseBackend = null;
+            eu.siacs.conversations.AppSettings.clearSessionPassword();
+            this.mCriticalError = new eu.siacs.conversations.EncryptionException(
+                    "Wrong database key", e, eu.siacs.conversations.EncryptionException.Reason.DB_WRONG_KEY);
+            return;
+        }
 
         if (QuickConversationsService.isContactListIntegration(this)
                 && ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
                 == PackageManager.PERMISSION_GRANTED) {
             startContactObserver();
         }
-        FILE_OBSERVER_EXECUTOR.execute(fileBackend::deleteHistoricAvatarPath);
         if (Compatibility.hasStoragePermission(this)) {
             Log.d(Config.LOGTAG, "starting file observer");
             FILE_OBSERVER_EXECUTOR.execute(this.fileObserver::startWatching);
@@ -1871,7 +2005,8 @@ public class XmppConnectionService extends Service {
         mForceDuringOnCreate.set(false);
         toggleForegroundService();
         rescanStickers();
-        cleanupCache();
+        migrateCacheToInternalStorage();
+        cleanupTemporaryStorage();
 
         internalPingExecutor.scheduleWithFixedDelay(
                 this::manageAccountConnectionStatesInternal, 10, 10, TimeUnit.SECONDS);
@@ -2255,6 +2390,24 @@ public class XmppConnectionService extends Service {
         sendMessage(message, false, false, false, cb, false);
     }
 
+    public void sendEphemeralImplicitNegotiation(Conversation conversation, int timer) {
+        im.conversations.android.xmpp.model.stanza.Message packet = new im.conversations.android.xmpp.model.stanza.Message();
+        packet.setTo(conversation.getJid().asBareJid());
+        packet.setType(conversation.getMode() == Conversation.MODE_SINGLE ? im.conversations.android.xmpp.model.stanza.Message.Type.CHAT : im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT);
+        packet.addChild("ephemeral", Namespace.EPHEMERAL).setAttribute("timer", String.valueOf(timer));
+        packet.addChild("store", Namespace.HINTS);
+        sendMessagePacket(conversation.getAccount(), packet);
+    }
+
+    public void sendEphemeralIWantOut(Conversation conversation) {
+        im.conversations.android.xmpp.model.stanza.Message packet = new im.conversations.android.xmpp.model.stanza.Message();
+        packet.setTo(conversation.getJid().asBareJid());
+        packet.setType(conversation.getMode() == Conversation.MODE_SINGLE ? im.conversations.android.xmpp.model.stanza.Message.Type.CHAT : im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT);
+        packet.addChild("i-want-out", Namespace.EPHEMERAL);
+        packet.addChild("store", Namespace.HINTS);
+        sendMessagePacket(conversation.getAccount(), packet);
+    }
+
     private void sendMessage(
             final Message message,
             final boolean resend,
@@ -2269,6 +2422,10 @@ public class XmppConnectionService extends Service {
         }
         final Conversation conversation = (Conversation) message.getConversation();
         account.deactivateGracePeriod();
+
+        if (message.getEphemeralTimer() > 0 && message.getExpireAt() == 0) {
+            message.setExpireAt(System.currentTimeMillis() + message.getEphemeralTimer() * 1000L);
+        }
 
         if (QuickConversationsService.isQuicksy()
                 && conversation.getMode() == Conversation.MODE_SINGLE) {
@@ -2580,9 +2737,15 @@ public class XmppConnectionService extends Service {
             }
             if (saveInDb) {
                 databaseBackend.createMessage(message);
+                if (message.isEphemeral()) {
+                    scheduleNextExpiry();
+                }
             } else if (message.edited()) {
                 if (!databaseBackend.updateMessage(message, message.getEditedId())) {
                     Log.e(Config.LOGTAG, "error updated message in DB after edit");
+                }
+                if (message.isEphemeral()) {
+                    scheduleNextExpiry();
                 }
             }
             updateConversationUi();
@@ -3124,6 +3287,23 @@ public class XmppConnectionService extends Service {
                 final long diffMessageRestore = SystemClock.elapsedRealtime() - startMessageRestore;
                 Log.d(Config.LOGTAG, "finished restoring messages in " + diffMessageRestore + "ms");
                 updateConversationUi();
+                Log.d(Config.LOGTAG, "restoring stories...");
+                final List<eu.siacs.conversations.entities.Story> persistedStories = databaseBackend.getStoriesFromDatabase();
+                for (final eu.siacs.conversations.entities.Story story : persistedStories) {
+                    boolean found = false;
+                    for (int i = 0; i < stories.size(); ++i) {
+                        if (stories.get(i).getUuid().equals(story.getUuid())) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        stories.add(story);
+                    }
+                }
+                java.util.Collections.sort(stories, (a, b) -> Long.compare(b.getPublished(), a.getPublished()));
+                Log.d(Config.LOGTAG, "restored " + persistedStories.size() + " stories from database");
+                updateStoriesUi();
             };
             mDatabaseReaderExecutor.execute(runnable); //will contain one write command (expiry) but that's fine
         }
@@ -3814,7 +3994,7 @@ public class XmppConnectionService extends Service {
                             if (Config.X509_VERIFICATION) {
                                 try {
                                     getMemorizingTrustManager()
-                                            .getNonInteractive(account.getServer(), null, 0, null)
+                                            .getNonInteractive(account.getServer(), null, 0, null, false)
                                             .checkClientTrusted(chain, "RSA");
                                 } catch (CertificateException e) {
                                     callback.informUser(
@@ -4744,8 +4924,13 @@ public class XmppConnectionService extends Service {
 
     public void getAttachments(
             final Conversation conversation, int limit, final OnMediaLoaded onMediaLoaded) {
+        getAttachments(conversation, null, limit, onMediaLoaded);
+    }
+
+    public void getAttachments(
+            final Conversation conversation, String query, int limit, final OnMediaLoaded onMediaLoaded) {
         getAttachments(
-                conversation.getAccount(), conversation.getJid().asBareJid(), limit, onMediaLoaded);
+                conversation.getAccount(), conversation.getJid().asBareJid(), query, limit, onMediaLoaded);
     }
 
     public void getAttachments(
@@ -4753,7 +4938,16 @@ public class XmppConnectionService extends Service {
             final Jid jid,
             final int limit,
             final OnMediaLoaded onMediaLoaded) {
-        getAttachments(account.getUuid(), jid.asBareJid(), limit, onMediaLoaded);
+        getAttachments(account, jid, null, limit, onMediaLoaded);
+    }
+
+    public void getAttachments(
+            final Account account,
+            final Jid jid,
+            final String query,
+            final int limit,
+            final OnMediaLoaded onMediaLoaded) {
+        getAttachments(account.getUuid(), jid.asBareJid(), query, limit, onMediaLoaded);
     }
 
     public void getAttachments(
@@ -4761,13 +4955,41 @@ public class XmppConnectionService extends Service {
             final Jid jid,
             final int limit,
             final OnMediaLoaded onMediaLoaded) {
+        getAttachments(account, jid, null, limit, onMediaLoaded);
+    }
+
+    public void getAttachments(
+            final String account,
+            final Jid jid,
+            final String query,
+            final int limit,
+            final OnMediaLoaded onMediaLoaded) {
         new Thread(
                 () ->
                         onMediaLoaded.onMediaLoaded(
                                 fileBackend.convertToAttachments(
                                         databaseBackend.getRelativeFilePaths(
-                                                account, jid, limit))))
+                                                account, jid, query, limit))))
                 .start();
+    }
+
+    public void getAttachments(final String query, final int limit, final OnMediaLoaded onMediaLoaded) {
+        getAttachments((String) null, (Jid) null, query, limit, onMediaLoaded);
+    }
+
+    public void deleteMedia(List<Attachment> attachments) {
+        List<String> uuids = new ArrayList<>();
+        for (Attachment attachment : attachments) {
+            final var path = getFileBackend().getOriginalPath(attachment.getUri());
+            if (path != null) {
+                final var file = new java.io.File(path);
+                if (file.delete()) {
+                    evictPreview(file);
+                }
+            }
+            uuids.add(attachment.getUuid().toString());
+        }
+        databaseBackend.markFileAsDeleted(uuids);
     }
 
     public void persistSelfNick(final MucOptions.User self, final boolean modified) {
@@ -5409,9 +5631,20 @@ public class XmppConnectionService extends Service {
 
     public void deleteMessage(Message message) {
         mScheduledMessages.remove(message.getUuid());
+        deleteFileIfUnused(message);
         databaseBackend.deleteMessage(message.getUuid());
         ((Conversation) message.getConversation()).remove(message);
         updateConversationUi();
+    }
+
+    public void deleteFileIfUnused(Message message) {
+        if (getAppSettings().isDeleteUnusedFiles()) {
+            final String exclusivePath = databaseBackend.getExclusiveFilePath(message);
+            if (exclusivePath != null) {
+                final String jid = message.getConversation().getJid().asBareJid().toString();
+                FILE_ATTACHMENT_EXECUTOR.execute(() -> deleteFilesAsync(Collections.singletonList(exclusivePath), jid));
+            }
+        }
     }
 
     public void updateMessage(Message message) {
@@ -6305,6 +6538,10 @@ public class XmppConnectionService extends Service {
         return timeout == 0 ? timeout : (System.currentTimeMillis() - (timeout * 1000));
     }
 
+    public long getOmemoAutoExpiry() {
+        return getLongPreference(AppSettings.OMEMO_AUTO_EXPIRY, R.integer.omemo_auto_expiry) * 1000L;
+    }
+
     public long getLongPreference(String name, @IntegerRes int res) {
         long defaultValue = getResources().getInteger(res);
         try {
@@ -6535,8 +6772,12 @@ public class XmppConnectionService extends Service {
             Runnable runnable =
                     () -> {
                         for (Message message : readMessages) {
+                            if (message.getEphemeralTimer() > 0 && message.getExpireAt() == 0) {
+                                message.setExpireAt(System.currentTimeMillis() + message.getEphemeralTimer() * 1000L);
+                            }
                             databaseBackend.updateMessage(message, false);
                         }
+                        scheduleNextExpiry();
                     };
             mDatabaseWriterExecutor.execute(runnable);
             updateConversationUi();
@@ -7143,12 +7384,40 @@ public class XmppConnectionService extends Service {
         conversation.clearMessages();
         conversation.setHasMessagesLeftOnServer(false); // avoid messages getting loaded through mam
         conversation.setLastClearHistory(clearDate, reference);
+        final boolean deleteFiles = getAppSettings().isDeleteUnusedFiles();
         Runnable runnable =
                 () -> {
+                    final List<String> exclusiveFilePaths;
+                    if (deleteFiles) {
+                        exclusiveFilePaths = databaseBackend.getExclusiveFilePaths(conversation);
+                    } else {
+                        exclusiveFilePaths = null;
+                    }
                     databaseBackend.deleteMessagesInConversation(conversation);
                     databaseBackend.updateConversation(conversation);
+                    if (exclusiveFilePaths != null && !exclusiveFilePaths.isEmpty()) {
+                        final String jid = conversation.getJid().asBareJid().toString();
+                        FILE_ATTACHMENT_EXECUTOR.execute(() -> deleteFilesAsync(exclusiveFilePaths, jid));
+                    }
                 };
         mDatabaseWriterExecutor.execute(runnable);
+    }
+
+    private void deleteFilesAsync(final List<String> exclusiveFilePaths, final String jid) {
+        int deletedCount = 0;
+        for (final String relativePath : exclusiveFilePaths) {
+            try {
+                final File file = getFileBackend().getFileForPath(relativePath);
+                if (file.exists() && file.delete()) {
+                    deletedCount++;
+                    getFileBackend().updateMediaScanner(file);
+                    Log.d(Config.LOGTAG, "deleted file: " + file.getAbsolutePath());
+                }
+            } catch (final Exception e) {
+                Log.w(Config.LOGTAG, "error deleting file for path " + relativePath, e);
+            }
+        }
+        Log.d(Config.LOGTAG, "deleted " + deletedCount + "/" + exclusiveFilePaths.size() + " exclusive files for " + jid);
     }
 
     public boolean sendBlockRequest(
@@ -7913,7 +8182,7 @@ public class XmppConnectionService extends Service {
                     getFileBackend().copyFileToPrivateStorage(file, uri);
                 }
             } catch (FileBackend.ImageCompressionException e) {
-                Log.d(Config.LOGTAG, "unable to compress image for story. falling back to file transfer", e);
+                Log.d(Config.LOGTAG, "unable to decode image for story, uploading raw", e);
                 try {
                     getFileBackend().copyFileToPrivateStorage(file, uri);
                 } catch (FileBackend.FileCopyException ex) {
@@ -7971,6 +8240,7 @@ public class XmppConnectionService extends Service {
         if (story == null) {
             return;
         }
+        mDatabaseWriterExecutor.execute(() -> databaseBackend.upsertStory(story));
         for (int i = 0; i < stories.size(); ++i) {
             if (stories.get(i).getUuid().equals(story.getUuid())) {
                 stories.set(i, story);
@@ -8006,17 +8276,25 @@ public class XmppConnectionService extends Service {
     }
 
     public void fetchStories(Account account, Contact contact) {
+        fetchStoriesForJid(account, contact.getJid());
+    }
+
+    public void fetchOwnStories(Account account) {
+        fetchStoriesForJid(account, account.getJid().asBareJid());
+    }
+
+    private void fetchStoriesForJid(Account account, Jid jid) {
         if (account.getStatus() != Account.State.ONLINE) {
             return;
         }
-        Log.d(Config.LOGTAG, "fetching stories for " + contact.getJid());
-        Iq request = getIqGenerator().retrieveStories(contact.getJid());
+        Log.d(Config.LOGTAG, "fetching stories for " + jid);
+        final Iq request = getIqGenerator().retrieveStories(jid);
         sendIqPacket(account, request, response -> {
             if (response.getType() == Iq.Type.RESULT) {
                 final Element pubsub = response.findChild("pubsub", Namespace.PUBSUB);
                 if (pubsub != null) {
-                    final List<eu.siacs.conversations.entities.Story> stories = eu.siacs.conversations.entities.Story.parseFromPubSub(pubsub, contact.getJid());
-                    for (eu.siacs.conversations.entities.Story story : stories) {
+                    final List<eu.siacs.conversations.entities.Story> fetched = eu.siacs.conversations.entities.Story.parseFromPubSub(pubsub, jid);
+                    for (final eu.siacs.conversations.entities.Story story : fetched) {
                         onStoryReceived(story);
                     }
                 }
@@ -8025,18 +8303,12 @@ public class XmppConnectionService extends Service {
     }
 
     public void retractStory(Account account, String storyId, final UiCallback<Void> callback) {
-        Iq iq = getIqGenerator().deleteItem(Namespace.PUBSUB_STORIES, storyId);
+        final Iq iq = getIqGenerator().deleteItem(Namespace.PUBSUB_STORIES, storyId);
+        iq.setTo(account.getJid().asBareJid());
         this.sendIqPacket(account, iq, response -> {
             if (response.getType() == Iq.Type.RESULT) {
-                final List<eu.siacs.conversations.entities.Story> newStories = new ArrayList<>(stories);
-                for (Iterator<eu.siacs.conversations.entities.Story> iterator = newStories.iterator(); iterator.hasNext(); ) {
-                    if (iterator.next().getUuid().equals(storyId)) {
-                        iterator.remove();
-                        break;
-                    }
-                }
-                this.stories.clear();
-                this.stories.addAll(newStories);
+                this.stories.removeIf(s -> s.getUuid().equals(storyId));
+                mDatabaseWriterExecutor.execute(() -> databaseBackend.deleteStory(storyId));
                 updateStoriesUi();
                 if (callback != null) {
                     callback.success(null);
@@ -8053,15 +8325,9 @@ public class XmppConnectionService extends Service {
         if (storyId == null) {
             return;
         }
-        Story storyToRemove = null;
-        for (final Story story : this.stories) {
-            if (story.getUuid().equals(storyId)) {
-                storyToRemove = story;
-                break;
-            }
-        }
-        if (storyToRemove != null) {
-            this.stories.remove(storyToRemove);
+        final boolean removed = this.stories.removeIf(s -> s.getUuid().equals(storyId));
+        mDatabaseWriterExecutor.execute(() -> databaseBackend.deleteStory(storyId));
+        if (removed) {
             updateStoriesUi();
             Log.d(Config.LOGTAG, "Retracted story with id: " + storyId);
         }
@@ -8069,21 +8335,22 @@ public class XmppConnectionService extends Service {
 
     public void retractOldStories() {
         final long twentyFourHoursAgo = System.currentTimeMillis() - 86400000;
+        mDatabaseWriterExecutor.execute(() -> databaseBackend.deleteExpiredStories());
         final Map<Jid, Account> onlineAccounts = new HashMap<>();
         for (final Account account : getAccounts()) {
             if (account.isOnlineAndConnected()) {
                 onlineAccounts.put(account.getJid().asBareJid(), account);
             }
         }
-        if (onlineAccounts.isEmpty()) {
-            return;
-        }
-        for (final Story story : this.stories) {
+        for (final eu.siacs.conversations.entities.Story story : this.stories) {
             if (story.getPublished() < twentyFourHoursAgo) {
-                final Account owner = onlineAccounts.get(story.getContact());
+                final Account owner = onlineAccounts.get(story.getContact().asBareJid());
                 if (owner != null) {
                     Log.d(Config.LOGTAG, "Retracting old story from account: " + owner.getJid().asBareJid());
                     retractStory(owner, story.getUuid(), null);
+                } else {
+                    // Not own story — just remove from memory; DB already cleaned up above
+                    this.stories.remove(story);
                 }
             }
         }

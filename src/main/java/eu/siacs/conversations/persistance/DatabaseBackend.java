@@ -4,9 +4,11 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
-import android.database.sqlite.SQLiteDatabase;
+import net.zetetic.database.sqlcipher.SQLiteDatabase;
+import net.zetetic.database.sqlcipher.SQLiteDatabaseHook;
+import net.zetetic.database.sqlcipher.SQLiteConnection;
 import android.database.sqlite.SQLiteException;
-import android.database.sqlite.SQLiteOpenHelper;
+import net.zetetic.database.sqlcipher.SQLiteOpenHelper;
 import android.text.TextUtils;
 import android.os.Build;
 import android.os.Environment;
@@ -17,6 +19,10 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 
 import de.monocles.chat.WebxdcUpdate;
+import de.monocles.chat.pinnedmessage.PinnedMessage;
+import androidx.preference.PreferenceManager;
+import eu.siacs.conversations.AppSettings;
+import eu.siacs.conversations.xml.Element;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Multimap;
@@ -40,6 +46,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.HashMap;
@@ -72,6 +79,7 @@ import eu.siacs.conversations.entities.ServiceDiscoveryResult;
 import eu.siacs.conversations.services.QuickConversationsService;
 import eu.siacs.conversations.services.ShortcutService;
 import eu.siacs.conversations.utils.CryptoHelper;
+import eu.siacs.conversations.utils.FileHelper;
 import eu.siacs.conversations.utils.CursorUtils;
 import eu.siacs.conversations.utils.FtsUtils;
 import eu.siacs.conversations.utils.MimeUtils;
@@ -108,13 +116,30 @@ import org.whispersystems.libsignal.state.SignedPreKeyRecord;
 
 public class DatabaseBackend extends SQLiteOpenHelper {
 
+    public static final SQLiteDatabaseHook DATABASE_HOOK = new SQLiteDatabaseHook() {
+        @Override
+        public void preKey(SQLiteConnection connection) {
+            connection.executeRaw("PRAGMA cipher_kdf_algorithm = argon2id;", null, null);
+            connection.executeRaw("PRAGMA cipher_memory_limit = 65536;", null, null);
+            connection.executeRaw("PRAGMA cipher_kdf_iterations = 3;", null, null);
+            connection.executeRaw("PRAGMA cipher_kdf_parallelism = 4;", null, null);
+        }
+
+        @Override
+        public void postKey(SQLiteConnection connection) {
+            connection.executeRaw("PRAGMA cipher_memory_security = ON;", null, null);
+            connection.executeRaw("PRAGMA secure_delete = ON;", null, null);
+        }
+    };
+
     private static final String DATABASE_NAME = "history";
-    private static final int DATABASE_VERSION = 67;
+    private static final int DATABASE_VERSION = 70;
+    private static final String REKEY_MIGRATION_IN_PROGRESS = "rekey_migration_in_progress";
 
     private static boolean requiresMessageIndexRebuild = false;
     private static DatabaseBackend instance = null;
     private static final String CREATE_CONTATCS_STATEMENT =
-            "create table "
+            "create table if not exists "
                     + Contact.TABLENAME
                     + "("
                     + Contact.ACCOUNT
@@ -159,7 +184,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + ") ON CONFLICT REPLACE);";
 
     private static final String CREATE_DISCOVERY_RESULTS_STATEMENT =
-            "create table "
+            "create table if not exists "
                     + ServiceDiscoveryResult.TABLENAME
                     + "("
                     + ServiceDiscoveryResult.HASH
@@ -175,7 +200,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + ") ON CONFLICT REPLACE);";
 
     private static final String CREATE_PRESENCE_TEMPLATES_STATEMENT =
-            "CREATE TABLE "
+            "CREATE TABLE if not exists "
                     + PresenceTemplate.TABELNAME
                     + "("
                     + PresenceTemplate.UUID
@@ -193,7 +218,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + ") ON CONFLICT REPLACE);";
 
     private static final String CREATE_PREKEYS_STATEMENT =
-            "CREATE TABLE "
+            "CREATE TABLE if not exists "
                     + SQLiteAxolotlStore.PREKEY_TABLENAME
                     + "("
                     + SQLiteAxolotlStore.ACCOUNT
@@ -216,7 +241,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + ");";
 
     private static final String CREATE_SIGNED_PREKEYS_STATEMENT =
-            "CREATE TABLE "
+            "CREATE TABLE if not exists "
                     + SQLiteAxolotlStore.SIGNED_PREKEY_TABLENAME
                     + "("
                     + SQLiteAxolotlStore.ACCOUNT
@@ -239,7 +264,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + ");";
 
     private static final String CREATE_SESSIONS_STATEMENT =
-            "CREATE TABLE "
+            "CREATE TABLE if not exists "
                     + SQLiteAxolotlStore.SESSION_TABLENAME
                     + "("
                     + SQLiteAxolotlStore.ACCOUNT
@@ -266,7 +291,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + ");";
 
     private static final String CREATE_IDENTITIES_STATEMENT =
-            "CREATE TABLE "
+            "CREATE TABLE if not exists "
                     + SQLiteAxolotlStore.IDENTITIES_TABLENAME
                     + "("
                     + SQLiteAxolotlStore.ACCOUNT
@@ -305,7 +330,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     private static final String RESOLVER_RESULTS_TABLENAME = "resolver_results";
 
     private static final String CREATE_RESOLVER_RESULTS_TABLE =
-            "create table "
+            "create table if not exists "
                     + RESOLVER_RESULTS_TABLENAME
                     + "("
                     + Resolver.Result.DOMAIN
@@ -326,58 +351,64 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + Resolver.Result.DOMAIN
                     + ") ON CONFLICT REPLACE"
                     + ");";
-    private static String CREATE_MESSAGE_FILE_DELETED_INDEX = "create index message_file_deleted_index ON " + Message.TABLENAME + "(" + "file_deleted" + ")";
+    private static String CREATE_MESSAGE_FILE_DELETED_INDEX = "create index if not exists message_file_deleted_index ON " + Message.TABLENAME + "(" + "file_deleted" + ")";
     private static final String CREATE_MESSAGE_TIME_INDEX =
-            "CREATE INDEX message_time_index ON "
+            "CREATE INDEX if not exists message_time_index ON "
                     + Message.TABLENAME
                     + "("
                     + Message.TIME_SENT
                     + ")";
     private static final String CREATE_MESSAGE_CONVERSATION_INDEX =
-            "CREATE INDEX message_conversation_index ON "
+            "CREATE INDEX if not exists message_conversation_index ON "
                     + Message.TABLENAME
                     + "("
                     + Message.CONVERSATION
                     + ")";
     private static final String CREATE_MESSAGE_DELETED_INDEX =
-            "CREATE INDEX message_deleted_index ON "
+            "CREATE INDEX if not exists message_deleted_index ON "
                     + Message.TABLENAME
                     + "("
                     + Message.DELETED
                     + ")";
     private static final String CREATE_MESSAGE_RELATIVE_FILE_PATH_INDEX =
-            "CREATE INDEX message_file_path_index ON "
+            "CREATE INDEX if not exists message_file_path_index ON "
                     + Message.TABLENAME
                     + "("
                     + Message.RELATIVE_FILE_PATH
                     + ")";
     private static final String CREATE_MESSAGE_TYPE_INDEX =
-            "CREATE INDEX message_type_index ON " + Message.TABLENAME + "(" + Message.TYPE + ")";
+            "CREATE INDEX if not exists message_type_index ON " + Message.TABLENAME + "(" + Message.TYPE + ")";
+    private static final String CREATE_MESSAGE_EXPIRE_AT_INDEX =
+            "CREATE INDEX if not exists message_expire_at_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.EXPIRE_AT
+                    + ")";
 
     private static final String CREATE_MESSAGE_INDEX_TABLE =
-            "CREATE VIRTUAL TABLE messages_index USING fts4"
+            "CREATE VIRTUAL TABLE if not exists messages_index USING fts4"
                     + " (uuid,body,notindexed=\"uuid\",content=\""
                     + Message.TABLENAME
                     + "\",tokenize='unicode61')";
     private static final String CREATE_MESSAGE_INSERT_TRIGGER =
-            "CREATE TRIGGER after_message_insert AFTER INSERT ON "
+            "CREATE TRIGGER if not exists after_message_insert AFTER INSERT ON "
                     + Message.TABLENAME
                     + " BEGIN INSERT INTO messages_index(rowid,uuid,body)"
                     + " VALUES(NEW.rowid,NEW.uuid,NEW.body); END;";
     private static final String CREATE_MESSAGE_UPDATE_TRIGGER =
-            "CREATE TRIGGER after_message_update UPDATE OF uuid,body ON "
+            "CREATE TRIGGER if not exists after_message_update UPDATE OF uuid,body ON "
                     + Message.TABLENAME
                     + " BEGIN UPDATE messages_index SET body=NEW.body,uuid=NEW.uuid WHERE"
                     + " rowid=OLD.rowid; END;";
     private static final String CREATE_MESSAGE_DELETE_TRIGGER =
-            "CREATE TRIGGER after_message_delete AFTER DELETE ON "
+            "CREATE TRIGGER if not exists after_message_delete AFTER DELETE ON "
                     + Message.TABLENAME
                     + " BEGIN DELETE FROM messages_index WHERE rowid=OLD.rowid; END;";
     private static final String COPY_PREEXISTING_ENTRIES =
             "INSERT INTO messages_index(messages_index) VALUES('rebuild');";
 
     private static final String CREATE_POSTS_TABLE =
-            "CREATE TABLE " + eu.siacs.conversations.entities.Post.TABLENAME + " ("
+            "CREATE TABLE if not exists " + eu.siacs.conversations.entities.Post.TABLENAME + " ("
                     + eu.siacs.conversations.entities.Post.UUID + " TEXT PRIMARY KEY,"
                     + eu.siacs.conversations.entities.Post.ACCOUNT_UUID + " TEXT,"
                     + eu.siacs.conversations.entities.Post.AUTHOR_JID + " TEXT,"
@@ -392,12 +423,39 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + eu.siacs.conversations.entities.Account.TABLENAME
                     + "(" + eu.siacs.conversations.entities.Account.UUID + ") ON DELETE CASCADE);";
 
+    private static final String CREATE_STORIES_TABLE =
+            "CREATE TABLE IF NOT EXISTS " + eu.siacs.conversations.entities.Story.TABLENAME + " ("
+                    + eu.siacs.conversations.entities.Story.UUID + " TEXT PRIMARY KEY,"
+                    + eu.siacs.conversations.entities.Story.CONTACT + " TEXT,"
+                    + eu.siacs.conversations.entities.Story.URL + " TEXT,"
+                    + eu.siacs.conversations.entities.Story.TYPE + " TEXT,"
+                    + eu.siacs.conversations.entities.Story.TITLE + " TEXT,"
+                    + eu.siacs.conversations.entities.Story.PUBLISHED + " NUMBER);";
+
     protected Context context;
 
     private DatabaseBackend(Context context) {
-        super(context, DATABASE_NAME, null, DATABASE_VERSION);
+        // byte[] constructor (new in sqlcipher-android 4.16.0) avoids creating an immutable String
+        // in the JVM heap. EncryptionException propagates intentionally — see callers.
+        super(context, DATABASE_NAME, getPasswordBytes(context), null, DATABASE_VERSION, 0, null, DATABASE_HOOK, true);
         this.context = context;
-        setWriteAheadLoggingEnabled(true);
+    }
+
+    private static byte[] getPasswordBytes(Context context) {
+        final char[] chars = new AppSettings(context).getDatabasePasswordChars();
+        if (chars == null) return null;
+        final byte[] bytes = charsToUtf8Bytes(chars);
+        java.util.Arrays.fill(chars, '\0');
+        return bytes;
+    }
+
+    static byte[] charsToUtf8Bytes(char[] chars) {
+        final java.nio.ByteBuffer bb =
+                java.nio.charset.StandardCharsets.UTF_8.encode(java.nio.CharBuffer.wrap(chars));
+        final byte[] bytes = new byte[bb.remaining()];
+        bb.get(bytes);
+        if (bb.hasArray()) java.util.Arrays.fill(bb.array(), (byte) 0);
+        return bytes;
     }
 
     private static ContentValues createFingerprintStatusContentValues(
@@ -421,9 +479,102 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 
     public static synchronized DatabaseBackend getInstance(Context context) {
         if (instance == null) {
+            System.loadLibrary("sqlcipher");
+            recoverFromInterruptedMigration(context);
             instance = new DatabaseBackend(context);
         }
         return instance;
+    }
+
+    private static void recoverFromInterruptedMigration(Context context) {
+        if (!PreferenceManager.getDefaultSharedPreferences(context)
+                .getBoolean(REKEY_MIGRATION_IN_PROGRESS, false)) return;
+
+        final File dbFile = context.getDatabasePath(DATABASE_NAME);
+        final File backupFile = context.getDatabasePath(DATABASE_NAME + ".bak");
+        final File tempFile = context.getDatabasePath(DATABASE_NAME + ".tmp");
+
+        Log.w(Config.LOGTAG, "rekey: sentinel set — checking interrupted migration state");
+
+        // State A: no .bak — migration hadn't started or sentinel wasn't cleared after success
+        if (!backupFile.exists()) {
+            Log.w(Config.LOGTAG, "rekey: no backup found, treating as clean");
+            if (tempFile.exists()) tempFile.delete();
+            PreferenceManager.getDefaultSharedPreferences(context)
+                    .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+            return;
+        }
+
+        // State B: .bak exists but dbFile is missing — killed between step 1 and step 2
+        // Prefs still hold old key (setDatabasePassword hadn't run yet).
+        if (!dbFile.exists()) {
+            Log.w(Config.LOGTAG, "rekey: dbFile missing, restoring backup");
+            if (!backupFile.renameTo(dbFile)) {
+                Log.e(Config.LOGTAG, "rekey: CRITICAL — could not restore backup file");
+            }
+            if (tempFile.exists()) tempFile.delete();
+            PreferenceManager.getDefaultSharedPreferences(context)
+                    .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+            return;
+        }
+
+        // States C/D: both files exist — need to test dbFile with current prefs key.
+        final char[] currentPasswordChars;
+        try {
+            currentPasswordChars = new AppSettings(context).getDatabasePasswordChars();
+        } catch (eu.siacs.conversations.EncryptionException e) {
+            if (e.reason == eu.siacs.conversations.EncryptionException.Reason.NEEDS_SESSION_PASSWORD) {
+                // Startup-password mode: session not entered yet — defer until next getInstance()
+                Log.w(Config.LOGTAG, "rekey: session password not available, deferring recovery");
+                return;
+            }
+            Log.e(Config.LOGTAG, "rekey: cannot obtain password for recovery", e);
+            return;
+        }
+
+        boolean dbFileValid = false;
+        final byte[] currentPasswordBytes =
+                currentPasswordChars != null ? charsToUtf8Bytes(currentPasswordChars) : null;
+        if (currentPasswordChars != null) java.util.Arrays.fill(currentPasswordChars, '\0');
+        try {
+            final SQLiteDatabase test = SQLiteDatabase.openDatabase(
+                    dbFile.getAbsolutePath(),
+                    currentPasswordBytes,
+                    null,
+                    SQLiteDatabase.OPEN_READONLY,
+                    currentPasswordBytes != null ? DATABASE_HOOK : null);
+            test.close();
+            dbFileValid = true;
+        } catch (Exception ignored) { /* dbFile not openable with current key */ } finally {
+            if (currentPasswordBytes != null) java.util.Arrays.fill(currentPasswordBytes, (byte) 0);
+        }
+
+        if (dbFileValid) {
+            // State D: dbFile valid with current key — migration completed; just clean up .bak
+            Log.w(Config.LOGTAG, "rekey: dbFile valid, cleaning up orphaned backup");
+            FileHelper.secureDelete(backupFile);
+            FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-wal"));
+            FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-shm"));
+        } else {
+            // State C: dbFile has new key but prefs still hold old key (setDatabasePassword
+            // hadn't run yet). Restore .bak to undo the migration; data is recoverable.
+            Log.w(Config.LOGTAG, "rekey: dbFile invalid with current key, restoring backup");
+            FileHelper.secureDelete(dbFile);
+            if (!backupFile.renameTo(dbFile)) {
+                Log.e(Config.LOGTAG, "rekey: CRITICAL — could not restore backup file");
+            }
+        }
+
+        if (tempFile.exists()) tempFile.delete();
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+    }
+
+    public static synchronized void closeInstance() {
+        if (instance != null) {
+            instance.close();
+            instance = null;
+        }
     }
 
     @Override
@@ -435,7 +586,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     @Override
     public void onCreate(SQLiteDatabase db) {
         db.execSQL(
-                "create table "
+                "create table if not exists "
                         + Account.TABLENAME
                         + "("
                         + Account.UUID
@@ -477,7 +628,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         + Account.PORT
                         + " NUMBER DEFAULT 5222)");
         db.execSQL(
-                "create table "
+                "create table if not exists "
                         + Conversation.TABLENAME
                         + " ("
                         + Conversation.UUID
@@ -505,7 +656,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         + Account.UUID
                         + ") ON DELETE CASCADE);");
         db.execSQL(
-                "create table "
+                "create table if not exists "
                         + Message.TABLENAME
                         + "( "
                         + Message.UUID
@@ -556,10 +707,16 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         + " TEXT,"
                         + Message.OCCUPANT_ID
                         + " TEXT,"
+                        + Message.OCCUPANTID
+                        + " TEXT,"
                         + Message.REACTIONS
                         + " TEXT,"
                         + Message.REMOTE_MSG_ID
-                        + " TEXT, FOREIGN KEY("
+                        + " TEXT,"
+                        + Message.EPHEMERAL_TIMER
+                        + " INTEGER DEFAULT 0,"
+                        + Message.EXPIRE_AT
+                        + " NUMBER DEFAULT 0, FOREIGN KEY("
                         + Message.CONVERSATION
                         + ") REFERENCES "
                         + Conversation.TABLENAME
@@ -572,6 +729,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_MESSAGE_FILE_DELETED_INDEX);
         db.execSQL(CREATE_MESSAGE_RELATIVE_FILE_PATH_INDEX);
         db.execSQL(CREATE_MESSAGE_TYPE_INDEX);
+        db.execSQL(CREATE_MESSAGE_EXPIRE_AT_INDEX);
         db.execSQL(CREATE_CONTATCS_STATEMENT);
         db.execSQL(CREATE_DISCOVERY_RESULTS_STATEMENT);
         db.execSQL(CREATE_SESSIONS_STATEMENT);
@@ -585,55 +743,69 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_MESSAGE_UPDATE_TRIGGER);
         db.execSQL(CREATE_MESSAGE_DELETE_TRIGGER);
         db.execSQL(CREATE_POSTS_TABLE);
+        db.execSQL(CREATE_STORIES_TABLE);
         monoclesDatabase(db);
     }
 
     private void monoclesDatabase(SQLiteDatabase db) {
-        try {
-            db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + "file_deleted" + " NUMBER DEFAULT 0");
-            db.execSQL(CREATE_MESSAGE_DELETED_INDEX);
-            db.execSQL(CREATE_MESSAGE_FILE_DELETED_INDEX);
-            db.execSQL(CREATE_MESSAGE_RELATIVE_FILE_PATH_INDEX);
-            db.execSQL(CREATE_MESSAGE_TYPE_INDEX);
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, Message.TABLENAME, "file_deleted")) {
+            try {
+                db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + "file_deleted" + " NUMBER DEFAULT 0");
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
-        try {
-            db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + Message.RETRACT_ID + " TEXT;");
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        db.execSQL(CREATE_MESSAGE_DELETED_INDEX);
+        db.execSQL(CREATE_MESSAGE_FILE_DELETED_INDEX);
+        db.execSQL(CREATE_MESSAGE_RELATIVE_FILE_PATH_INDEX);
+        db.execSQL(CREATE_MESSAGE_TYPE_INDEX);
+
+        if (!columnExists(db, Message.TABLENAME, Message.RETRACT_ID)) {
+            try {
+                db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + Message.RETRACT_ID + " TEXT;");
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
-        try {
-            db.execSQL(
-                    "ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " +
-                            Message.SUBJECT + " TEXT"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, Message.TABLENAME, Message.SUBJECT)) {
+            try {
+                db.execSQL(
+                        "ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " +
+                                Message.SUBJECT + " TEXT"
+                );
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
-        try {
-            db.execSQL(
-                "ALTER TABLE " + Message.TABLENAME + " " +
-                        "ADD COLUMN oobUri TEXT"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, Message.TABLENAME, "oobUri")) {
+            try {
+                db.execSQL(
+                    "ALTER TABLE " + Message.TABLENAME + " " +
+                            "ADD COLUMN oobUri TEXT"
+                );
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
-        try {
-            db.execSQL(
-                "ALTER TABLE " + Message.TABLENAME + " " +
-                        "ADD COLUMN fileParams TEXT"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, Message.TABLENAME, "fileParams")) {
+            try {
+                db.execSQL(
+                    "ALTER TABLE " + Message.TABLENAME + " " +
+                            "ADD COLUMN fileParams TEXT"
+                );
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
-        try {
-            db.execSQL(
-                "ALTER TABLE " + Message.TABLENAME + " " +
-                        "ADD COLUMN payloads TEXT"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, Message.TABLENAME, "payloads")) {
+            try {
+                db.execSQL(
+                    "ALTER TABLE " + Message.TABLENAME + " " +
+                            "ADD COLUMN payloads TEXT"
+                );
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
         db.execSQL(
                 "CREATE TABLE IF NOT EXISTS cids (" +
@@ -641,13 +813,15 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         "path TEXT NOT NULL" +
                         ")"
         );
-        try {
-            db.execSQL(
-                "ALTER TABLE " + Message.TABLENAME + " " +
-                        "ADD COLUMN timeReceived NUMBER"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, Message.TABLENAME, "timeReceived")) {
+            try {
+                db.execSQL(
+                    "ALTER TABLE " + Message.TABLENAME + " " +
+                            "ADD COLUMN timeReceived NUMBER"
+                );
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
         db.execSQL("CREATE INDEX IF NOT EXISTS message_time_received_index ON " + Message.TABLENAME + " (timeReceived)");
         db.execSQL(
@@ -655,13 +829,15 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         "cid TEXT NOT NULL PRIMARY KEY" +
                         ")"
         );
-        try {
-            db.execSQL(
-                "ALTER TABLE cids " +
-                        "ADD COLUMN url TEXT"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, "cids", "url")) {
+            try {
+                db.execSQL(
+                    "ALTER TABLE cids " +
+                            "ADD COLUMN url TEXT"
+                );
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
         db.execSQL(
                 "CREATE TABLE IF NOT EXISTS webxdc_updates (" +
@@ -677,13 +853,15 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         ")"
         );
         db.execSQL("CREATE INDEX IF NOT EXISTS webxdc_index ON webxdc_updates (" + Message.CONVERSATION + ", thread)");
-        try {
-            db.execSQL(
-                "ALTER TABLE webxdc_updates " +
-                        "ADD COLUMN message_id TEXT"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, "webxdc_updates", "message_id")) {
+            try {
+                db.execSQL(
+                    "ALTER TABLE webxdc_updates " +
+                            "ADD COLUMN message_id TEXT"
+                );
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
         db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS webxdc_message_id_index ON webxdc_updates (" + Message.CONVERSATION + ", message_id)");
         db.execSQL(
@@ -694,22 +872,26 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         "PRIMARY KEY (muc_jid, occupant_id)" +
                         ")"
         );
-        try {
-            db.execSQL(
-                "ALTER TABLE " + Message.TABLENAME + " " +
-                        "ADD COLUMN occupant_id TEXT"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
-        }
-        if (Build.VERSION.SDK_INT >= 34) {
+        if (!columnExists(db, Message.TABLENAME, Message.OCCUPANTID)) {
             try {
                 db.execSQL(
-                    "ALTER TABLE muted_participants " +
-                            "DROP COLUMN nick"
+                    "ALTER TABLE " + Message.TABLENAME + " " +
+                            "ADD COLUMN occupant_id TEXT"
                 );
             } catch (SQLiteException ex) {
                 Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 34) {
+            if (columnExists(db, "muted_participants", "nick")) {
+                try {
+                    db.execSQL(
+                        "ALTER TABLE muted_participants " +
+                                "DROP COLUMN nick"
+                    );
+                } catch (SQLiteException ex) {
+                    Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+                }
             }
         } else {
             db.execSQL("DROP TABLE IF EXISTS muted_participants");
@@ -721,14 +903,30 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                             ")"
             );
         }
-        try {
-            db.execSQL(
-                "ALTER TABLE " + Message.TABLENAME + " " +
-                        "ADD COLUMN notificationDismissed NUMBER DEFAULT 0"
-            );
-        } catch (SQLiteException ex) {
-            Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+        if (!columnExists(db, Message.TABLENAME, Message.NOTIFICATION_DISMISSED)) {
+            try {
+                db.execSQL(
+                    "ALTER TABLE " + Message.TABLENAME + " " +
+                            "ADD COLUMN notificationDismissed NUMBER DEFAULT 0"
+                );
+            } catch (SQLiteException ex) {
+                Log.w("DATABASE BACKEND", "Altering " + Message.TABLENAME + ": " + ex.getMessage());
+            }
         }
+        db.execSQL(
+                "CREATE TABLE IF NOT EXISTS " + PinnedMessage.TABLENAME + " (" +
+                        PinnedMessage.MESSAGE_UUID + " TEXT PRIMARY KEY, " +
+                        PinnedMessage.CONVERSATION_UUID + " TEXT, " +
+                        PinnedMessage.ACCOUNT_UUID + " TEXT, " +
+                        PinnedMessage.BODY + " TEXT, " +
+                        PinnedMessage.TIMESTAMP + " NUMBER, " +
+                        PinnedMessage.CID + " TEXT, " +
+                        "FOREIGN KEY(" + PinnedMessage.CONVERSATION_UUID + ") REFERENCES " + Conversation.TABLENAME + "(" + Conversation.UUID + ") ON DELETE CASCADE, " +
+                        "FOREIGN KEY(" + PinnedMessage.ACCOUNT_UUID + ") REFERENCES " + Account.TABLENAME + "(" + Account.UUID + ") ON DELETE CASCADE" +
+                        ")"
+        );
+        db.execSQL("CREATE INDEX IF NOT EXISTS pinned_messages_index ON " + PinnedMessage.TABLENAME + " (" + PinnedMessage.CONVERSATION_UUID + ")");
+        db.execSQL("CREATE INDEX IF NOT EXISTS pinned_messages_account_index ON " + PinnedMessage.TABLENAME + " (" + PinnedMessage.ACCOUNT_UUID + ")");
     }
 
     @Override
@@ -1105,12 +1303,14 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         }
                     } else if (file.isFile()) {
                         final String name = file.getName();
-                        boolean isVideo = false;
-                        int start = name.lastIndexOf('.') + 1;
+                        final int start = name.lastIndexOf('.') + 1;
+                        final boolean isVideo;
                         if (start < name.length()) {
                             String mime =
                                     MimeUtils.guessMimeTypeFromExtension(name.substring(start));
                             isVideo = mime != null && mime.startsWith("video/");
+                        } else {
+                            isVideo = false;
                         }
                         File dst =
                                 new File(
@@ -1335,6 +1535,30 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             } catch (final SQLiteException e) {
                 Log.e(Config.LOGTAG, "unable to add link_url column to posts table", e);
             }
+        }
+        if (oldVersion < 68 && newVersion >= 68) {
+            db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + Message.EPHEMERAL_TIMER + " INTEGER DEFAULT 0");
+            db.execSQL("ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + Message.EXPIRE_AT + " NUMBER DEFAULT 0");
+            db.execSQL(CREATE_MESSAGE_EXPIRE_AT_INDEX);
+        }
+        if (oldVersion < 69 && newVersion >= 69) {
+            db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS " + PinnedMessage.TABLENAME + " (" +
+                            PinnedMessage.MESSAGE_UUID + " TEXT PRIMARY KEY, " +
+                            PinnedMessage.CONVERSATION_UUID + " TEXT, " +
+                            PinnedMessage.ACCOUNT_UUID + " TEXT, " +
+                            PinnedMessage.BODY + " TEXT, " +
+                            PinnedMessage.TIMESTAMP + " NUMBER, " +
+                            PinnedMessage.CID + " TEXT, " +
+                            "FOREIGN KEY(" + PinnedMessage.CONVERSATION_UUID + ") REFERENCES " + Conversation.TABLENAME + "(" + Conversation.UUID + ") ON DELETE CASCADE, " +
+                            "FOREIGN KEY(" + PinnedMessage.ACCOUNT_UUID + ") REFERENCES " + Account.TABLENAME + "(" + Account.UUID + ") ON DELETE CASCADE" +
+                            ")"
+            );
+            db.execSQL("CREATE INDEX IF NOT EXISTS pinned_messages_index ON " + PinnedMessage.TABLENAME + " (" + PinnedMessage.CONVERSATION_UUID + ")");
+            db.execSQL("CREATE INDEX IF NOT EXISTS pinned_messages_account_index ON " + PinnedMessage.TABLENAME + " (" + PinnedMessage.ACCOUNT_UUID + ")");
+        }
+        if (oldVersion < 70 && newVersion >= 70) {
+            db.execSQL(CREATE_STORIES_TABLE);
         }
     }
 
@@ -1800,37 +2024,68 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 
     @Nullable
     public ArrayList<Message> getMessagesNearUuid(Conversation conversation, int limit, String uuid) {
-        SQLiteDatabase db = this.getReadableDatabase();
+        final SQLiteDatabase db = this.getReadableDatabase();
+        final String query = "WITH anchor AS (SELECT " + Message.TIME_SENT + ", " + Message.UUID + " FROM " + Message.TABLENAME
+                + " WHERE " + Message.CONVERSATION + "=? AND (" + Message.SERVER_MSG_ID + "=? OR " + Message.REMOTE_MSG_ID + "=? OR " + Message.UUID + "=?)"
+                + " ORDER BY " + Message.TIME_SENT + " DESC LIMIT 1) "
+                + "SELECT * FROM ( "
+                + "  SELECT m.* FROM " + Message.TABLENAME + " m, anchor a "
+                + "  WHERE m." + Message.CONVERSATION + "=? AND (m." + Message.TIME_SENT + " < a." + Message.TIME_SENT + " OR (m." + Message.TIME_SENT + " = a." + Message.TIME_SENT + " AND m." + Message.UUID + " < a." + Message.UUID + ")) "
+                + "  ORDER BY m." + Message.TIME_SENT + " DESC, m." + Message.UUID + " DESC LIMIT ? "
+                + ") "
+                + "UNION ALL "
+                + "SELECT m.* FROM " + Message.TABLENAME + " m, anchor a WHERE m." + Message.UUID + " = a." + Message.UUID + " "
+                + "UNION ALL "
+                + "SELECT * FROM ( "
+                + "  SELECT m.* FROM " + Message.TABLENAME + " m, anchor a "
+                + "  WHERE m." + Message.CONVERSATION + "=? AND (m." + Message.TIME_SENT + " > a." + Message.TIME_SENT + " OR (m." + Message.TIME_SENT + " = a." + Message.TIME_SENT + " AND m." + Message.UUID + " > a." + Message.UUID + ")) "
+                + "  ORDER BY m." + Message.TIME_SENT + " ASC, m." + Message.UUID + " ASC LIMIT ? "
+                + ") "
+                + "ORDER BY " + Message.TIME_SENT + " ASC, " + Message.UUID + " ASC";
 
-        String[] selectionArgs = {conversation.getUuid(), uuid, uuid, uuid};
-        Cursor cursor = db.query(Message.TABLENAME, null, Message.CONVERSATION
-                + "=? and (" + Message.SERVER_MSG_ID + "=? or " + Message.REMOTE_MSG_ID +  "=? or " + Message.UUID + "=?)", selectionArgs, null, null, Message.TIME_SENT
-                + " DESC", String.valueOf(1));
+        final String[] selectionArgs = {
+                conversation.getUuid(), uuid, uuid, uuid,
+                conversation.getUuid(), String.valueOf(limit / 2),
+                conversation.getUuid(), String.valueOf(limit / 2)
+        };
+
+        final Cursor cursor = db.rawQuery(query, selectionArgs);
         CursorUtils.upgradeCursorWindowSize(cursor);
-        Message anchorMessage = null;
+        final ArrayList<Message> list = new ArrayList<>();
+        final Multimap<String, Message> waitingForReplies = HashMultimap.create();
+        final var replyIds = new HashSet<String>();
+        boolean foundAnchor = false;
         while (cursor.moveToNext()) {
             try {
-                anchorMessage = Message.fromCursor(cursor, conversation);
+                final Message m = Message.fromCursor(cursor, conversation);
+                if (uuid.equals(m.getServerMsgId()) || uuid.equals(m.getRemoteMsgId()) || uuid.equals(m.getUuid())) {
+                    foundAnchor = true;
+                }
+                final Element reply = m.getReply();
+                if (reply != null && reply.getAttribute("id") != null) {
+                    replyIds.add(reply.getAttribute("id"));
+                    waitingForReplies.put(reply.getAttribute("id"), m);
+                }
+                list.add(m);
             } catch (Exception e) {
-                Log.e(Config.LOGTAG, "unable to restore message");
+                Log.e(Config.LOGTAG, "unable to restore message", e);
             }
         }
-
         cursor.close();
 
-        if (anchorMessage == null) {
+        if (!foundAnchor) {
             return null;
         }
 
-        List<Message> prev = getMessages(conversation, limit / 2, anchorMessage.getTimeSent(), false);
-        List<Message> next = getMessages(conversation, limit / 2, anchorMessage.getTimeSent(), true);
-
-        ArrayList<Message> list = new ArrayList<>(prev);
-        list.add(anchorMessage);
-        list.addAll(next);
+        for (final var parent : getMessageFuzzyIds(conversation, replyIds).entrySet()) {
+            for (final var m : waitingForReplies.get(parent.getKey())) {
+                m.setInReplyTo(parent.getValue());
+            }
+        }
 
         return list;
     }
+
 
 
     public Map<String, Message> getMessageFuzzyIds(Conversation conversation, Collection<String> ids) {
@@ -1867,11 +2122,11 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         return result;
     }
 
-    public ArrayList<Message> getMessages(Conversation conversation, int limit, long timestamp, boolean isForward) {
+    public ArrayList<Message> getMessages(Conversation conversation, int limit, long timestamp, String uuid, boolean isForward) {
         ArrayList<Message> list = new ArrayList<>();
         SQLiteDatabase db = this.getReadableDatabase();
         Cursor cursor;
-        String comparsionOperation = isForward ? ">? " : "<? ";
+        String comparsionOperation = isForward ? ">" : "<";
         String sorting = isForward ? " ASC " : " DESC ";
         if (timestamp == -1) {
             String[] selectionArgs = {conversation.getUuid()};
@@ -1880,23 +2135,23 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                             "WHERE " + Message.UUID + " IN (" +
                             "SELECT " + Message.UUID + " FROM " + Message.TABLENAME +
                             " WHERE " + Message.CONVERSATION + "=? " +
-                            "ORDER BY " + Message.TIME_SENT + sorting +
+                            "ORDER BY " + Message.TIME_SENT + sorting + "," + Message.UUID + sorting +
                             "LIMIT " + String.valueOf(limit) + ") " +
-                            "ORDER BY " + Message.TIME_SENT + sorting,
+                            "ORDER BY " + Message.TIME_SENT + sorting + "," + Message.UUID + sorting,
                     selectionArgs
             );
         } else {
             String[] selectionArgs = {conversation.getUuid(),
-                    Long.toString(timestamp)};
+                    Long.toString(timestamp), uuid, Long.toString(timestamp)};
             cursor = db.rawQuery(
                     "SELECT * FROM " + Message.TABLENAME + " " +
                             "WHERE " + Message.UUID + " IN (" +
                             "SELECT " + Message.UUID + " FROM " + Message.TABLENAME +
-                            " WHERE " + Message.CONVERSATION + "=? AND " +
-                            Message.TIME_SENT + comparsionOperation +
-                            "ORDER BY " + Message.TIME_SENT + sorting +
+                            " WHERE " + Message.CONVERSATION + "=? AND (" +
+                            Message.TIME_SENT + comparsionOperation + " ? OR (" + Message.TIME_SENT + " = ? AND " + Message.UUID + comparsionOperation + " ?)) " +
+                            "ORDER BY " + Message.TIME_SENT + sorting + "," + Message.UUID + sorting +
                             "LIMIT " + String.valueOf(limit) + ") " +
-                            "ORDER BY " + Message.TIME_SENT + sorting,
+                            "ORDER BY " + Message.TIME_SENT + sorting + "," + Message.UUID + sorting,
                     selectionArgs
             );
         }
@@ -1928,6 +2183,11 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         cursor.close();
         return list;
     }
+
+    public ArrayList<Message> getMessages(Conversation conversation, int limit, long timestamp, boolean isForward) {
+        return getMessages(conversation, limit, timestamp, "", isForward);
+    }
+
 
     public Cursor getMessageSearchCursor(final List<String> term, final String uuid) {
         final SQLiteDatabase db = this.getReadableDatabase();
@@ -2082,20 +2342,38 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         return list;
     }
 
-    public List<FilePath> getRelativeFilePaths(String account, Jid jid, int limit) {
+    public List<FilePath> getRelativeFilePaths(String account, Jid jid, String query, int limit) {
         SQLiteDatabase db = this.getReadableDatabase();
-        final String SQL =
-                "select uuid,relativeFilePath from messages where type in (1,2,5) and deleted=0 and"
-                        + " "
-                        + Message.RELATIVE_FILE_PATH
-                        + " is not null and conversationUuid=(select uuid from conversations where"
-                        + " accountUuid=? and (contactJid=? or contactJid like ?)) order by"
-                        + " timeSent desc";
-        final String[] args = {account, jid.toString(), jid.toString() + "/%"};
-        Cursor cursor = db.rawQuery(SQL + (limit > 0 ? " limit " + limit : ""), args);
+        StringBuilder sqlBuilder = new StringBuilder("select uuid,relativeFilePath,timeSent,conversationUuid from messages where type in (1,2,5) and deleted=0 and " + Message.RELATIVE_FILE_PATH + " is not null");
+        List<String> args = new ArrayList<>();
+
+        if (account != null && jid != null) {
+            sqlBuilder.append(" and conversationUuid=(select uuid from conversations where accountUuid=? and (contactJid=? or contactJid like ?))");
+            args.add(account);
+            args.add(jid.toString());
+            args.add(jid.toString() + "/%");
+        }
+
+        if (!TextUtils.isEmpty(query)) {
+            if (query.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                sqlBuilder.append(" and date(" + Message.TIME_SENT + " / 1000, 'unixepoch', 'localtime') = ?");
+                args.add(query);
+            } else {
+                sqlBuilder.append(" and (body like ? or " + Message.RELATIVE_FILE_PATH + " like ?)");
+                args.add("%" + query + "%");
+                args.add("%" + query + "%");
+            }
+        }
+
+        sqlBuilder.append(" order by " + Message.TIME_SENT + " desc");
+        if (limit > 0) {
+            sqlBuilder.append(" limit ").append(limit);
+        }
+
+        Cursor cursor = db.rawQuery(sqlBuilder.toString(), args.toArray(new String[0]));
         List<FilePath> filesPaths = new ArrayList<>();
         while (cursor.moveToNext()) {
-            filesPaths.add(new FilePath(cursor.getString(0), cursor.getString(1)));
+            filesPaths.add(new FilePath(cursor.getString(0), cursor.getString(1), cursor.getLong(2), cursor.getString(3)));
         }
         cursor.close();
         return filesPaths;
@@ -2152,7 +2430,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         int day = cursor.getInt(dayOfMonthIndex);
                         String uuid = cursor.getString(uuidIndex);
                         String relativePath = cursor.getString(relativePathIndex);
-                        dayToFilePath.put(day, new FilePath(uuid, relativePath));
+                        dayToFilePath.put(day, new FilePath(uuid, relativePath, 0, conversationUuid));
                     }
                 }
             } finally {
@@ -2248,10 +2526,14 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     public static class FilePath {
         public final UUID uuid;
         public final String path;
+        public final long timestamp;
+        public final String conversationUuid;
 
-        private FilePath(String uuid, String path) {
+        private FilePath(String uuid, String path, long timestamp, String conversationUuid) {
             this.uuid = UUID.fromString(uuid);
             this.path = path;
+            this.timestamp = timestamp;
+            this.conversationUuid = conversationUuid;
         }
     }
 
@@ -2259,7 +2541,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         public boolean deleted;
 
         private FilePathInfo(String uuid, String path, boolean deleted) {
-            super(uuid, path);
+            super(uuid, path, 0, null);
             this.deleted = deleted;
         }
 
@@ -2360,9 +2642,23 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 args);
     }
 
+    public String getAccountUuidForConversation(String conversationUuid) {
+        final SQLiteDatabase db = this.getReadableDatabase();
+        try (Cursor cursor = db.query(Conversation.TABLENAME, new String[]{Conversation.ACCOUNT}, Conversation.UUID + "=?", new String[]{conversationUuid}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                return cursor.getString(0);
+            }
+        }
+        return null;
+    }
+
     public List<Account> getAccounts() {
-        SQLiteDatabase db = this.getReadableDatabase();
-        return getAccounts(db);
+        try {
+            SQLiteDatabase db = this.getReadableDatabase();
+            return getAccounts(db);
+        } catch (final Exception e) {
+            return new ArrayList<>();
+        }
     }
 
     public List<Jid> getAccountJids(final boolean enabledOnly) {
@@ -2433,6 +2729,51 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 db.delete("" + Message.TABLENAME, Message.UUID + "=?", args) == 1;
     }
 
+    /**
+     * Returns a list of relative file paths for messages in the given conversation
+     * that are not referenced by any other conversation's messages.
+     */
+    public List<String> getExclusiveFilePaths(final Conversation conversation) {
+        final List<String> paths = new ArrayList<>();
+        final SQLiteDatabase db = this.getReadableDatabase();
+        final String sql = "SELECT DISTINCT m." + Message.RELATIVE_FILE_PATH
+                + " FROM " + Message.TABLENAME + " m"
+                + " WHERE m." + Message.CONVERSATION + "=?"
+                + " AND m." + Message.RELATIVE_FILE_PATH + " IS NOT NULL"
+                + " AND NOT EXISTS ("
+                + "SELECT 1 FROM " + Message.TABLENAME + " m2"
+                + " WHERE m2." + Message.RELATIVE_FILE_PATH + "=m." + Message.RELATIVE_FILE_PATH
+                + " AND m2." + Message.CONVERSATION + "!=?"
+                + ")";
+        try (Cursor cursor = db.rawQuery(sql, new String[]{conversation.getUuid(), conversation.getUuid()})) {
+            while (cursor.moveToNext()) {
+                final String relativePath = cursor.getString(0);
+                if (relativePath != null) {
+                    paths.add(relativePath);
+                }
+            }
+        }
+        return paths;
+    }
+
+    public String getExclusiveFilePath(final Message message) {
+        final String relativePath = message.getRelativeFilePath();
+        if (relativePath == null) {
+            return null;
+        }
+        final SQLiteDatabase db = this.getReadableDatabase();
+        final String sql = "SELECT 1 FROM " + Message.TABLENAME
+                + " WHERE " + Message.RELATIVE_FILE_PATH + "=?"
+                + " AND " + Message.UUID + "!=?"
+                + " LIMIT 1";
+        try (Cursor cursor = db.rawQuery(sql, new String[]{relativePath, message.getUuid()})) {
+            if (cursor.getCount() == 0) {
+                return relativePath;
+            }
+        }
+        return null;
+    }
+
     public void readRoster(Roster roster) {
         final SQLiteDatabase db = this.getReadableDatabase();
         final String[] args = {roster.getAccount().getUuid()};
@@ -2477,27 +2818,103 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         final String[] args = {conversation.getUuid()};
         int num = db.delete(Message.TABLENAME, Message.CONVERSATION + "=?", args);
         db.delete("webxdc_updates", Message.CONVERSATION + "=?", args);
+        db.delete(PinnedMessage.TABLENAME, PinnedMessage.CONVERSATION_UUID + "=?", args);
         db.setTransactionSuccessful();
         db.endTransaction();
         Log.d(
                 Config.LOGTAG,
                 "deleted "
                         + num
-                        + " messages for "
+                        + " messages and associated data for "
                         + conversation.getJid().asBareJid()
                         + " in "
                         + (SystemClock.elapsedRealtime() - start)
                         + "ms");
     }
 
+    public void pinMessage(String messageUuid, String conversationUuid, String accountUuid, String body, String cid, long timestamp) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        ContentValues values = new ContentValues();
+        values.put(PinnedMessage.MESSAGE_UUID, messageUuid);
+        values.put(PinnedMessage.CONVERSATION_UUID, conversationUuid);
+        values.put(PinnedMessage.ACCOUNT_UUID, accountUuid);
+        values.put(PinnedMessage.BODY, body);
+        values.put(PinnedMessage.TIMESTAMP, timestamp);
+        values.put(PinnedMessage.CID, cid);
+        db.insertWithOnConflict(PinnedMessage.TABLENAME, null, values, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public void unpinMessage(String messageUuid) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        db.delete(PinnedMessage.TABLENAME, PinnedMessage.MESSAGE_UUID + "=?", new String[]{messageUuid});
+    }
+
+    public Cursor getPinnedMessages(String conversationUuid) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        return db.query(PinnedMessage.TABLENAME, null, PinnedMessage.CONVERSATION_UUID + "=?", new String[]{conversationUuid}, null, null, PinnedMessage.TIMESTAMP + " DESC");
+    }
+
+    public void deletePinnedMessage(String conversationUuid, String messageUuid) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        db.delete(PinnedMessage.TABLENAME, PinnedMessage.CONVERSATION_UUID + "=? and " + PinnedMessage.MESSAGE_UUID + "=?", new String[]{conversationUuid, messageUuid});
+    }
+
     public void expireOldMessages(long timestamp) {
         final String[] args = {String.valueOf(timestamp)};
-        SQLiteDatabase db = this.getReadableDatabase();
+        SQLiteDatabase db = this.getWritableDatabase();
         db.beginTransaction();
         db.delete(Message.TABLENAME, "timeSent<?", args);
         db.delete("messages", "timeReceived<?", args);
+        ContentValues values = new ContentValues();
+        values.put(Message.BODY, (String) null);
+        values.put(Message.SUBJECT, (String) null);
+        values.put(Message.DELETED, 1);
+        if (columnExists(db, Message.TABLENAME, "file_deleted")) {
+            values.put("file_deleted", 1);
+        }
+        values.put(Message.RELATIVE_FILE_PATH, (String) null);
+        values.put(Message.ENCRYPTION, Message.ENCRYPTION_NONE);
+        values.put(Message.REACTIONS, (String) null);
+        db.update(Message.TABLENAME, values, Message.EXPIRE_AT + " > 0 AND " + Message.EXPIRE_AT + " < ?", new String[]{String.valueOf(System.currentTimeMillis())});
         db.setTransactionSuccessful();
         db.endTransaction();
+    }
+
+    public long getNextExpiration() {
+        SQLiteDatabase db = this.getReadableDatabase();
+        String query = "SELECT MIN(" + Message.EXPIRE_AT + ") FROM " + Message.TABLENAME + " WHERE " + Message.EXPIRE_AT + " > 0";
+        try (Cursor cursor = db.rawQuery(query, null)) {
+            if (cursor.moveToFirst()) {
+                return cursor.getLong(0);
+            }
+        }
+        return 0;
+    }
+
+    public List<String> getExclusiveFilePathsExpiring(long historyTimestamp) {
+        final List<String> paths = new ArrayList<>();
+        final SQLiteDatabase db = this.getReadableDatabase();
+        final long now = System.currentTimeMillis();
+        final String sql = "SELECT DISTINCT m." + Message.RELATIVE_FILE_PATH
+                + " FROM " + Message.TABLENAME + " m"
+                + " WHERE ((" + Message.EXPIRE_AT + " > 0 AND " + Message.EXPIRE_AT + " < ?)"
+                + " OR (" + Message.TIME_SENT + " < ? AND ? > 0))"
+                + " AND m." + Message.RELATIVE_FILE_PATH + " IS NOT NULL"
+                + " AND NOT EXISTS ("
+                + "SELECT 1 FROM " + Message.TABLENAME + " m2"
+                + " WHERE m2." + Message.RELATIVE_FILE_PATH + "=m." + Message.RELATIVE_FILE_PATH
+                + " AND NOT ((" + Message.EXPIRE_AT + " > 0 AND " + Message.EXPIRE_AT + " < ?)"
+                + " OR (" + Message.TIME_SENT + " < ? AND ? > 0))"
+                + ")";
+        try (Cursor cursor = db.rawQuery(sql, new String[]{
+                String.valueOf(now), String.valueOf(historyTimestamp), String.valueOf(historyTimestamp),
+                String.valueOf(now), String.valueOf(historyTimestamp), String.valueOf(historyTimestamp)
+        })) {
+            while (cursor.moveToNext()) {
+                paths.add(cursor.getString(0));
+            }
+        }
+        return paths;
     }
 
     public MamReference getLastMessageReceived(Account account) {
@@ -2541,7 +2958,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             time = cursor.getLong(0);
         } else {
             time = 0;
-        }
+    }
         cursor.close();
         return time;
     }
@@ -3025,25 +3442,12 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             FingerprintStatus.Trust.VERIFIED.toString(),
             FingerprintStatus.Trust.VERIFIED_X509.toString()
         };
-        return DatabaseUtils.queryNumEntries(
-                db,
-                SQLiteAxolotlStore.IDENTITIES_TABLENAME,
-                SQLiteAxolotlStore.ACCOUNT
-                        + " = ?"
-                        + " AND "
-                        + SQLiteAxolotlStore.NAME
-                        + " = ?"
-                        + " AND ("
-                        + SQLiteAxolotlStore.TRUST
-                        + " = ? OR "
-                        + SQLiteAxolotlStore.TRUST
-                        + " = ? OR "
-                        + SQLiteAxolotlStore.TRUST
-                        + " = ?)"
-                        + " AND "
-                        + SQLiteAxolotlStore.ACTIVE
-                        + " > 0",
-                args);
+        try (Cursor cursor = db.rawQuery("SELECT count(*) FROM " + SQLiteAxolotlStore.IDENTITIES_TABLENAME + " WHERE " + SQLiteAxolotlStore.ACCOUNT + " = ? AND " + SQLiteAxolotlStore.NAME + " = ? AND (" + SQLiteAxolotlStore.TRUST + " = ? OR " + SQLiteAxolotlStore.TRUST + " = ? OR " + SQLiteAxolotlStore.TRUST + " = ?) AND " + SQLiteAxolotlStore.ACTIVE + " > 0", args)) {
+            if (cursor.moveToFirst()) {
+                return cursor.getLong(0);
+            }
+        }
+        return 0;
     }
 
     private void storeIdentityKey(
@@ -3446,14 +3850,14 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     }
 
     public void createPost(eu.siacs.conversations.entities.Post post, eu.siacs.conversations.entities.Account account) {
-        final android.database.sqlite.SQLiteDatabase db = this.getWritableDatabase();
-        db.insertWithOnConflict(eu.siacs.conversations.entities.Post.TABLENAME, null, post.getContentValues(account), android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE);
+        final SQLiteDatabase db = this.getWritableDatabase();
+        db.insertWithOnConflict(eu.siacs.conversations.entities.Post.TABLENAME, null, post.getContentValues(account), SQLiteDatabase.CONFLICT_REPLACE);
     }
 
     public java.util.List<eu.siacs.conversations.entities.Post> getPosts() {
         final java.util.List<eu.siacs.conversations.entities.Post> list = new java.util.ArrayList<>();
-        final android.database.sqlite.SQLiteDatabase db = this.getReadableDatabase();
-        android.database.Cursor cursor = db.query(eu.siacs.conversations.entities.Post.TABLENAME, null, null, null, null, null, eu.siacs.conversations.entities.Post.PUBLISHED + " DESC");
+        final SQLiteDatabase db = this.getReadableDatabase();
+        Cursor cursor = db.query(eu.siacs.conversations.entities.Post.TABLENAME, null, null, null, null, null, eu.siacs.conversations.entities.Post.PUBLISHED + " DESC");
         while (cursor.moveToNext()) {
             list.add(eu.siacs.conversations.entities.Post.fromCursor(cursor));
         }
@@ -3462,12 +3866,176 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     }
 
     public void deletePost(String uuid) {
-        final android.database.sqlite.SQLiteDatabase db = this.getWritableDatabase();
+        final SQLiteDatabase db = this.getWritableDatabase();
         db.delete(eu.siacs.conversations.entities.Post.TABLENAME, eu.siacs.conversations.entities.Post.UUID + "=?", new String[]{uuid});
     }
 
     public void clearPosts() {
-        final android.database.sqlite.SQLiteDatabase db = this.getWritableDatabase();
+        final SQLiteDatabase db = this.getWritableDatabase();
         db.delete(eu.siacs.conversations.entities.Post.TABLENAME, null, null);
+    }
+
+    public void upsertStory(eu.siacs.conversations.entities.Story story) {
+        final SQLiteDatabase db = this.getWritableDatabase();
+        db.insertWithOnConflict(eu.siacs.conversations.entities.Story.TABLENAME, null, story.getContentValues(), SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public java.util.List<eu.siacs.conversations.entities.Story> getStoriesFromDatabase() {
+        final java.util.List<eu.siacs.conversations.entities.Story> list = new java.util.ArrayList<>();
+        final SQLiteDatabase db = this.getReadableDatabase();
+        final long twentyFourHoursAgo = System.currentTimeMillis() - 86400000L;
+        final Cursor cursor = db.query(
+                eu.siacs.conversations.entities.Story.TABLENAME,
+                null,
+                eu.siacs.conversations.entities.Story.PUBLISHED + " >= ?",
+                new String[]{String.valueOf(twentyFourHoursAgo)},
+                null, null,
+                eu.siacs.conversations.entities.Story.PUBLISHED + " DESC");
+        while (cursor.moveToNext()) {
+            try {
+                list.add(eu.siacs.conversations.entities.Story.fromCursor(cursor));
+            } catch (Exception e) {
+                Log.w(Config.LOGTAG, "Failed to restore story from database", e);
+            }
+        }
+        cursor.close();
+        return list;
+    }
+
+    public void deleteStory(String uuid) {
+        final SQLiteDatabase db = this.getWritableDatabase();
+        db.delete(eu.siacs.conversations.entities.Story.TABLENAME,
+                eu.siacs.conversations.entities.Story.UUID + "=?",
+                new String[]{uuid});
+    }
+
+    public void deleteExpiredStories() {
+        final SQLiteDatabase db = this.getWritableDatabase();
+        final long twentyFourHoursAgo = System.currentTimeMillis() - 86400000L;
+        db.delete(eu.siacs.conversations.entities.Story.TABLENAME,
+                eu.siacs.conversations.entities.Story.PUBLISHED + " < ?",
+                new String[]{String.valueOf(twentyFourHoursAgo)});
+    }
+
+    public static synchronized void migrate(Context context, char[] oldPassword, char[] newPassword) throws Exception {
+        closeInstance();
+        System.loadLibrary("sqlcipher");
+        File dbFile = context.getDatabasePath(DATABASE_NAME);
+        if (!dbFile.exists()) {
+            new AppSettings(context).setDatabasePassword(newPassword);
+            return;
+        }
+
+        File tempFile = context.getDatabasePath(DATABASE_NAME + ".tmp");
+        if (tempFile.exists() && !tempFile.delete()) {
+            throw new java.io.IOException("Failed to delete existing temporary database file");
+        }
+        if (tempFile.getParentFile() != null && !tempFile.getParentFile().exists() && !tempFile.getParentFile().mkdirs()) {
+            throw new java.io.IOException("Failed to create database directory");
+        }
+        if (!tempFile.createNewFile()) {
+            throw new java.io.IOException("Failed to create temporary database file");
+        }
+
+        // Use byte[] openDatabase overload (new in sqlcipher-android 4.16.0) — byte[] can be
+        // zeroed immediately after the call; String cannot be zeroed at all.
+        final byte[] oldPwBytes = oldPassword != null ? charsToUtf8Bytes(oldPassword) : null;
+        SQLiteDatabase db = SQLiteDatabase.openDatabase(
+                dbFile.getAbsolutePath(), oldPwBytes, null,
+                SQLiteDatabase.OPEN_READWRITE,
+                oldPwBytes != null ? DATABASE_HOOK : null);
+        if (oldPwBytes != null) java.util.Arrays.fill(oldPwBytes, (byte) 0);
+        int version = db.getVersion();
+
+        // Optimization: DB is just-created and empty (onCreate never ran). Delete it and set
+        // the password now; the next getInstance() will build the schema encrypted via onCreate.
+        final boolean isEmpty;
+        try (final Cursor c = db.rawQuery("SELECT count(*) FROM sqlite_master WHERE type='table'", null)) {
+            isEmpty = version == 0 && c != null && c.moveToFirst() && c.getInt(0) == 0;
+        }
+        if (isEmpty) {
+            db.close();
+            tempFile.delete();
+            // Delete before writing prefs: a crash here leaves the app in its original clean
+            // state (no file, no password) rather than a broken one (new password, old file).
+            FileHelper.secureDelete(dbFile);
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
+            new AppSettings(context).setDatabasePassword(newPassword);
+            return;
+        }
+
+        try {
+            // Set Argon2id parameters as connection-wide defaults so the attached DB inherits them
+            db.rawExecSQL("PRAGMA cipher_default_kdf_algorithm = argon2id;");
+            db.rawExecSQL("PRAGMA cipher_default_memory_limit = 65536;");
+            db.rawExecSQL("PRAGMA cipher_default_kdf_iterations = 3;");
+            db.rawExecSQL("PRAGMA cipher_default_kdf_parallelism = 4;");
+
+            // ATTACH KEY must be a SQL string literal — unavoidable String; null it immediately.
+            String newPwStr = newPassword == null ? "" : new String(newPassword);
+            final String escapedNewPassword = DatabaseUtils.sqlEscapeString(newPwStr);
+            newPwStr = null;
+            String attachSql = "ATTACH DATABASE " + DatabaseUtils.sqlEscapeString(tempFile.getAbsolutePath()) + " AS encrypted KEY " + escapedNewPassword;
+            db.rawExecSQL(attachSql);
+            db.rawExecSQL("SELECT sqlcipher_export('encrypted');");
+            db.rawExecSQL("PRAGMA encrypted.user_version = " + version);
+            db.rawExecSQL("DETACH DATABASE encrypted;");
+        } finally {
+            db.close();
+        }
+
+        final AppSettings settings = new AppSettings(context);
+        final File backupFile = context.getDatabasePath(DATABASE_NAME + ".bak");
+        if (backupFile.exists() && !backupFile.delete()) {
+            throw new java.io.IOException("Failed to delete existing backup file");
+        }
+
+        // Write sentinel before touching any files. If the process dies mid-migration,
+        // recoverFromInterruptedMigration() will restore a consistent state on next launch.
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit().putBoolean(REKEY_MIGRATION_IN_PROGRESS, true).commit();
+
+        boolean prefsUpdated = false;
+        try {
+            // Step 1: Move original DB to .bak
+            if (!dbFile.renameTo(backupFile)) {
+                throw new java.io.IOException("Failed to backup old database file");
+            }
+
+            // Step 2: Move new (re-encrypted) DB into place
+            if (!tempFile.renameTo(dbFile)) {
+                if (!backupFile.renameTo(dbFile)) {
+                    Log.e(Config.LOGTAG, "rekey: CRITICAL — failed to rollback after temp rename failure");
+                }
+                throw new java.io.IOException("Failed to rename temporary database file");
+            }
+
+            // Step 3: Persist new key — last write that changes observable state
+            settings.setDatabasePassword(newPassword);
+            prefsUpdated = true;
+
+            // Step 4: Clear sentinel now that both files and prefs are consistent
+            PreferenceManager.getDefaultSharedPreferences(context)
+                    .edit().remove(REKEY_MIGRATION_IN_PROGRESS).commit();
+
+            // Step 5: Securely delete backup and auxiliary files (best-effort)
+            FileHelper.secureDelete(backupFile);
+            FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-wal"));
+            FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-shm"));
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
+
+        } catch (Exception e) {
+            if (!prefsUpdated) {
+                // Failed before or during file operations and before prefs were updated —
+                // safe to clear sentinel since file state was either not changed or restored.
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+            }
+            // If prefsUpdated is true, the migration succeeded but cleanup threw.
+            // Sentinel was already cleared; .bak will be an orphan but data is accessible.
+            throw e;
+        }
     }
 }

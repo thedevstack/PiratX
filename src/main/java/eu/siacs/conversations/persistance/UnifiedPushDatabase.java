@@ -3,46 +3,177 @@ package eu.siacs.conversations.persistance;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteOpenHelper;
+import android.database.DatabaseUtils;
+import net.zetetic.database.sqlcipher.SQLiteDatabase;
+import net.zetetic.database.sqlcipher.SQLiteOpenHelper;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.preference.PreferenceManager;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
+import java.io.File;
 import java.util.List;
 
+import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.services.UnifiedPushBroker;
+import eu.siacs.conversations.utils.FileHelper;
 
 public class UnifiedPushDatabase extends SQLiteOpenHelper {
+
     private static final String DATABASE_NAME = "unified-push-distributor";
     private static final int DATABASE_VERSION = 1;
 
     private static UnifiedPushDatabase instance;
 
+    public static synchronized void closeInstance() {
+        if (instance != null) {
+            instance.close();
+            instance = null;
+        }
+    }
+
+    public static synchronized void migrate(Context context, char[] oldPassword, char[] newPassword) throws Exception {
+        closeInstance();
+        System.loadLibrary("sqlcipher");
+        File dbFile = context.getDatabasePath(DATABASE_NAME);
+        if (!dbFile.exists()) {
+            new AppSettings(context).setDatabasePassword(newPassword);
+            return;
+        }
+
+        File tempFile = context.getDatabasePath(DATABASE_NAME + ".tmp");
+        if (tempFile.exists() && !tempFile.delete()) {
+            throw new java.io.IOException("Failed to delete existing temporary database file");
+        }
+        if (tempFile.getParentFile() != null && !tempFile.getParentFile().exists() && !tempFile.getParentFile().mkdirs()) {
+            throw new java.io.IOException("Failed to create database directory");
+        }
+        if (!tempFile.createNewFile()) {
+            throw new java.io.IOException("Failed to create temporary database file");
+        }
+
+        final byte[] oldPwBytes = oldPassword != null ? DatabaseBackend.charsToUtf8Bytes(oldPassword) : null;
+        SQLiteDatabase db = SQLiteDatabase.openDatabase(
+                dbFile.getAbsolutePath(), oldPwBytes, null,
+                SQLiteDatabase.OPEN_READWRITE,
+                oldPwBytes != null ? DatabaseBackend.DATABASE_HOOK : null);
+        if (oldPwBytes != null) java.util.Arrays.fill(oldPwBytes, (byte) 0);
+        int version = db.getVersion();
+
+        // Optimization: DB is just-created and empty (onCreate never ran). Delete it and set
+        // the password now; the next getInstance() will build the schema encrypted via onCreate.
+        final boolean isEmpty;
+        try (final Cursor c = db.rawQuery("SELECT count(*) FROM sqlite_master WHERE type='table'", null)) {
+            isEmpty = version == 0 && c != null && c.moveToFirst() && c.getInt(0) == 0;
+        }
+        if (isEmpty) {
+            db.close();
+            tempFile.delete();
+            FileHelper.secureDelete(dbFile);
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
+            new AppSettings(context).setDatabasePassword(newPassword);
+            return;
+        }
+
+        try {
+            // Set Argon2id parameters as connection-wide defaults so the attached DB inherits them
+            db.rawExecSQL("PRAGMA cipher_default_kdf_algorithm = argon2id;");
+            db.rawExecSQL("PRAGMA cipher_default_memory_limit = 65536;");
+            db.rawExecSQL("PRAGMA cipher_default_kdf_iterations = 3;");
+            db.rawExecSQL("PRAGMA cipher_default_kdf_parallelism = 4;");
+
+            // ATTACH KEY must be a SQL string literal — unavoidable String; null it immediately.
+            String newPwStr = newPassword == null ? "" : new String(newPassword);
+            final String escapedNewPassword = DatabaseUtils.sqlEscapeString(newPwStr);
+            newPwStr = null;
+            String attachSql = "ATTACH DATABASE " + DatabaseUtils.sqlEscapeString(tempFile.getAbsolutePath()) + " AS encrypted KEY " + escapedNewPassword;
+            db.rawExecSQL(attachSql);
+            db.rawExecSQL("SELECT sqlcipher_export('encrypted');");
+            db.rawExecSQL("PRAGMA encrypted.user_version = " + version);
+            db.rawExecSQL("DETACH DATABASE encrypted;");
+        } finally {
+            db.close();
+        }
+
+        final AppSettings settings = new AppSettings(context);
+        final File backupFile = context.getDatabasePath(DATABASE_NAME + ".bak");
+        if (backupFile.exists() && !backupFile.delete()) {
+            throw new java.io.IOException("Failed to delete existing backup file");
+        }
+
+        // Sentinel mirrors the DatabaseBackend migration pattern — protects against process kill
+        // between the file rename and the prefs write.
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit().putBoolean("rekey_migration_updb_in_progress", true).commit();
+
+        boolean prefsUpdated = false;
+        try {
+            if (!dbFile.renameTo(backupFile)) {
+                throw new java.io.IOException("Failed to backup old database file");
+            }
+            if (!tempFile.renameTo(dbFile)) {
+                if (!backupFile.renameTo(dbFile)) {
+                    Log.e(Config.LOGTAG, "updb rekey: CRITICAL — failed to rollback after temp rename failure");
+                }
+                throw new java.io.IOException("Failed to rename temporary database file");
+            }
+            settings.setDatabasePassword(newPassword);
+            prefsUpdated = true;
+            PreferenceManager.getDefaultSharedPreferences(context)
+                    .edit().remove("rekey_migration_updb_in_progress").commit();
+            FileHelper.secureDelete(backupFile);
+            FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-wal"));
+            FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-shm"));
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
+            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
+        } catch (Exception e) {
+            if (!prefsUpdated) {
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .edit().remove("rekey_migration_updb_in_progress").apply();
+            }
+            throw e;
+        }
+    }
+
+    private UnifiedPushDatabase(@Nullable Context context) {
+        super(context, DATABASE_NAME, getPasswordBytes(context), null, DATABASE_VERSION, 0, null, DatabaseBackend.DATABASE_HOOK, true);
+    }
+
+    private static byte[] getPasswordBytes(Context context) {
+        try {
+            final char[] chars = new AppSettings(context).getDatabasePasswordChars();
+            if (chars == null) return null;
+            final byte[] bytes = DatabaseBackend.charsToUtf8Bytes(chars);
+            java.util.Arrays.fill(chars, '\0');
+            return bytes;
+        } catch (eu.siacs.conversations.EncryptionException e) {
+            return null;
+        }
+    }
+
     public static UnifiedPushDatabase getInstance(final Context context) {
         synchronized (UnifiedPushDatabase.class) {
             if (instance == null) {
+                System.loadLibrary("sqlcipher");
                 instance = new UnifiedPushDatabase(context.getApplicationContext());
             }
             return instance;
         }
     }
 
-    private UnifiedPushDatabase(@Nullable Context context) {
-        super(context, DATABASE_NAME, null, DATABASE_VERSION);
-    }
 
     @Override
     public void onCreate(final SQLiteDatabase sqLiteDatabase) {
         sqLiteDatabase.execSQL(
-                "CREATE TABLE push (account TEXT, transport TEXT, application TEXT NOT NULL, instance TEXT NOT NULL UNIQUE, endpoint TEXT, expiration NUMBER DEFAULT 0)");
+                "CREATE TABLE if not exists push (account TEXT, transport TEXT, application TEXT NOT NULL, instance TEXT NOT NULL UNIQUE, endpoint TEXT, expiration NUMBER DEFAULT 0)");
     }
 
     public boolean register(final String application, final String instance) {

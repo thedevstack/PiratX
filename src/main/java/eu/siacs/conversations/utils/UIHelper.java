@@ -200,6 +200,8 @@ public class UIHelper {
         final boolean muted = message.getStatus() == Message.STATUS_RECEIVED && message.getConversation().getMode() == Conversation.MODE_MULTI && context.isMucUserMuted(new MucOptions.User(null, message.getConversation().getJid(), message.getOccupantId(), null, null));
         if (muted) {
             return new Pair<>("Muted", false);
+        } else if (Message.DELETED_MESSAGE_BODY.equals(message.getBody())) {
+            return new Pair<>(context.getString(R.string.message_has_disappeared), true);
         } else if (d != null && !moderated) {
             switch (d.getStatus()) {
                 case Transferable.STATUS_CHECKING:
@@ -687,6 +689,31 @@ public class UIHelper {
                 return 0xff259b24;
             default:
                 return null;
+        }
+    }
+
+    public static String getReadableEphemeralDuration(Context context, int seconds) {
+        if (seconds <= 0) return "";
+        if (seconds <= 30) {
+            return context.getString(R.string.ephemeral_messages_30_seconds);
+        } else if (seconds <= 60) {
+            return context.getString(R.string.ephemeral_messages_1_minute);
+        } else if (seconds <= 300) {
+            return context.getString(R.string.ephemeral_messages_5_minutes);
+        } else if (seconds <= 1800) {
+            return context.getString(R.string.ephemeral_messages_30_minutes);
+        } else if (seconds <= 3600) {
+            return context.getString(R.string.ephemeral_messages_1_hour);
+        } else if (seconds <= 21600) {
+            return context.getString(R.string.ephemeral_messages_6_hours);
+        } else if (seconds <= 43200) {
+            return context.getString(R.string.ephemeral_messages_12_hours);
+        } else if (seconds <= 86400) {
+            return context.getString(R.string.ephemeral_messages_1_day);
+        } else if (seconds <= 604800) {
+            return context.getString(R.string.ephemeral_messages_1_week);
+        } else {
+            return context.getString(R.string.ephemeral_messages_1_month);
         }
     }
 

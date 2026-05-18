@@ -886,6 +886,33 @@ public class MessageParser extends AbstractParser
         }
 
         final boolean conversationIsProbablyMuc = isTypeGroupChat || mucUserElement != null || account.getXmppConnection().getMucServersWithholdAccount().contains(counterpart.getDomain().toString());
+
+        final Element ephemeralElement = packet.findChild("ephemeral", Namespace.EPHEMERAL);
+        final boolean hasIWantOut = packet.hasChild("i-want-out", Namespace.EPHEMERAL);
+        if (ephemeralElement != null || hasIWantOut) {
+            final Conversation conversation = mXmppConnectionService.findOrCreateConversation(account, counterpart.asBareJid(), conversationIsProbablyMuc, false, query, false);
+            if (ephemeralElement != null) {
+                try {
+                    int timer = Integer.parseInt(ephemeralElement.getAttribute("timer"));
+                    if (conversation.getMode() != Conversation.MODE_MULTI || conversation.isPrivateAndNonAnonymous()) {
+                        conversation.setEphemeralTimer(timer);
+                        if (conversation.getMode() == Conversation.MODE_MULTI) {
+                            conversation.setEphemeralBy(from.isBareJid() ? null : from.getResource());
+                        } else {
+                            conversation.setEphemeralBy(null);
+                        }
+                        mXmppConnectionService.databaseBackend.updateConversation(conversation);
+                    }
+                } catch (Exception e) {
+                    // ignore
+                }
+            } else {
+                conversation.setEphemeralTimer(0);
+                mXmppConnectionService.databaseBackend.updateConversation(conversation);
+            }
+            mXmppConnectionService.updateConversationUi();
+        }
+
         final Element webxdc = packet.findChild("x", "urn:xmpp:webxdc:0");
         final Element thread = packet.findChild("thread");
         if (webxdc != null && thread != null) {
@@ -1138,6 +1165,20 @@ public class MessageParser extends AbstractParser
             message.setServerMsgId(serverMsgId);
             message.setCarbon(isCarbon);
             message.setTime(timestamp);
+
+            if (ephemeralElement != null) {
+                try {
+                    int timer = Integer.parseInt(ephemeralElement.getAttribute("timer"));
+                    message.setEphemeralTimer(timer);
+                } catch (Exception e) {
+                    // ignore invalid timer
+                }
+            }
+
+            if (isCarbon && status == Message.STATUS_SEND && message.getEphemeralTimer() > 0) {
+                message.setExpireAt(message.getTimeSent() + message.getEphemeralTimer() * 1000L);
+            }
+
             if (!attachments.isEmpty()) {
                 message.setFileParams(attachments.iterator().next());
                 if (CryptoHelper.isPgpEncryptedUrl(message.getFileParams().url)) {
@@ -1263,7 +1304,9 @@ public class MessageParser extends AbstractParser
 
                                 replacedMessage.setDeleted(true);
                                 replacedMessage.setRetractId(replacementId);
+                                mXmppConnectionService.deleteFileIfUnused(replacedMessage);
                                 mXmppConnectionService.updateMessage(replacedMessage, replacedMessage.getUuid());
+                                mXmppConnectionService.getNotificationService().markRetracted(replacedMessage);
                             } else {
                                 replacedMessage.clearPayloads();
                                 for (final var p : message.getPayloads()) {
@@ -1437,6 +1480,9 @@ public class MessageParser extends AbstractParser
             }
 
             mXmppConnectionService.databaseBackend.createMessage(message);
+            if (message.isEphemeral()) {
+                mXmppConnectionService.scheduleNextExpiry();
+            }
             final HttpConnectionManager manager =
                     this.mXmppConnectionService.getHttpConnectionManager();
             if (message.trusted() && message.treatAsDownloadable() && manager.getAutoAcceptFileSize() > 0) {
@@ -1647,6 +1693,9 @@ public class MessageParser extends AbstractParser
                                     mXmppConnectionService.getNotificationService().possiblyMissedCall(c.getUuid() + sessionId, message);
                                     if (query != null) query.incrementActualMessageCount();
                                     mXmppConnectionService.databaseBackend.createMessage(message);
+                                    if (message.isEphemeral()) {
+                                        mXmppConnectionService.scheduleNextExpiry();
+                                    }
                                 }
                             } else if ("proceed".equals(action)) {
                                 // status needs to be flipped to find the original propose
@@ -1712,6 +1761,9 @@ public class MessageParser extends AbstractParser
                                     }
                                     if (query != null) query.incrementActualMessageCount();
                                     mXmppConnectionService.databaseBackend.createMessage(message);
+                                    if (message.isEphemeral()) {
+                                        mXmppConnectionService.scheduleNextExpiry();
+                                    }
                                 }
                             }
                         }
@@ -1958,6 +2010,10 @@ public class MessageParser extends AbstractParser
                                         conversation, reactingTo);
                     }
                     if (message != null) {
+                        if (message.isDeleted()) {
+                            Log.d(Config.LOGTAG, "ignoring reaction to deleted/expired message " + reactingTo);
+                            return;
+                        }
                         final var newReactions = new HashSet<>(reactions.getReactions());
                         newReactions.removeAll(message.getReactions().stream().filter(r -> occupantId.equals(r.occupantId)).map(r -> r.reaction).collect(Collectors.toList()));
                         final var combinedReactions =
@@ -1990,6 +2046,10 @@ public class MessageParser extends AbstractParser
                 }
                 if (message == null) {
                     Log.d(Config.LOGTAG, "message with id " + reactingTo + " not found");
+                    return;
+                }
+                if (message.isDeleted()) {
+                    Log.d(Config.LOGTAG, "ignoring reaction to deleted/expired message " + reactingTo);
                     return;
                 }
                 final boolean isReceived;
