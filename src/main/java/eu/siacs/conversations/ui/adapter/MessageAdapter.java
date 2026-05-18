@@ -1912,33 +1912,42 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                             .setText(CryptoHelper.encryptionTypeToText(message.getEncryption()));
                 }
             }
-            final var aggregatedReactions = conversation instanceof Conversation ? ((Conversation) conversation).aggregatedReactionsFor(message, reactionThumbnailer) : message.getAggregatedReactions();
-            BindingAdapters.setReactionsOnReceived(
-                    viewHolder.reactions(),
-                    aggregatedReactions,
-                    reactions -> sendReactions(message, reactions),
-                    emoji -> showDetailedReaction(message, emoji),
-                    emoji -> sendCustomReaction(message, emoji),
-                    reaction -> removeCustomReaction(conversation, reaction),
-                    () -> {
-                        if (mConversationFragment.requireTrustKeys()) {
-                            return;
-                        }
+            /* PiratX: Avoid displaying reactions on retracted and received messages */
+            if (!de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)) {
+                final var aggregatedReactions = conversation instanceof Conversation ? ((Conversation) conversation).aggregatedReactionsFor(message, reactionThumbnailer) : message.getAggregatedReactions();
+                BindingAdapters.setReactionsOnReceived(
+                        viewHolder.reactions(),
+                        aggregatedReactions,
+                        reactions -> sendReactions(message, reactions),
+                        emoji -> showDetailedReaction(message, emoji),
+                        emoji -> sendCustomReaction(message, emoji),
+                        reaction -> removeCustomReaction(conversation, reaction),
+                        () -> {
+                            if (mConversationFragment.requireTrustKeys()) {
+                                return;
+                            }
 
-                        final var intent = new Intent(activity, AddReactionActivity.class);
-                        intent.putExtra("conversation", message.getConversation().getUuid());
-                        intent.putExtra("message", message.getUuid());
-                        activity.startActivity(intent);
-                    });
+                            final var intent = new Intent(activity, AddReactionActivity.class);
+                            intent.putExtra("conversation", message.getConversation().getUuid());
+                            intent.putExtra("message", message.getUuid());
+                            activity.startActivity(intent);
+                        });
+            }
+            /* PiratX end: Avoid displaying reactions on retracted and received messages */
         } else {
             if (viewHolder instanceof StartBubbleMessageItemViewHolder startViewHolder) {
                 startViewHolder.encryption().setVisibility(View.GONE);
             }
-            BindingAdapters.setReactionsOnSent(
-                    viewHolder.reactions(),
-                    message.getAggregatedReactions(),
-                    reactions -> sendReactions(message, reactions),
-                    emoji -> showDetailedReaction(message, emoji));
+            /* PiratX: Avoid displaying reactions on retracted and sent messages */
+            if (!de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)) {
+                BindingAdapters.setReactionsOnSent(
+                        viewHolder.reactions(),
+                        message.getAggregatedReactions(),
+                        reactions -> sendReactions(message, reactions),
+                        emoji -> showDetailedReaction(message, emoji));
+            }
+            /*
+            /* PiratX end: Avoid displaying reactions on retracted and sent messages */
         }
 
         var subject = message.getSubject();
