@@ -2813,7 +2813,9 @@ public class ConversationFragment extends XmppFragment
             }
         }
         if (BuildConfig.DEBUG && de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(m)) {
-            activity.getMenuInflater().inflate(R.menu.message_context, menu);
+            if (null == menu.findItem(R.id.message_info)) {
+                activity.getMenuInflater().inflate(R.menu.message_context, menu);
+            }
             for (int i = 0; i < menu.size(); i++) {
                 MenuItem item = menu.getItem(i);
                 if (item.getItemId() == R.id.message_info) {
@@ -2892,17 +2894,30 @@ public class ConversationFragment extends XmppFragment
                             }
 
                             // Mark the message as retracted locally to prevent it from reappearing after restart
+                            /* PiratX: Not resetting carbon state. carbon state is the same even if retracted
                             messageToRetract.setCarbon(false);
+                             */
                             messageToRetract.setOob(false);
                             messageToRetract.resetFileParams();
+                            /* PiratX: Message is not deleted but retracted
+                                        -> DELETED_MESSAGE_BODY is treated as special case in MessageAdapter
+                                        -> unwanted behavior
                             messageToRetract.setBody(Message.DELETED_MESSAGE_BODY);
+                             */
+                            messageToRetract.setBody("");
                             messageToRetract.setType(Message.TYPE_TEXT);
                             messageToRetract.setRelativeFilePath(null);
                             messageToRetract.setFileParams(null);
                             messageToRetract.setDeleted(true);
                             // Persist the retracted state. The 'true' ensures the body is updated.
                             activity.xmppConnectionService.updateMessage(messageToRetract, false);
+                            /* PiratX: Do not delete messageToRetract
+                                        -> would remove the message from display
                             activity.xmppConnectionService.deleteMessage(messageToRetract);
+                             */
+                            /* PiratX: Instead of deleting complete message, only delete files  */
+                            activity.xmppConnectionService.deleteFileIfUnused(messageToRetract);
+                            /* End PiratX */
                             activity.xmppConnectionService.deleteMessage(retractionMessage);
                             activity.onConversationsListItemUpdated();
                             refresh();
