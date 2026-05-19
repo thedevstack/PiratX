@@ -15,6 +15,8 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.Toast;
 
+import eu.siacs.conversations.utils.LiveLocationManager;
+
 import androidx.annotation.NonNull;
 import androidx.databinding.DataBindingUtil;
 
@@ -26,6 +28,7 @@ import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivityShowLocationBinding;
 import eu.siacs.conversations.ui.util.LocationHelper;
 import eu.siacs.conversations.ui.util.UriHelper;
+import eu.siacs.conversations.ui.widget.AvatarMarker;
 import eu.siacs.conversations.ui.widget.Marker;
 import eu.siacs.conversations.ui.widget.MyLocation;
 import eu.siacs.conversations.utils.GeoHelper;
@@ -35,10 +38,12 @@ import org.osmdroid.util.GeoPoint;
 
 import java.util.Map;
 
-public class ShowLocationActivity extends LocationActivity implements LocationListener {
+public class ShowLocationActivity extends LocationActivity implements LocationListener,
+        LiveLocationManager.PositionListener {
 
     private GeoPoint loc = LocationProvider.FALLBACK;
     private ActivityShowLocationBinding binding;
+    private String liveSessionId = null;
 
     private Uri createGeoUri() {
         return Uri.parse("geo:" + this.loc.getLatitude() + "," + this.loc.getLongitude());
@@ -49,6 +54,7 @@ public class ShowLocationActivity extends LocationActivity implements LocationLi
         super.onCreate(savedInstanceState);
 
         this.binding = DataBindingUtil.setContentView(this, R.layout.activity_show_location);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setSupportActionBar(binding.toolbar);
 
         Activities.setStatusAndNavigationBarColors(this, binding.getRoot());
@@ -62,6 +68,7 @@ public class ShowLocationActivity extends LocationActivity implements LocationLi
         if (intent == null) {
             return;
         }
+        liveSessionId = intent.getStringExtra("live_session_id");
         final String action = intent.getAction();
         switch (Strings.nullToEmpty(action)) {
             case "eu.siacs.conversations.location.show":
@@ -134,12 +141,63 @@ public class ShowLocationActivity extends LocationActivity implements LocationLi
         if (this.myLoc != null) {
             this.binding.map.getOverlays().add(new MyLocation(this, null, this.myLoc));
         }
-        this.binding.map.getOverlays().add(new Marker(this.marker_icon, this.loc));
+        final android.graphics.drawable.Drawable avatarDrawable =
+                LiveLocationManager.getInstance().getSessionAvatar(liveSessionId);
+        if (avatarDrawable != null) {
+            this.binding.map.getOverlays().add(new AvatarMarker(this, avatarDrawable, this.loc));
+        } else {
+            this.binding.map.getOverlays().add(new Marker(this.marker_icon, this.loc));
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (liveSessionId != null) {
+            LiveLocationManager.getInstance().addListener(this);
+            final LiveLocationManager.IncomingSession incoming = LiveLocationManager.getInstance().getSession(liveSessionId);
+            if (incoming != null && !incoming.isExpired()) {
+                this.loc = new GeoPoint(incoming.latitude, incoming.longitude);
+                updateLocationMarkers();
+                gotoLoc(false);
+            } else {
+                // outgoing session: apply the last sent position
+                for (LiveLocationManager.OutgoingSession outgoing :
+                        new java.util.ArrayList<>(LiveLocationManager.getInstance().getAllOutgoingSessions())) {
+                    if (liveSessionId.equals(outgoing.sessionId) && !outgoing.isExpired()) {
+                        this.loc = new GeoPoint(outgoing.latitude, outgoing.longitude);
+                        updateLocationMarkers();
+                        gotoLoc(false);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        if (liveSessionId != null) {
+            LiveLocationManager.getInstance().removeListener(this);
+        }
+    }
+
+    @Override
+    public void onPositionUpdate(final String sessionId, final double latitude, final double longitude) {
+        if (sessionId.equals(liveSessionId)) {
+            runOnUiThread(() -> {
+                this.loc = new GeoPoint(latitude, longitude);
+                updateLocationMarkers();
+                this.binding.map.invalidate();
+                gotoLoc(false);
+            });
+        }
+    }
+
+    @Override
+    public void onSessionExpired(final String sessionId) {
+        // Session expired; title could be updated here
     }
 
     @Override
