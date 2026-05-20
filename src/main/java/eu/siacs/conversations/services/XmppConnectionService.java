@@ -912,6 +912,7 @@ public class XmppConnectionService extends Service {
         mLiveLocationHandler.postDelayed(expiryRunnable, durationMs);
 
         mNotificationService.showLiveLocationNotification(conversation.getUuid());
+        toggleForegroundService();
         updateConversationUi();
     }
 
@@ -964,6 +965,7 @@ public class XmppConnectionService extends Service {
             sendMessagePacket(conversation.getAccount(), packet);
         }
         mNotificationService.cancelLiveLocationNotification();
+        toggleForegroundService();
         updateConversationUi();
     }
 
@@ -1939,7 +1941,7 @@ public class XmppConnectionService extends Service {
                 }
             }
             if (account.setShowErrorNotification(true)) {
-                mDatabaseWriterExecutor.execute(() -> databaseBackend.updateAccount(account));
+                mDatabaseWriterExecutor.execute(() -> { if (databaseBackend != null) databaseBackend.updateAccount(account); });
             }
         }
         mNotificationService.updateErrorNotification();
@@ -1952,7 +1954,7 @@ public class XmppConnectionService extends Service {
                         Config.LOGTAG,
                         account.getJid().asBareJid() + ": dismissing error notification");
                 if (account.setShowErrorNotification(false)) {
-                    mDatabaseWriterExecutor.execute(() -> databaseBackend.updateAccount(account));
+                    mDatabaseWriterExecutor.execute(() -> { if (databaseBackend != null) databaseBackend.updateAccount(account); });
                 }
             }
         }
@@ -1963,18 +1965,19 @@ public class XmppConnectionService extends Service {
     }
 
     public void expireOldMessages(final boolean resetHasMessagesLeftOnServer) {
-        if (databaseBackend == null) return;
+        final DatabaseBackend backend = databaseBackend;
+        if (backend == null) return;
         mLastExpiryRun.set(SystemClock.elapsedRealtime());
         mDatabaseWriterExecutor.execute(
                 () -> {
                     long timestamp = getAutomaticMessageDeletionDate();
                     if (getAppSettings().isDeleteUnusedFiles()) {
-                        final List<String> exclusivePaths = databaseBackend.getExclusiveFilePathsExpiring(timestamp);
+                        final List<String> exclusivePaths = backend.getExclusiveFilePathsExpiring(timestamp);
                         if (!exclusivePaths.isEmpty()) {
                             FILE_ATTACHMENT_EXECUTOR.execute(() -> deleteFilesAsync(exclusivePaths, "background expiry"));
                         }
                     }
-                    databaseBackend.expireOldMessages(timestamp);
+                    backend.expireOldMessages(timestamp);
                     synchronized (XmppConnectionService.this.conversations) {
                         for (Conversation conversation :
                                 XmppConnectionService.this.conversations) {
@@ -1991,8 +1994,10 @@ public class XmppConnectionService extends Service {
     }
 
     public void scheduleNextExpiry() {
+        final DatabaseBackend backend = databaseBackend;
         mDatabaseWriterExecutor.execute(() -> {
-            final long next = databaseBackend.getNextExpiration();
+            if (backend == null) return;
+            final long next = backend.getNextExpiration();
             if (next > 0) {
                 final AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
                 if (alarmManager == null) {
@@ -2353,10 +2358,12 @@ public class XmppConnectionService extends Service {
         final boolean status;
         final OngoingCall ongoing = ongoingCall.get();
         final boolean ongoingVideoTranscoding = mOngoingVideoTranscoding.get();
+        final boolean ongoingLiveLocation = !mOutgoingLiveSessions.isEmpty();
         final int id;
         if (force
                 || mForceDuringOnCreate.get()
                 || ongoingVideoTranscoding
+                || ongoingLiveLocation
                 || ongoing != null
                 || (Compatibility.keepForegroundService(this) && hasEnabledAccounts())) {
             if (Compatibility.runsTwentySix()) {
@@ -2402,7 +2409,7 @@ public class XmppConnectionService extends Service {
             final int id, final Notification notification, final boolean requireMicrophone) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                final int foregroundServiceType;
+                int foregroundServiceType;
                 if (requireMicrophone
                         && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                         == PackageManager.PERMISSION_GRANTED) {
@@ -2421,7 +2428,11 @@ public class XmppConnectionService extends Service {
                     foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
                     Log.w(Config.LOGTAG, "falling back to special use foreground service type");
                 }
-
+                if (!mOutgoingLiveSessions.isEmpty()
+                        && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED) {
+                    foregroundServiceType |= ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
+                }
                 startForeground(id, notification, foregroundServiceType);
             } else {
                 startForeground(id, notification);
@@ -3455,8 +3466,8 @@ public class XmppConnectionService extends Service {
             long diffConversationsRestore = SystemClock.elapsedRealtime() - startTimeConversationsRestore;
             Log.d(Config.LOGTAG, "finished restoring conversations in " + diffConversationsRestore + "ms");
             Runnable runnable = () -> {
-                if (DatabaseBackend.requiresMessageIndexRebuild()) {
-                    DatabaseBackend.getInstance(this).rebuildMessagesIndex();
+                if (DatabaseBackend.requiresMessageIndexRebuild() || databaseBackend.isFtsIndexFragmented()) {
+                    databaseBackend.rebuildMessagesIndex();
                 }
                 mutedMucUsers = databaseBackend.loadMutedMucUsers();
                 final long deletionDate = getAutomaticMessageDeletionDate();
@@ -7727,7 +7738,9 @@ public class XmppConnectionService extends Service {
             return result;
         } else {
             if (key.first == null || key.second == null) return null;
-            result = databaseBackend.findDiscoveryResult(key.first, key.second);
+            final DatabaseBackend backend = databaseBackend;
+            if (backend == null) return null;
+            result = backend.findDiscoveryResult(key.first, key.second);
             if (result != null) {
                 discoCache.put(key, result);
             }
