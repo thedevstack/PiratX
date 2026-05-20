@@ -3034,7 +3034,7 @@ public class ConversationFragment extends XmppFragment
             return true;
         }
         /* Start: PiratX debug additional dialog jump to show technical message details */
-        else if (itemId == R.id.essage_info && BuildConfig.DEBUG) {
+        else if (itemId == R.id.message_info && BuildConfig.DEBUG) {
             de.thedevstack.piratx.ui.PiratXDialogHelper.showMessageDetailsDialog(requireActivity(), selectedMessage);
             return true;
         /* End: PiratX debug additional dialog jump to show technical message details */
@@ -3396,6 +3396,7 @@ public class ConversationFragment extends XmppFragment
             handleAttachmentSelection(item);
         } else if (id == R.id.attach_live_location) {
             showLiveLocationDurationPicker();
+        /*
         } else if (id == R.id.attach_webxdc) {
             final Intent intent = new Intent(activity, WebxdcStore.class);
             startActivityForResult(intent, REQUEST_WEBXDC_STORE);
@@ -3403,6 +3404,7 @@ public class ConversationFragment extends XmppFragment
             binding.textinputSubject.setVisibility(binding.textinputSubject.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
         } else if (id == R.id.attach_schedule) {
             scheduleMessage();
+         */
         } else if (id == R.id.action_search) {
             startSearch();
         } else if (id == R.id.action_archive) {
