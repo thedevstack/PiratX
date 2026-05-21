@@ -6,7 +6,7 @@ jobs:
   build:
     runs-on: docker-gradle
     container:
-      image: docker.io/cimg/android:2026.03.1-node
+      image: git.fucktheforce.de/thedevstack/docker-android-sdk-node/android-build-container:node-api36-jdk21.0.10_7
 
     steps:
       - name: accept licenses
