@@ -86,6 +86,8 @@ import com.google.common.collect.ImmutableList;
 
 import com.lelloman.identicon.view.GithubIdenticonView;
 
+import android.text.StaticLayout;
+import de.monocles.chat.ui.CollapsableTextView;
 import de.monocles.chat.ui.DraggableListView;
 import eu.siacs.conversations.entities.Story;
 import eu.siacs.conversations.services.XmppConnectionService;
@@ -978,31 +980,56 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         body = de.thedevstack.piratx.utils.PiratXMessageUtil.adjustBodyIfNecessary(message, body);
         viewHolder.messageBody().setText(body);
 
-        // Experimental expandable text, collapse after 8 lines
         if (activity.xmppConnectionService.getBooleanPreference("set_text_collapsable", R.bool.set_text_collapsable)) {
-            viewHolder.messageBody().post(() -> {
-                int lineCount = viewHolder.messageBody().getLineCount();
-                if (lineCount > 8) {
-                    viewHolder.showMore().setVisibility(View.VISIBLE);
-                } else {
-                    viewHolder.showMore().setVisibility(GONE);
-                }
-            });
-            final boolean[] isTextViewClicked = {false};
+            // We use a StaticLayout to measure the text with a safe maximum width.
+            final int maxWidth = (int) (metrics.widthPixels - (80 * density)); // Rough estimate of bubble overhead
+            final StaticLayout staticLayout;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                staticLayout = StaticLayout.Builder.obtain(body, 0, body.length(), viewHolder.messageBody().getPaint(), maxWidth)
+                        .setLineSpacing(viewHolder.messageBody().getLineSpacingExtra(), viewHolder.messageBody().getLineSpacingMultiplier())
+                        .setIncludePad(viewHolder.messageBody().getIncludeFontPadding())
+                        .setBreakStrategy(viewHolder.messageBody().getBreakStrategy())
+                        .setHyphenationFrequency(viewHolder.messageBody().getHyphenationFrequency())
+                        .build();
+            } else {
+                staticLayout = new StaticLayout(body, viewHolder.messageBody().getPaint(), maxWidth, Layout.Alignment.ALIGN_NORMAL,
+                        viewHolder.messageBody().getLineSpacingMultiplier(), viewHolder.messageBody().getLineSpacingExtra(),
+                        viewHolder.messageBody().getIncludeFontPadding());
+            }
+
+            final boolean isLong = staticLayout.getLineCount() > 10 || (staticLayout.getLineCount() == 10 && staticLayout.getEllipsisCount(9) > 0);
+
+            if (message.isExpanded()) {
+                viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
+                viewHolder.showMore().setText(R.string.show_less);
+                viewHolder.showMore().setVisibility(View.VISIBLE);
+            } else {
+                viewHolder.messageBody().setMaxLines(8);
+                viewHolder.showMore().setText(R.string.show_more);
+                viewHolder.showMore().setVisibility(isLong ? View.VISIBLE : View.GONE);
+            }
+
             viewHolder.showMore().setOnClickListener(v -> {
-                if (isTextViewClicked[0]) {
-                    //This will shrink textview to 8 lines if it is expanded.
-                    viewHolder.showMore().setText(R.string.show_more);
-                    viewHolder.messageBody().setMaxLines(8);
-                    isTextViewClicked[0] = false;
-                } else {
-                    //This will expand the textview if it is of 8 lines
-                    viewHolder.showMore().setText(R.string.show_less);
+                android.transition.TransitionSet set = new android.transition.TransitionSet();
+                set.addTransition(new android.transition.ChangeBounds());
+                set.addTransition(new android.transition.Fade());
+                set.setOrdering(android.transition.TransitionSet.ORDERING_TOGETHER);
+                set.setDuration(300);
+                android.transition.TransitionManager.beginDelayedTransition(viewHolder.messageBox(), set);
+
+                message.setExpanded(!message.isExpanded());
+                if (message.isExpanded()) {
                     viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
-                    isTextViewClicked[0] = true;
+                    viewHolder.showMore().setText(R.string.show_less);
+                } else {
+                    viewHolder.messageBody().setMaxLines(8);
+                    viewHolder.showMore().setText(R.string.show_more);
                 }
             });
-        } else viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
+        } else {
+            viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
+            viewHolder.showMore().setVisibility(GONE);
+        }
 
         if (body.length() <= 0) viewHolder.messageBody().setVisibility(GONE);
         BetterLinkMovementMethod method = getBetterLinkMovementMethod();
@@ -1268,11 +1295,22 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                 eu.siacs.conversations.utils.LiveLocationManager.getInstance().isActiveLiveLocationMessage(message.getUuid()) ||
                 (message.getStatus() == Message.STATUS_RECEIVED && isLiveLocationPayloadActive(message));
 
-        final String url;
+        String url;
         if (liveSession != null) {
             url = GeoHelper.MapPreviewUriFromCoords(liveSession.latitude, liveSession.longitude, activity);
         } else {
-            url = GeoHelper.MapPreviewUri(message, activity);
+            final Element el = getLiveLocationElement(message);
+            if (el != null && el.getAttribute("last_lat") != null && el.getAttribute("last_lon") != null) {
+                try {
+                    double lat = Double.parseDouble(el.getAttribute("last_lat"));
+                    double lon = Double.parseDouble(el.getAttribute("last_lon"));
+                    url = GeoHelper.MapPreviewUriFromCoords(lat, lon, activity);
+                } catch (Exception ignored) {
+                    url = GeoHelper.MapPreviewUri(message, activity);
+                }
+            } else {
+                url = GeoHelper.MapPreviewUri(message, activity);
+            }
         }
 
         viewHolder.audioPlayer().setVisibility(GONE);
@@ -2537,13 +2575,23 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                 lat = outgoing.latitude;
                 lon = outgoing.longitude;
             } else {
-                final String rawBody = message.getRawBody();
-                if (rawBody != null) {
+                // Try to get last known position from payload attributes
+                final Element el = getLiveLocationElement(message);
+                if (el != null && el.getAttribute("last_lat") != null && el.getAttribute("last_lon") != null) {
                     try {
-                        final org.osmdroid.util.GeoPoint gp = GeoHelper.parseGeoPoint(android.net.Uri.parse(rawBody));
-                        lat = gp.getLatitude();
-                        lon = gp.getLongitude();
+                        lat = Double.parseDouble(el.getAttribute("last_lat"));
+                        lon = Double.parseDouble(el.getAttribute("last_lon"));
                     } catch (Exception ignored) {}
+                }
+                if (lat == 0 && lon == 0) {
+                    final String rawBody = message.getRawBody();
+                    if (rawBody != null) {
+                        try {
+                            final org.osmdroid.util.GeoPoint gp = GeoHelper.parseGeoPoint(android.net.Uri.parse(rawBody));
+                            lat = gp.getLatitude();
+                            lon = gp.getLongitude();
+                        } catch (Exception ignored) {}
+                    }
                 }
             }
         }
@@ -2747,7 +2795,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
         protected abstract TextView time();
 
-        protected abstract TextView messageBody();
+        protected abstract CollapsableTextView messageBody();
 
         protected abstract ImageView contactPicture();
 
@@ -2840,7 +2888,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         }
 
         @Override
-        protected TextView messageBody() {
+        protected CollapsableTextView messageBody() {
             return this.binding.messageContent.messageBody;
         }
 
@@ -3014,7 +3062,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         }
 
         @Override
-        protected TextView messageBody() {
+        protected CollapsableTextView messageBody() {
             return this.binding.messageContent.messageBody;
         }
 

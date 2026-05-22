@@ -3357,8 +3357,8 @@ public class ConversationFragment extends XmppFragment
         if (itemId == R.id.retract_message) return R.drawable.outline_delete_red_24;
         if (itemId == R.id.moderate_message) return R.drawable.ic_report_24dp;
         if (itemId == R.id.pin_message_to_top) return R.drawable.outline_push_pin_24;
-        if (itemId == R.id.copy_message) return R.drawable.outline_article_24;
-        if (itemId == R.id.copy_link || itemId == R.id.copy_url) return R.drawable.ic_link_24dp;
+        if (itemId == R.id.copy_message) return R.drawable.outline_content_copy_24;
+        if (itemId == R.id.copy_link || itemId == R.id.copy_url) return R.drawable.rounded_link_24;
         if (itemId == R.id.quote_message) return R.drawable.ic_reply_24dp;
         if (itemId == R.id.only_this_thread) return R.drawable.ic_thread;
         if (itemId == R.id.retry_decryption) return R.drawable.ic_refresh_24dp;
@@ -3366,7 +3366,7 @@ public class ConversationFragment extends XmppFragment
         if (itemId == R.id.send_again_as_p2p) return R.drawable.ic_p2p_24dp;
         if (itemId == R.id.download_file) return R.drawable.ic_download_24dp;
         if (itemId == R.id.cancel_transmission) return R.drawable.ic_cancel_24dp;
-        if (itemId == R.id.block_media) return R.drawable.ic_link_off_24dp;
+        if (itemId == R.id.block_media) return R.drawable.outline_block_24;
         if (itemId == R.id.delete_file) return R.drawable.outline_delete_red_24;
         if (itemId == R.id.save_to_downloads) return R.drawable.ic_save_24dp;
         if (itemId == R.id.save_as_sticker) return R.drawable.outline_emoji_emotions_24;
@@ -5301,18 +5301,19 @@ public class ConversationFragment extends XmppFragment
     private void refresh(boolean notifyConversationRead) {
         synchronized (this.messageList) {
             if (this.conversation != null) {
-                if (messageListAdapter.hasSelection()) {
-                    if (notifyConversationRead)
-                        binding.messagesView.postDelayed(this::refresh, 1000L);
+                final boolean hasInteraction = messageListAdapter.hasSelection() || (messageOptionsDialog != null && messageOptionsDialog.isShowing());
+                if (hasInteraction) {
+                    binding.messagesView.setTranscriptMode(ListView.TRANSCRIPT_MODE_DISABLED);
                 } else {
-                    conversation.populateWithMessages(this.messageList, activity == null ? null : activity.xmppConnectionService);
-                    try {
-                        updateStatusMessages();
-                    } catch (IllegalStateException e) {
-                        Log.e(Config.LOGTAG, "Problem updating status messages on refresh: " + e);
-                    }
-                    this.messageListAdapter.notifyDataSetChanged();
+                    binding.messagesView.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
                 }
+                conversation.populateWithMessages(this.messageList, activity == null ? null : activity.xmppConnectionService);
+                try {
+                    updateStatusMessages();
+                } catch (IllegalStateException e) {
+                    Log.e(Config.LOGTAG, "Problem updating status messages on refresh: " + e);
+                }
+                this.messageListAdapter.notifyDataSetChanged();
                 if (conversation.getReceivedMessagesCountSinceUuid(lastMessageUuid) != 0) {
                     binding.unreadCountCustomView.setVisibility(View.VISIBLE);
                     binding.unreadCountCustomView.setUnreadCount(
