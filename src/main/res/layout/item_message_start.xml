@@ -49,11 +49,11 @@
                     android:layout_gravity="center_vertical"
                     android:gravity="center_vertical"
                     android:paddingHorizontal="@dimen/bubble_horizontal_padding"
-                    android:paddingVertical="4dp"
+                    android:paddingTop="4dp"
                     android:lines="1"
                     android:visibility="gone"
                     android:textStyle="bold"
-                    android:textSize="14sp"
+                    android:textSize="15sp"
                     android:textAppearance="?textAppearanceBodySmall" />
 
                 <include

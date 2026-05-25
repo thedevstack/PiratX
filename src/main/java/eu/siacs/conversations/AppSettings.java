@@ -80,6 +80,13 @@ public class AppSettings {
     public static final String CUSTOM_RESOURCE_NAME = "custom_resource_name";
     public static final int CUSTOM_RESOURCE_NAME_MAX_LENGTH = 64;
 
+    // KDF version preference stored in SharedPreferences.
+    //   absent or "auto"   → auto-encryption with hardware-bound random key (default)
+    //   "argon2id"         → user-set password via Argon2id + KeyStore HMAC
+    private static final String DB_KDF_VERSION = "db_kdf_version";
+    private static final String DB_KDF_ARGON2ID = "argon2id";
+    private static final String DB_KDF_AUTO = "auto";
+
     // In-memory session password: the char[] the user typed at startup.
     // Never written to disk. Zeroed when no longer needed. Null when locked.
     private static volatile char[] sSessionPassword = null;
@@ -394,9 +401,166 @@ public class AppSettings {
         try { new SecurePasswordStorage(context).writePassword(null); } catch (Exception ignored) {}
     }
 
-    public void checkEncryptionOrThrow() throws EncryptionException {
-        final char[] chars = getDatabasePasswordChars();
-        if (chars != null) java.util.Arrays.fill(chars, '\0');
+    // ── KDF state ─────────────────────────────────────────────────────────────────
+
+    /** Returns true if the database is encrypted using Argon2id + KeyStore HMAC raw key. */
+    public boolean isArgon2idKdf() {
+        return DB_KDF_ARGON2ID.equals(
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .getString(DB_KDF_VERSION, null));
+    }
+
+    /** Marks the database as using Argon2id KDF. Called after a successful migration. */
+    public void setArgon2idKdf() {
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit().putString(DB_KDF_VERSION, DB_KDF_ARGON2ID).commit();
+    }
+
+    /** Marks the databases as using auto-encryption mode. */
+    public void setAutoKeyMode() {
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit().putString(DB_KDF_VERSION, DB_KDF_AUTO).commit();
+    }
+
+    /**
+     * Returns the stored 32-byte auto-key for the main DB, generating and persisting a new one
+     * if absent. Sets {@code DB_KDF_VERSION = "auto"} on first generation.
+     * Caller must zero the returned array after use.
+     */
+    public byte[] getOrCreateAutoKey() {
+        final SecurePasswordStorage storage = new SecurePasswordStorage(context);
+        final byte[] existing = storage.readAutoKey();
+        if (existing != null) return existing;
+        final byte[] newKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE.generateRandomKey();
+        storage.writeAutoKey(newKey);
+        setAutoKeyMode();
+        return newKey;
+    }
+
+    /**
+     * Returns the stored 32-byte auto-key for the UnifiedPush DB, generating and persisting
+     * a new one if absent. Caller must zero the returned array after use.
+     */
+    public byte[] getOrCreateAutoKeyForUpdb() {
+        final SecurePasswordStorage storage = new SecurePasswordStorage(context);
+        final byte[] existing = storage.readAutoKeyForUpdb();
+        if (existing != null) return existing;
+        final byte[] newKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE.generateRandomKey();
+        storage.writeAutoKeyForUpdb(newKey);
+        return newKey;
+    }
+
+    /**
+     * Stores the given auto-key for the main DB. Called after a successful migration
+     * file-rename so the new key is persisted only once the DB file is in place.
+     */
+    public void writeAutoKey(byte[] key) {
+        try {
+            new SecurePasswordStorage(context).writeAutoKey(key);
+        } catch (Exception e) {
+            throw new EncryptionException("Failed to write auto key", e);
+        }
+    }
+
+    /** Erases the main DB auto-key (called when switching to Argon2id mode). */
+    public void clearAutoKey() {
+        try { new SecurePasswordStorage(context).writeAutoKey(null); } catch (Exception ignored) {}
+    }
+
+    /**
+     * Stores the given auto-key for the UnifiedPush DB. Called after a successful UPDB
+     * migration file-rename.
+     */
+    public void writeAutoKeyForUpdb(byte[] key) {
+        try {
+            new SecurePasswordStorage(context).writeAutoKeyForUpdb(key);
+        } catch (Exception e) {
+            throw new EncryptionException("Failed to write UPDB auto key", e);
+        }
+    }
+
+    /** Erases the UPDB auto-key (called when switching UPDB to Argon2id mode). */
+    public void clearAutoKeyForUpdb() {
+        try { new SecurePasswordStorage(context).writeAutoKeyForUpdb(null); } catch (Exception ignored) {}
+    }
+
+    /** Clears only the Argon2id salt for the main DB (does not touch the KDF version flag). */
+    public void clearMainDbArgon2Salt() {
+        try { new SecurePasswordStorage(context).writeSalt(null); } catch (Exception ignored) {}
+    }
+
+    /** Clears only the Argon2id salt for the UnifiedPush DB. */
+    public void clearUpdbArgon2Salt() {
+        try { new SecurePasswordStorage(context).writeUpdbSalt(null); } catch (Exception ignored) {}
+    }
+
+    /**
+     * Returns the stored Argon2id salt for the main database, or null if not yet generated.
+     * The salt is public (not secret) but must be persisted across restarts.
+     */
+    public byte[] getArgon2Salt() {
+        try {
+            return new SecurePasswordStorage(context).readSalt();
+        } catch (Exception e) {
+            Log.e("AppSettings", "Could not read Argon2id salt", e);
+            return null;
+        }
+    }
+
+    /**
+     * Returns the stored Argon2id salt for the UnifiedPush distributor database.
+     * Returns null when the UPDB has not yet been migrated to Argon2id.
+     */
+    public byte[] getArgon2SaltForUpdb() {
+        try {
+            return new SecurePasswordStorage(context).readUpdbSalt();
+        } catch (Exception e) {
+            Log.e("AppSettings", "Could not read Argon2id UPDB salt", e);
+            return null;
+        }
+    }
+
+    /**
+     * Atomically persists both the database password and the UnifiedPush DB Argon2id salt.
+     */
+    public void setUpdbPasswordAndSalt(final char[] password, final byte[] salt) {
+        try {
+            new SecurePasswordStorage(context).writeUpdbSalt(salt);
+        } catch (Exception e) {
+            Log.e("AppSettings", "Could not persist Argon2id UPDB salt", e);
+            throw new EncryptionException("Could not persist Argon2id UPDB salt", e);
+        }
+        // The shared password is already set by setDatabasePasswordAndSalt(); don't overwrite.
+    }
+
+    /**
+     * Atomically persists both the database password and the Argon2id salt so that
+     * neither can be written without the other.
+     */
+    public void setDatabasePasswordAndSalt(final char[] password, final byte[] salt) {
+        if (isPasswordOnStartupRequired()) {
+            // Startup-required mode: keep password off-disk, but persist the salt.
+            if (password != null) setSessionPassword(password);
+            else {
+                clearSessionPassword();
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .edit().putBoolean(REQUIRE_PASSWORD_ON_STARTUP, false).commit();
+            }
+            clearPersistedDatabasePassword();
+            try {
+                new SecurePasswordStorage(context).writeSalt(salt);
+            } catch (Exception e) {
+                Log.e("AppSettings", "Could not persist Argon2id salt", e);
+                throw new EncryptionException("Could not persist Argon2id salt", e);
+            }
+            return;
+        }
+        try {
+            new SecurePasswordStorage(context).writePasswordAndSalt(password, salt);
+        } catch (Exception e) {
+            Log.e("AppSettings", "Could not write password and salt", e);
+            throw new EncryptionException("Could not write password and salt", e);
+        }
     }
 
 }

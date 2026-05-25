@@ -886,6 +886,7 @@ public class XmppConnectionService extends Service {
             geoUriStr = String.format(java.util.Locale.US, "geo:%s,%s", initialLat, initialLon);
         }
         final Message message = new Message(conversation, geoUriStr, encryption);
+        message.setEphemeralTimer(0); // live location has its own lifetime; never expire via ephemeral timer
         if (getBooleanPreference("show_thread_feature", R.bool.show_thread_feature)) {
             message.setThread(conversation.getThread());
         }
@@ -2155,6 +2156,18 @@ public class XmppConnectionService extends Service {
             });
             return;
         }
+        // Pre-warm UnifiedPushDatabase on this background thread so its Argon2id key derivation
+        // never runs on the main thread. UnifiedPushDatabase.getInstance() is called from
+        // BroadcastReceiver.onReceive() (main thread) and the XMPP connection thread; without
+        // pre-warming, the first call from either thread triggers 2-4s of Argon2id computation
+        // and can cause an ANR if it races with a main-thread caller holding the class lock.
+        try {
+            eu.siacs.conversations.persistance.UnifiedPushDatabase.getInstance(
+                    getApplicationContext());
+        } catch (final Exception e) {
+            Log.w(Config.LOGTAG, "Failed to pre-initialize UnifiedPushDatabase (non-fatal)", e);
+        }
+
         Log.d(Config.LOGTAG, "restoring accounts...");
         final List<Account> loadedAccounts;
         try {
@@ -3120,7 +3133,8 @@ public class XmppConnectionService extends Service {
     }
 
     public boolean isOnboarding() {
-        return getAccounts().size() == 1 && getAccounts().get(0).getJid().getDomain().equals(Config.ONBOARDING_DOMAIN);
+        final List<Account> accounts = getAccounts();
+        return accounts != null && accounts.size() == 1 && accounts.get(0).getJid().getDomain().equals(Config.ONBOARDING_DOMAIN);
     }
 
     public void requestEasyOnboardingInvite(

@@ -33,6 +33,7 @@ import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import androidx.core.content.res.ResourcesCompat;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import androidx.core.widget.ImageViewCompat;
@@ -53,7 +54,9 @@ import android.os.Vibrator;
 import android.preference.PreferenceManager;
 import android.provider.MediaStore;
 import android.text.Editable;
+import android.text.Layout;
 import android.text.SpannableStringBuilder;
+import android.text.StaticLayout;
 import android.text.TextUtils;
 import android.text.style.ImageSpan;
 import android.util.DisplayMetrics;
@@ -114,6 +117,7 @@ import androidx.viewpager.widget.ViewPager;
 import com.bumptech.glide.Glide;
 
 import de.monocles.chat.BobTransfer;
+import de.monocles.chat.ui.CollapsableTextView;
 import de.monocles.chat.EmojiSearch;
 import de.monocles.chat.GifsAdapter;
 import de.monocles.chat.KeyboardHeightProvider;
@@ -340,6 +344,8 @@ public class ConversationFragment extends XmppFragment
     private Toast messageLoaderToast;
     private ConversationsActivity activity;
     private boolean reInitRequiredOnStart = true;
+    private Typeface notoRegular;
+    private Typeface notoBold;
     private File savingAsSticker = null;
     private EmojiSearch emojiSearch = null;
     File dirStickers;
@@ -363,6 +369,7 @@ public class ConversationFragment extends XmppFragment
     private int lastKnownKeyboardHeight = 0;
     private boolean keyboardCurrentlyVisible = false;
     private boolean emojiPickerRequestedByUser = false;
+    private boolean contextPreviewExpanded = false;
     private static final String PINNED_MESSAGE_KEY_PREFIX = "pinned_message_";
     private Vibrator vibrator;
 
@@ -1446,13 +1453,20 @@ public class ConversationFragment extends XmppFragment
                 messageSent();
                 return;
             } else {
+                // Preserve the original stanza ID before the UUID changes, so recipients
+                // can still look up this message by the ID they stored on their side.
+                if (message.getRemoteMsgId() == null) {
+                    message.setRemoteMsgId(message.getUuid());
+                }
                 if (message.isCarbon()) {
                     message.putEdited(message.getRemoteMsgId(), message.getServerMsgId());
                 } else {
                     message.putEdited(message.getUuid(), message.getServerMsgId());
                 }
 
-                message.setServerMsgId(null);
+                // Do not clear serverMsgId: the edit reflection sets reflectedServerMsgId=null
+                // for edits, so markMessage won't overwrite it, and keeping the original
+                // server-assigned ID lets recipients look up this message after editing.
                 message.setUuid(UUID.randomUUID().toString());
             }
         }
@@ -1875,6 +1889,8 @@ public class ConversationFragment extends XmppFragment
             throw new IllegalStateException(
                     "Trying to attach fragment to activity that is not the ConversationsActivity");
         }
+        notoRegular = ResourcesCompat.getFont(activity, R.font.noto_sans_regular);
+        notoBold = ResourcesCompat.getFont(activity, R.font.noto_sans_bold);
         dirStickers = StickersMigration.getStickersDir(activity);
         StickersMigration.requireMigration(activity);
         vibrator = (Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE);
@@ -2439,6 +2455,37 @@ public class ConversationFragment extends XmppFragment
             binding.contextPreviewText.setTextAppearance(
                     com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
         }
+        contextPreviewExpanded = false;
+        final DisplayMetrics previewMetrics = getResources().getDisplayMetrics();
+        final int previewMaxWidth = (int) (previewMetrics.widthPixels - 120 * previewMetrics.density);
+        final StaticLayout previewLayout;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            previewLayout = StaticLayout.Builder
+                    .obtain(body, 0, body.length(), binding.contextPreviewText.getPaint(), previewMaxWidth)
+                    .setLineSpacing(binding.contextPreviewText.getLineSpacingExtra(), binding.contextPreviewText.getLineSpacingMultiplier())
+                    .setIncludePad(binding.contextPreviewText.getIncludeFontPadding())
+                    .build();
+        } else {
+            previewLayout = new StaticLayout(body, binding.contextPreviewText.getPaint(), previewMaxWidth,
+                    Layout.Alignment.ALIGN_NORMAL,
+                    binding.contextPreviewText.getLineSpacingMultiplier(),
+                    binding.contextPreviewText.getLineSpacingExtra(),
+                    binding.contextPreviewText.getIncludeFontPadding());
+        }
+        final boolean previewIsLong = previewLayout.getLineCount() > 3;
+        binding.contextPreviewText.setMaxLines(3);
+        binding.contextPreviewShowMore.setVisibility(previewIsLong ? View.VISIBLE : View.GONE);
+        binding.contextPreviewShowMore.setText(R.string.show_more);
+        binding.contextPreviewShowMore.setOnClickListener(v -> {
+            contextPreviewExpanded = !contextPreviewExpanded;
+            if (contextPreviewExpanded) {
+                binding.contextPreviewText.setMaxLines(12);
+                binding.contextPreviewShowMore.setText(R.string.show_less);
+            } else {
+                binding.contextPreviewText.setMaxLines(3);
+                binding.contextPreviewShowMore.setText(R.string.show_more);
+            }
+        });
         binding.contextPreview.setVisibility(View.VISIBLE);
     }
 
@@ -2873,7 +2920,7 @@ public class ConversationFragment extends XmppFragment
 		                        return;
 		                    }
 		        /* PiratX draft handling and delete if not yet sent */
-			if (!(selectedMessage.getConversation() instanceof Conversation)) {
+                        if (!(selectedMessage.getConversation() instanceof Conversation)) {
                             return;
                         }
                         final Conversation conversation = activity.xmppConnectionService.findConversationByUuid(selectedMessage.getConversation().getUuid());
@@ -2901,6 +2948,10 @@ public class ConversationFragment extends XmppFragment
                         retractionMessage.setType(Message.TYPE_TEXT);
                         retractionMessage.setCounterpart(messageToRetract.getCounterpart());
                         retractionMessage.setRemoteMsgId(UUID.randomUUID().toString());
+                        if (eu.siacs.conversations.utils.LiveLocationManager.getInstance()
+                                .isActiveLiveLocationMessage(messageToRetract.getUuid())) {
+                            activity.xmppConnectionService.stopLiveLocationSharing(conversation.getUuid());
+                        }
                         if (messageToRetract.getStatus() >= Message.STATUS_SEND) {
                             sendMessage(retractionMessage);
                         }
@@ -3355,7 +3406,7 @@ public class ConversationFragment extends XmppFragment
         if (itemId == R.id.share_with) return R.drawable.ic_share_24dp;
         if (itemId == R.id.correct_message) return R.drawable.ic_edit_24dp;
         if (itemId == R.id.retract_message) return R.drawable.outline_delete_red_24;
-        if (itemId == R.id.moderate_message) return R.drawable.ic_report_24dp;
+        if (itemId == R.id.moderate_message) return R.drawable.outline_report_24;
         if (itemId == R.id.pin_message_to_top) return R.drawable.outline_push_pin_24;
         if (itemId == R.id.copy_message) return R.drawable.outline_content_copy_24;
         if (itemId == R.id.copy_link || itemId == R.id.copy_url) return R.drawable.rounded_link_24;
@@ -3368,11 +3419,11 @@ public class ConversationFragment extends XmppFragment
         if (itemId == R.id.cancel_transmission) return R.drawable.ic_cancel_24dp;
         if (itemId == R.id.block_media) return R.drawable.outline_block_24;
         if (itemId == R.id.delete_file) return R.drawable.outline_delete_red_24;
-        if (itemId == R.id.save_to_downloads) return R.drawable.ic_save_24dp;
+        if (itemId == R.id.save_to_downloads) return R.drawable.outline_save_24;
         if (itemId == R.id.save_as_sticker) return R.drawable.outline_emoji_emotions_24;
-        if (itemId == R.id.show_error_message) return R.drawable.ic_error_24dp;
+        if (itemId == R.id.show_error_message) return R.drawable.outline_error_24;
         if (itemId == R.id.open_with) return R.drawable.ic_open_with_24dp;
-        if (itemId == R.id.action_report_and_block) return R.drawable.ic_report_24dp;
+        if (itemId == R.id.action_report_and_block) return R.drawable.outline_report_24;
         return R.drawable.ic_more_horiz_24dp;
     }
 
@@ -6572,7 +6623,7 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void persistKeyboardHeight(final int height) {
-        if (height > 100) {
+        if (height > 100 && activity != null) {
             lastKnownKeyboardHeight = height;
             PreferenceManager.getDefaultSharedPreferences(activity)
                     .edit().putInt(PREF_KEYBOARD_HEIGHT, height).apply();
@@ -6608,24 +6659,24 @@ public class ConversationFragment extends XmppFragment
     private void updateEmojiPickerTabStyles() {
         if (binding.emojiPicker.getVisibility() == VISIBLE) {
             binding.emojisButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-            binding.emojisButton.setTypeface(null, Typeface.BOLD);
+            binding.emojisButton.setTypeface(notoBold);
         } else {
             binding.emojisButton.setBackgroundColor(0);
-            binding.emojisButton.setTypeface(null, Typeface.NORMAL);
+            binding.emojisButton.setTypeface(notoRegular);
         }
         if (binding.stickersview.getVisibility() == VISIBLE) {
             binding.stickersButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-            binding.stickersButton.setTypeface(null, Typeface.BOLD);
+            binding.stickersButton.setTypeface(notoBold);
         } else {
             binding.stickersButton.setBackgroundColor(0);
-            binding.stickersButton.setTypeface(null, Typeface.NORMAL);
+            binding.stickersButton.setTypeface(notoRegular);
         }
         if (binding.gifsview.getVisibility() == VISIBLE) {
             binding.gifsButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-            binding.gifsButton.setTypeface(null, Typeface.BOLD);
+            binding.gifsButton.setTypeface(notoBold);
         } else {
             binding.gifsButton.setBackgroundColor(0);
-            binding.gifsButton.setTypeface(null, Typeface.NORMAL);
+            binding.gifsButton.setTypeface(notoRegular);
         }
     }
 
@@ -6710,24 +6761,24 @@ public class ConversationFragment extends XmppFragment
 
             if (binding.emojiPicker.getVisibility() == VISIBLE) {
                 binding.emojisButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.emojisButton.setTypeface(null, Typeface.BOLD);
+                binding.emojisButton.setTypeface(notoBold);
             } else {
                 binding.emojisButton.setBackgroundColor(0);
-                binding.emojisButton.setTypeface(null, Typeface.NORMAL);
+                binding.emojisButton.setTypeface(notoRegular);
             }
             if (binding.stickersview.getVisibility() == VISIBLE) {
                 binding.stickersButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.stickersButton.setTypeface(null, Typeface.BOLD);
+                binding.stickersButton.setTypeface(notoBold);
             } else {
                 binding.stickersButton.setBackgroundColor(0);
-                binding.stickersButton.setTypeface(null, Typeface.NORMAL);
+                binding.stickersButton.setTypeface(notoRegular);
             }
             if (binding.gifsview.getVisibility() == VISIBLE) {
                 binding.gifsButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.gifsButton.setTypeface(null, Typeface.BOLD);
+                binding.gifsButton.setTypeface(notoBold);
             } else {
                 binding.gifsButton.setBackgroundColor(0);
-                binding.gifsButton.setTypeface(null, Typeface.NORMAL);
+                binding.gifsButton.setTypeface(notoRegular);
             }
         }
     };
@@ -6752,24 +6803,24 @@ public class ConversationFragment extends XmppFragment
              */
             if (binding.emojiPicker.getVisibility() == VISIBLE) {
                 binding.emojisButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.emojisButton.setTypeface(null, Typeface.BOLD);
+                binding.emojisButton.setTypeface(notoBold);
             } else {
                 binding.emojisButton.setBackgroundColor(0);
-                binding.emojisButton.setTypeface(null, Typeface.NORMAL);
+                binding.emojisButton.setTypeface(notoRegular);
             }
             if (binding.stickersview.getVisibility() == VISIBLE) {
                 binding.stickersButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.stickersButton.setTypeface(null, Typeface.BOLD);
+                binding.stickersButton.setTypeface(notoBold);
             } else {
                 binding.stickersButton.setBackgroundColor(0);
-                binding.stickersButton.setTypeface(null, Typeface.NORMAL);
+                binding.stickersButton.setTypeface(notoRegular);
             }
             if (binding.gifsview.getVisibility() == VISIBLE) {
                 binding.gifsButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.gifsButton.setTypeface(null, Typeface.BOLD);
+                binding.gifsButton.setTypeface(notoBold);
             } else {
                 binding.gifsButton.setBackgroundColor(0);
-                binding.gifsButton.setTypeface(null, Typeface.NORMAL);
+                binding.gifsButton.setTypeface(notoRegular);
             }
         }
     };
@@ -6794,24 +6845,24 @@ public class ConversationFragment extends XmppFragment
              */
             if (binding.emojiPicker.getVisibility() == VISIBLE) {
                 binding.emojisButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.emojisButton.setTypeface(null, Typeface.BOLD);
+                binding.emojisButton.setTypeface(notoBold);
             } else {
                 binding.emojisButton.setBackgroundColor(0);
-                binding.emojisButton.setTypeface(null, Typeface.NORMAL);
+                binding.emojisButton.setTypeface(notoRegular);
             }
             if (binding.stickersview.getVisibility() == VISIBLE) {
                 binding.stickersButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.stickersButton.setTypeface(null, Typeface.BOLD);
+                binding.stickersButton.setTypeface(notoBold);
             } else {
                 binding.stickersButton.setBackgroundColor(0);
-                binding.stickersButton.setTypeface(null, Typeface.NORMAL);
+                binding.stickersButton.setTypeface(notoRegular);
             }
             if (binding.gifsview.getVisibility() == VISIBLE) {
                 binding.gifsButton.setBackground(ContextCompat.getDrawable(activity, R.drawable.selector_bubble));
-                binding.gifsButton.setTypeface(null, Typeface.BOLD);
+                binding.gifsButton.setTypeface(notoBold);
             } else {
                 binding.gifsButton.setBackgroundColor(0);
-                binding.gifsButton.setTypeface(null, Typeface.NORMAL);
+                binding.gifsButton.setTypeface(notoRegular);
             }
         }
     };

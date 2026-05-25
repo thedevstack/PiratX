@@ -95,7 +95,9 @@ public class HttpDownloadConnection implements Transferable {
             final AbstractConnectionManager.Extension extension = AbstractConnectionManager.Extension.of(mUrl.encodedPath());
             if (VALID_CRYPTO_EXTENSIONS.contains(extension.main)) {
                 this.message.setEncryption(Message.ENCRYPTION_PGP);
-            } else if (message.getEncryption() != Message.ENCRYPTION_AXOLOTL) {
+            } else if (message.getEncryption() != Message.ENCRYPTION_AXOLOTL
+                    && message.getEncryption() != Message.ENCRYPTION_PGP
+                    && message.getEncryption() != Message.ENCRYPTION_DECRYPTED) {
                 this.message.setEncryption(Message.ENCRYPTION_NONE);
             }
             String ext = extension.getExtension();
@@ -196,7 +198,14 @@ public class HttpDownloadConnection implements Transferable {
     private void finish() {
         boolean notify = acceptedAutomatically && !message.isRead() && cb == null;
         if (message.getEncryption() == Message.ENCRYPTION_PGP) {
-            notify = message.getConversation().getAccount().getPgpDecryptionService().decrypt(message, notify);
+            // Let PgpDecryptionService handle file placement: it reads from getFile(message,false)
+            // (cacheDir/<uuid>.jpg.pgp) and writes decrypted output to getFile(message,true).
+            // Renaming here would move the encrypted file to the wrong location and break that lookup.
+            message.getConversation().getAccount().getPgpDecryptionService().decrypt(message, notify);
+            message.setTransferable(null);
+            mXmppConnectionService.updateMessage(message);
+            mHttpConnectionManager.finishConnection(this);
+            return;
         }
         final DownloadableFile tmp = file;
         final String extension = MimeUtils.extractRelevantExtension(tmp.getName());

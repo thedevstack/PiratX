@@ -115,20 +115,17 @@ import org.whispersystems.libsignal.state.SignedPreKeyRecord;
 
 public class DatabaseBackend extends SQLiteOpenHelper {
 
-    public static final SQLiteDatabaseHook DATABASE_HOOK = new SQLiteDatabaseHook() {
+    // Hook for all encrypted databases. The key is always a pre-derived raw 256-bit key
+    // formatted as x'<64 hex chars>'. SQLCipher recognises the x'...' prefix and skips all
+    // KDF processing. preKey is a no-op; postKey applies security-hardening PRAGMAs.
+    public static final SQLiteDatabaseHook ARGON2_DATABASE_HOOK = new SQLiteDatabaseHook() {
         @Override
         public void preKey(SQLiteConnection connection) {
-            // SQLCipher community edition only supports PBKDF2 (not Argon2id).
-            // Set the algorithm before PRAGMA key so it is used for key derivation.
-            connection.executeRaw(
-                    "PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512;", null, null);
+            // Raw key x'...' bypasses KDF — no cipher_kdf_algorithm setting needed.
         }
 
         @Override
         public void postKey(SQLiteConnection connection) {
-            // kdf_iter must be set after PRAGMA key per SQLCipher docs.
-            // 256 000 is the SQLCipher 4 default; OWASP minimum for PBKDF2-SHA-512 is 210 000.
-            connection.executeRaw("PRAGMA kdf_iter = 256000;", null, null);
             connection.executeRaw("PRAGMA cipher_memory_security = ON;", null, null);
             connection.executeRaw("PRAGMA secure_delete = ON;", null, null);
         }
@@ -437,33 +434,49 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     protected Context context;
 
     private DatabaseBackend(Context context) {
-        // byte[] constructor (new in sqlcipher-android 4.16.0) avoids creating an immutable String
-        // in the JVM heap. EncryptionException propagates intentionally — see callers.
-        // Note: SQLiteOpenHelper stores the byte[] by reference (no copy) and opens the database
-        // lazily — the array cannot be zeroed here without corrupting the stored password.
-        super(context, DATABASE_NAME, getPasswordBytes(context), null, DATABASE_VERSION, 0, null, DATABASE_HOOK, true);
+        this(context, getKeyBytes(context));
+    }
+
+    private DatabaseBackend(Context context, byte[] keyBytes) {
+        super(context, DATABASE_NAME, keyBytes, null, DATABASE_VERSION, 0, null,
+                ARGON2_DATABASE_HOOK, true);
         this.context = context;
     }
 
-    private static byte[] getPasswordBytes(Context context) {
-        final char[] chars = new AppSettings(context).getDatabasePasswordChars();
-        if (chars == null) return null;
-        final byte[] bytes = charsToUtf8Bytes(chars);
-        java.util.Arrays.fill(chars, '\0');
-        return bytes;
-    }
-
-    static byte[] charsToUtf8Bytes(char[] chars) {
-        final java.nio.ByteBuffer bb =
-                java.nio.charset.StandardCharsets.UTF_8.encode(java.nio.CharBuffer.wrap(chars));
-        try {
-            final byte[] bytes = new byte[bb.remaining()];
-            bb.get(bytes);
-            return bytes;
-        } finally {
-            if (bb.hasArray()) {
-                java.util.Arrays.fill(bb.array(), (byte) 0);
+    /**
+     * Derives the key bytes that SQLCipher should receive. The DB is always encrypted.
+     *
+     * <ul>
+     *   <li>Argon2id mode (user password): derives via Argon2id + KeyStore HMAC, formats as
+     *       x'&lt;64 hex chars&gt;' so SQLCipher uses it as a raw key (no internal KDF).
+     *   <li>Auto mode (no user password): reads or generates a 32-byte random key from
+     *       hardware-backed DataStore, derives via KeyStore HMAC, formats the same way.
+     * </ul>
+     */
+    static byte[] getKeyBytes(Context context) {
+        final AppSettings appSettings = new AppSettings(context);
+        if (appSettings.isArgon2idKdf()) {
+            final char[] password = appSettings.getDatabasePasswordChars();
+            try {
+                final byte[] salt = appSettings.getArgon2Salt();
+                if (salt == null) {
+                    throw new eu.siacs.conversations.EncryptionException(
+                            "Argon2id KDF active but salt is missing — database cannot be opened",
+                            null,
+                            eu.siacs.conversations.EncryptionException.Reason.KEYSTORE_ERROR);
+                }
+                return eu.siacs.conversations.Argon2KeyDerivation.INSTANCE
+                        .deriveRawKeyBytes(password, salt);
+            } finally {
+                java.util.Arrays.fill(password, '\0');
             }
+        }
+        // Auto mode: use or generate a hardware-bound random key.
+        final byte[] rawAutoKey = appSettings.getOrCreateAutoKey();
+        try {
+            return eu.siacs.conversations.Argon2KeyDerivation.INSTANCE.deriveAutoRawKeyBytes(rawAutoKey);
+        } finally {
+            java.util.Arrays.fill(rawAutoKey, (byte) 0);
         }
     }
 
@@ -497,6 +510,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         if (instance == null) {
             System.loadLibrary("sqlcipher");
             recoverFromInterruptedMigration(context);
+            encryptLegacyPlaintextDatabase(context);
             instance = new DatabaseBackend(context);
         }
         return instance;
@@ -534,35 +548,32 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             return;
         }
 
-        // States C/D: both files exist — need to test dbFile with current prefs key.
-        final char[] currentPasswordChars;
+        // States C/D: both files exist — test dbFile with the current key (Argon2id or auto).
+        // getKeyBytes() picks the right derivation based on AppSettings.isArgon2idKdf().
+        final byte[] currentKeyBytes;
         try {
-            currentPasswordChars = new AppSettings(context).getDatabasePasswordChars();
+            currentKeyBytes = getKeyBytes(context);
         } catch (eu.siacs.conversations.EncryptionException e) {
             if (e.reason == eu.siacs.conversations.EncryptionException.Reason.NEEDS_SESSION_PASSWORD) {
-                // Startup-password mode: session not entered yet — defer until next getInstance()
                 Log.w(Config.LOGTAG, "rekey: session password not available, deferring recovery");
                 return;
             }
-            Log.e(Config.LOGTAG, "rekey: cannot obtain password for recovery", e);
+            Log.e(Config.LOGTAG, "rekey: cannot obtain key for recovery", e);
             return;
         }
 
         boolean dbFileValid = false;
-        final byte[] currentPasswordBytes =
-                currentPasswordChars != null ? charsToUtf8Bytes(currentPasswordChars) : null;
-        if (currentPasswordChars != null) java.util.Arrays.fill(currentPasswordChars, '\0');
         try {
             final SQLiteDatabase test = SQLiteDatabase.openDatabase(
                     dbFile.getAbsolutePath(),
-                    currentPasswordBytes,
+                    currentKeyBytes,
                     null,
                     SQLiteDatabase.OPEN_READONLY,
-                    currentPasswordBytes != null ? DATABASE_HOOK : null);
+                    ARGON2_DATABASE_HOOK);
             test.close();
             dbFileValid = true;
         } catch (Exception ignored) { /* dbFile not openable with current key */ } finally {
-            if (currentPasswordBytes != null) java.util.Arrays.fill(currentPasswordBytes, (byte) 0);
+            if (currentKeyBytes != null) java.util.Arrays.fill(currentKeyBytes, (byte) 0);
         }
 
         if (dbFileValid) {
@@ -584,6 +595,114 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         if (tempFile.exists()) tempFile.delete();
         PreferenceManager.getDefaultSharedPreferences(context)
                 .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+    }
+
+    /**
+     * Called once on first open after an upgrade from a pre-encryption release.
+     * If the database file has the SQLite plaintext magic header, exports its content
+     * into a fresh SQLCipher-encrypted copy using the same crash-safe rename sequence
+     * as migrate(), then stores the new auto key in DataStore.
+     *
+     * If the process is killed between the file rename and the DataStore write,
+     * recoverFromInterruptedMigration() (which runs first on the next start) will find
+     * the encrypted dbFile unreadable with the current key, restore the plaintext .bak,
+     * and this method will run again on that start — converging safely.
+     */
+    private static void encryptLegacyPlaintextDatabase(Context context) {
+        final File dbFile = context.getDatabasePath(DATABASE_NAME);
+        if (!dbFile.exists() || !looksLikePlainSqlite(dbFile)) return;
+
+        Log.i(Config.LOGTAG, "rekey: plaintext database from pre-encryption release — encrypting");
+
+        final AppSettings settings = new AppSettings(context);
+        final byte[] newAutoKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE.generateRandomKey();
+        final byte[] newRawKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE.deriveAutoRawKeyBytes(newAutoKey);
+        try {
+            final File tempFile = context.getDatabasePath(DATABASE_NAME + ".tmp");
+            if (tempFile.exists() && !tempFile.delete()) {
+                throw new java.io.IOException("Failed to delete existing temp file");
+            }
+            if (!tempFile.createNewFile()) {
+                throw new java.io.IOException("Failed to create temp file");
+            }
+
+            // Open with null key — SQLCipher accepts plaintext databases this way.
+            final SQLiteDatabase db = SQLiteDatabase.openDatabase(
+                    dbFile.getAbsolutePath(), (byte[]) null, null,
+                    SQLiteDatabase.OPEN_READWRITE | SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING,
+                    null);
+            try {
+                final int version = db.getVersion();
+                final String keyStr = new String(newRawKey, java.nio.charset.StandardCharsets.UTF_8);
+                final String attachKeySql = "'" + keyStr.replace("'", "''") + "'";
+                db.rawExecSQL("ATTACH DATABASE "
+                        + android.database.DatabaseUtils.sqlEscapeString(tempFile.getAbsolutePath())
+                        + " AS encrypted KEY " + attachKeySql);
+                db.rawExecSQL("SELECT sqlcipher_export('encrypted');");
+                db.rawExecSQL("PRAGMA encrypted.user_version = " + version);
+                db.rawExecSQL("DETACH DATABASE encrypted;");
+            } finally {
+                db.close();
+            }
+
+            final File backupFile = context.getDatabasePath(DATABASE_NAME + ".bak");
+            if (backupFile.exists()) backupFile.delete();
+
+            PreferenceManager.getDefaultSharedPreferences(context)
+                    .edit().putBoolean(REKEY_MIGRATION_IN_PROGRESS, true).commit();
+
+            boolean prefsUpdated = false;
+            try {
+                if (!dbFile.renameTo(backupFile)) {
+                    throw new java.io.IOException("Failed to rename DB to backup");
+                }
+                if (!tempFile.renameTo(dbFile)) {
+                    if (!backupFile.renameTo(dbFile)) {
+                        Log.e(Config.LOGTAG, "rekey: CRITICAL — could not roll back legacy encryption");
+                    }
+                    throw new java.io.IOException("Failed to rename temp to DB");
+                }
+                // Key written AFTER rename: crash before here leaves .bak (plaintext) recoverable.
+                settings.writeAutoKey(newAutoKey);
+                settings.setAutoKeyMode();
+                prefsUpdated = true;
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .edit().remove(REKEY_MIGRATION_IN_PROGRESS).commit();
+                FileHelper.secureDelete(backupFile);
+                FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-wal"));
+                FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-shm"));
+                FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
+                FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
+                Log.i(Config.LOGTAG, "rekey: legacy database successfully encrypted");
+            } catch (Exception e) {
+                if (!prefsUpdated) {
+                    PreferenceManager.getDefaultSharedPreferences(context)
+                            .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+                }
+                throw e;
+            }
+        } catch (Exception e) {
+            Log.e(Config.LOGTAG, "rekey: failed to encrypt legacy plaintext database", e);
+        } finally {
+            java.util.Arrays.fill(newRawKey, (byte) 0);
+            java.util.Arrays.fill(newAutoKey, (byte) 0);
+        }
+    }
+
+    /** True if the file starts with the 16-byte SQLite magic header (i.e. it is not encrypted). */
+    static boolean looksLikePlainSqlite(File file) {
+        // "SQLite format 3\0" — the invariant first 16 bytes of every plain SQLite database.
+        // SQLCipher-encrypted pages have random-looking bytes here instead.
+        final byte[] magic = {
+            0x53,0x51,0x4c,0x69,0x74,0x65,0x20,0x66,
+            0x6f,0x72,0x6d,0x61,0x74,0x20,0x33,0x00
+        };
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+            final byte[] header = new byte[16];
+            return fis.read(header) == 16 && java.util.Arrays.equals(header, magic);
+        } catch (java.io.IOException e) {
+            return false;
+        }
     }
 
     public static synchronized void closeInstance() {
@@ -3909,148 +4028,209 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 new String[]{String.valueOf(twentyFourHoursAgo)});
     }
 
+    /**
+     * Re-encrypts the database with a new password (Argon2id mode) or reverts to auto-encryption
+     * with a fresh random key (auto mode when {@code newPassword} is null).
+     *
+     * <ul>
+     *   <li>{@code oldPassword null}: old DB is auto-encrypted — auto key is read from storage.
+     *   <li>{@code newPassword null}: new DB uses auto-encryption — a fresh random key is generated.
+     *   <li>Both non-null: password change (Argon2id to Argon2id).
+     * </ul>
+     *
+     * <p>File operations are crash-safe: a sentinel flag is set before any file is moved, and
+     * {@link #recoverFromInterruptedMigration} restores a consistent state on the next launch.
+     * New key material is kept in memory and written to persistent storage only AFTER the file
+     * rename succeeds, ensuring the stored key always matches the DB file on disk.
+     */
     public static synchronized void migrate(Context context, char[] oldPassword, char[] newPassword) throws Exception {
-        // Keep the singleton alive during migration — service background threads may still be
-        // using it. closeInstance() is called at the end, once files and prefs are consistent.
         System.loadLibrary("sqlcipher");
-        File dbFile = context.getDatabasePath(DATABASE_NAME);
-        if (!dbFile.exists()) {
-            new AppSettings(context).setDatabasePassword(newPassword);
-            closeInstance();
-            return;
-        }
-
-        File tempFile = context.getDatabasePath(DATABASE_NAME + ".tmp");
-        if (tempFile.exists() && !tempFile.delete()) {
-            throw new java.io.IOException("Failed to delete existing temporary database file");
-        }
-        if (tempFile.getParentFile() != null
-                && !tempFile.getParentFile().exists()
-                && !tempFile.getParentFile().mkdirs()) {
-            throw new java.io.IOException("Failed to create database directory");
-        }
-        if (!tempFile.createNewFile()) {
-            throw new java.io.IOException("Failed to create temporary database file");
-        }
-
-        // Use byte[] openDatabase overload (new in sqlcipher-android 4.16.0) — byte[] can be
-        // zeroed immediately after the call; String cannot be zeroed at all.
-        final byte[] oldPwBytes = oldPassword != null ? charsToUtf8Bytes(oldPassword) : null;
-        // ENABLE_WRITE_AHEAD_LOGGING: singleton already holds the DB in WAL mode; opening a
-        // second connection without this flag causes SQLCipher to attempt PRAGMA journal_mode=delete,
-        // which fails with SQLITE_BUSY (5) on Android 8.1 and older. Setting the flag makes
-        // SQLCipher check the current mode first and skip the pragma when WAL is already active.
-        SQLiteDatabase db =
-                SQLiteDatabase.openDatabase(
-                        dbFile.getAbsolutePath(),
-                        oldPwBytes,
-                        null,
-                        SQLiteDatabase.OPEN_READWRITE | SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING,
-                        oldPwBytes != null ? DATABASE_HOOK : null);
-        if (oldPwBytes != null) java.util.Arrays.fill(oldPwBytes, (byte) 0);
-        int version = db.getVersion();
-
-        // Optimization: DB is just-created and empty (onCreate never ran). Delete it and set
-        // the password now; the next getInstance() will build the schema encrypted via onCreate.
-        final boolean isEmpty;
-        try (final Cursor c =
-                db.rawQuery(
-                        "SELECT count(*) FROM sqlite_master WHERE type='table'", null)) {
-            isEmpty = version == 0 && c != null && c.moveToFirst() && c.getInt(0) == 0;
-        }
-        if (isEmpty) {
-            db.close();
-            tempFile.delete();
-            // Delete before writing prefs: a crash here leaves the app in its original clean
-            // state (no file, no password) rather than a broken one (new password, old file).
-            FileHelper.secureDelete(dbFile);
-            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
-            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
-            new AppSettings(context).setDatabasePassword(newPassword);
-            closeInstance();
-            return;
-        }
-
-        try {
-            // Set PBKDF2-SHA512 defaults so the attached (exported) DB is created with the same
-            // KDF as the live database. SQLCipher community edition only supports PBKDF2.
-            db.rawExecSQL("PRAGMA cipher_default_kdf_algorithm = PBKDF2_HMAC_SHA512;");
-            db.rawExecSQL("PRAGMA cipher_default_kdf_iter = 256000;");
-            db.rawExecSQL("PRAGMA cipher_default_use_hmac = ON;");
-            db.rawExecSQL("PRAGMA cipher_default_memory_security = ON;");
-
-            // ATTACH KEY must be a SQL string literal — unavoidable String; null it immediately.
-            String newPwStr = newPassword == null ? "" : new String(newPassword);
-            final String escapedNewPassword = android.database.DatabaseUtils.sqlEscapeString(newPwStr);
-            newPwStr = null;
-            db.rawExecSQL(
-                    "ATTACH DATABASE "
-                            + android.database.DatabaseUtils.sqlEscapeString(
-                                    tempFile.getAbsolutePath())
-                            + " AS encrypted KEY "
-                            + escapedNewPassword);
-            db.rawExecSQL("SELECT sqlcipher_export('encrypted');");
-            db.rawExecSQL("PRAGMA encrypted.user_version = " + version);
-            db.rawExecSQL("DETACH DATABASE encrypted;");
-        } finally {
-            db.close();
-        }
-
         final AppSettings settings = new AppSettings(context);
-        final File backupFile = context.getDatabasePath(DATABASE_NAME + ".bak");
-        if (backupFile.exists() && !backupFile.delete()) {
-            throw new java.io.IOException("Failed to delete existing backup file");
+        final File dbFile = context.getDatabasePath(DATABASE_NAME);
+
+        // Generate new key material entirely in memory. It is persisted only AFTER the DB file
+        // rename succeeds (crash-safety: if we crash before persisting, recovery opens the
+        // backup with the OLD key and restores a consistent state).
+        final byte[] newSalt;
+        final byte[] newAutoKey;
+        final byte[] newRawKey;
+        if (newPassword != null) {
+            newSalt = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE.generateSalt();
+            newAutoKey = null;
+            newRawKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE
+                    .deriveRawKeyBytes(newPassword, newSalt);
+        } else {
+            newSalt = null;
+            newAutoKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE.generateRandomKey();
+            newRawKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE
+                    .deriveAutoRawKeyBytes(newAutoKey);
         }
 
-        // Write sentinel before touching any files. If the process dies mid-migration,
-        // recoverFromInterruptedMigration() will restore a consistent state on next launch.
-        PreferenceManager.getDefaultSharedPreferences(context)
-                .edit().putBoolean(REKEY_MIGRATION_IN_PROGRESS, true).commit();
-
-        boolean prefsUpdated = false;
         try {
-            // Step 1: Move original DB to .bak
-            if (!dbFile.renameTo(backupFile)) {
-                throw new java.io.IOException("Failed to backup old database file");
+            if (!dbFile.exists()) {
+                persistNewKeyState(settings, newPassword, newSalt, newAutoKey);
+                closeInstance();
+                return;
             }
 
-            // Step 2: Move new (re-encrypted) DB into place
-            if (!tempFile.renameTo(dbFile)) {
-                if (!backupFile.renameTo(dbFile)) {
-                    Log.e(Config.LOGTAG, "rekey: CRITICAL — failed to rollback after temp rename failure");
+            final File tempFile = context.getDatabasePath(DATABASE_NAME + ".tmp");
+            if (tempFile.exists() && !tempFile.delete()) {
+                throw new java.io.IOException("Failed to delete existing temporary database file");
+            }
+            if (tempFile.getParentFile() != null
+                    && !tempFile.getParentFile().exists()
+                    && !tempFile.getParentFile().mkdirs()) {
+                throw new java.io.IOException("Failed to create database directory");
+            }
+            if (!tempFile.createNewFile()) {
+                throw new java.io.IOException("Failed to create temporary database file");
+            }
+
+            // Derive the OLD key. We cannot call getKeyBytes() here because it reads the current
+            // KDF state from prefs, which still reflects the OLD state.
+            final byte[] oldRawKey;
+            if (settings.isArgon2idKdf()) {
+                if (oldPassword == null) {
+                    throw new eu.siacs.conversations.EncryptionException(
+                            "Old password required to open Argon2id-encrypted database", null,
+                            eu.siacs.conversations.EncryptionException.Reason.NEEDS_SESSION_PASSWORD);
                 }
-                throw new java.io.IOException("Failed to rename temporary database file");
+                final byte[] oldSalt = settings.getArgon2Salt();
+                if (oldSalt == null) {
+                    throw new eu.siacs.conversations.EncryptionException(
+                            "Cannot open old Argon2id DB: salt missing", null,
+                            eu.siacs.conversations.EncryptionException.Reason.KEYSTORE_ERROR);
+                }
+                oldRawKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE
+                        .deriveRawKeyBytes(oldPassword, oldSalt);
+            } else {
+                // Auto mode: read the stored auto key — never generate here to avoid overwriting.
+                final byte[] storedAutoKey =
+                        new eu.siacs.conversations.SecurePasswordStorage(context).readAutoKey();
+                if (storedAutoKey == null) {
+                    throw new eu.siacs.conversations.EncryptionException(
+                            "Cannot open auto-encrypted DB: auto key missing from storage", null,
+                            eu.siacs.conversations.EncryptionException.Reason.KEYSTORE_ERROR);
+                }
+                try {
+                    oldRawKey = eu.siacs.conversations.Argon2KeyDerivation.INSTANCE
+                            .deriveAutoRawKeyBytes(storedAutoKey);
+                } finally {
+                    java.util.Arrays.fill(storedAutoKey, (byte) 0);
+                }
             }
 
-            // Step 3: Persist new key — last write that changes observable state
-            settings.setDatabasePassword(newPassword);
-            prefsUpdated = true;
+            // ENABLE_WRITE_AHEAD_LOGGING: the singleton already holds the DB in WAL mode;
+            // opening a second connection without this flag causes SQLCipher to attempt
+            // PRAGMA journal_mode=delete, which fails with SQLITE_BUSY on Android 8.1 and older.
+            SQLiteDatabase db;
+            try {
+                db = SQLiteDatabase.openDatabase(
+                        dbFile.getAbsolutePath(), oldRawKey, null,
+                        SQLiteDatabase.OPEN_READWRITE | SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING,
+                        ARGON2_DATABASE_HOOK);
+            } finally {
+                java.util.Arrays.fill(oldRawKey, (byte) 0);
+            }
 
-            // Step 4: Clear sentinel now that both files and prefs are consistent
+            int version = db.getVersion();
+
+            // If the DB is brand-new and empty, skip the export and just configure prefs.
+            final boolean isEmpty;
+            try (final Cursor c = db.rawQuery(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table'", null)) {
+                isEmpty = version == 0 && c != null && c.moveToFirst() && c.getInt(0) == 0;
+            }
+            if (isEmpty) {
+                db.close();
+                tempFile.delete();
+                FileHelper.secureDelete(dbFile);
+                FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
+                FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
+                persistNewKeyState(settings, newPassword, newSalt, newAutoKey);
+                closeInstance();
+                return;
+            }
+
+            try {
+                db.rawExecSQL("PRAGMA cipher_default_use_hmac = ON;");
+                db.rawExecSQL("PRAGMA cipher_default_memory_security = ON;");
+                // CRITICAL: wrap in SQL string literal, not blob literal, so SQLCipher detects
+                // the x'...' prefix and uses raw-key mode (see SQLCipher API docs for KEY).
+                final String keyStr = new String(newRawKey, java.nio.charset.StandardCharsets.UTF_8);
+                final String attachKeySql = "'" + keyStr.replace("'", "''") + "'";
+                db.rawExecSQL("ATTACH DATABASE "
+                        + android.database.DatabaseUtils.sqlEscapeString(tempFile.getAbsolutePath())
+                        + " AS encrypted KEY " + attachKeySql);
+                db.rawExecSQL("SELECT sqlcipher_export('encrypted');");
+                db.rawExecSQL("PRAGMA encrypted.user_version = " + version);
+                db.rawExecSQL("DETACH DATABASE encrypted;");
+            } finally {
+                db.close();
+            }
+
+            final File backupFile = context.getDatabasePath(DATABASE_NAME + ".bak");
+            if (backupFile.exists() && !backupFile.delete()) {
+                throw new java.io.IOException("Failed to delete existing backup file");
+            }
+
             PreferenceManager.getDefaultSharedPreferences(context)
-                    .edit().remove(REKEY_MIGRATION_IN_PROGRESS).commit();
+                    .edit().putBoolean(REKEY_MIGRATION_IN_PROGRESS, true).commit();
 
-            // Step 5: Securely delete backup and auxiliary files (best-effort)
-            FileHelper.secureDelete(backupFile);
-            FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-wal"));
-            FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-shm"));
-            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
-            FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
-
-        } catch (Exception e) {
-            if (!prefsUpdated) {
-                // Failed before or during file operations and before prefs were updated —
-                // safe to clear sentinel since file state was either not changed or restored.
+            boolean prefsUpdated = false;
+            try {
+                if (!dbFile.renameTo(backupFile)) {
+                    throw new java.io.IOException("Failed to backup old database file");
+                }
+                if (!tempFile.renameTo(dbFile)) {
+                    if (!backupFile.renameTo(dbFile)) {
+                        Log.e(Config.LOGTAG, "rekey: CRITICAL — failed to rollback after temp rename failure");
+                    }
+                    throw new java.io.IOException("Failed to rename temporary database file");
+                }
+                // Persist new key state AFTER the file rename so the stored key always matches
+                // the DB file on disk (crash-safety invariant for recoverFromInterruptedMigration).
+                persistNewKeyState(settings, newPassword, newSalt, newAutoKey);
+                prefsUpdated = true;
                 PreferenceManager.getDefaultSharedPreferences(context)
-                        .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+                        .edit().remove(REKEY_MIGRATION_IN_PROGRESS).commit();
+                FileHelper.secureDelete(backupFile);
+                FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-wal"));
+                FileHelper.secureDelete(new File(backupFile.getAbsolutePath() + "-shm"));
+                FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
+                FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
+            } catch (Exception e) {
+                if (!prefsUpdated) {
+                    PreferenceManager.getDefaultSharedPreferences(context)
+                            .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+                }
+                throw e;
             }
-            // If prefsUpdated is true, the migration succeeded but cleanup threw.
-            // Sentinel was already cleared; .bak will be an orphan but data is accessible.
-            throw e;
+        } finally {
+            java.util.Arrays.fill(newRawKey, (byte) 0);
+            if (newAutoKey != null) java.util.Arrays.fill(newAutoKey, (byte) 0);
         }
-        // Migration succeeded — close the old singleton now that files and prefs are consistent.
-        // The next getInstance() call will open the new file with the new key.
         closeInstance();
+    }
+
+    /**
+     * Persists the new KDF state after a successful DB file rename.
+     * For Argon2id mode: writes password + salt, sets KDF flag, clears any auto key.
+     * For auto mode: writes new auto key, sets auto KDF flag, clears old password + salt.
+     */
+    private static void persistNewKeyState(
+            AppSettings settings, char[] newPassword, byte[] newSalt, byte[] newAutoKey) {
+        if (newPassword != null) {
+            settings.setDatabasePasswordAndSalt(newPassword, newSalt);
+            settings.setArgon2idKdf();
+            settings.clearAutoKey(); // clean up any pre-existing auto key
+        } else {
+            // Auto mode: write the new auto key first (crash-safe ordering), then update KDF.
+            settings.writeAutoKey(newAutoKey);
+            settings.setAutoKeyMode();
+            settings.clearPersistedDatabasePassword(); // clear any old user password
+            settings.clearMainDbArgon2Salt();           // clear old Argon2id salt
+        }
     }
 
     // Returns [conversationUuid, rawPayloads] for sent messages with live-location payloads

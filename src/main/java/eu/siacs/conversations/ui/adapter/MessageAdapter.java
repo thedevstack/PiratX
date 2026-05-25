@@ -50,6 +50,7 @@ import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.cardview.widget.CardView;
 import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -204,6 +205,10 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
     private boolean allowRelativeTimestamps = true;
     private MessageBoxSwipedListener messageBoxSwipedListener;
 
+    private final Typeface notoRegular;
+    private final Typeface notoBold;
+    private final Typeface notoItalic;
+
 
     private ViewDragHelper dragHelper = null;
     private final ViewDragHelper.Callback dragCallback = new ViewDragHelper.Callback() {
@@ -313,6 +318,9 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         appSettings = new AppSettings(activity);
         updatePreferences();
         this.mForceNames = forceNames;
+        notoRegular = ResourcesCompat.getFont(activity, R.font.noto_sans_regular);
+        notoBold = ResourcesCompat.getFont(activity, R.font.noto_sans_bold);
+        notoItalic = ResourcesCompat.getFont(activity, R.font.noto_sans_italic);
         final SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(activity);
         allowRelativeTimestamps = !p.getBoolean("always_full_timestamps", activity.getResources().getBoolean(R.bool.always_full_timestamps));
     }
@@ -599,7 +607,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         viewHolder.downloadButton().setVisibility(View.GONE);
         viewHolder.audioPlayer().setVisibility(View.GONE);
         viewHolder.image().setVisibility(View.GONE);
-        viewHolder.messageBody().setTypeface(null, Typeface.ITALIC);
+        viewHolder.messageBody().setTypeface(notoItalic);
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         viewHolder.messageBox().setBackgroundTintMode(PorterDuff.Mode.SRC);
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
@@ -669,7 +677,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         viewHolder.downloadButton().setVisibility(GONE);
         viewHolder.audioPlayer().setVisibility(GONE);
         viewHolder.image().setVisibility(GONE);
-        viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+        viewHolder.messageBody().setTypeface(notoRegular);
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         setTextColor(viewHolder.messageBody(), bubbleColor);
         viewHolder.messageBox().setBackgroundTintMode(PorterDuff.Mode.CLEAR);
@@ -814,9 +822,9 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         setTextColor(viewHolder.messageBody(), bubbleColor);
         setTextSize(viewHolder.messageBody(), this.bubbleDesign.largeFont);
-        setTextSize(viewHolder.inReplyTo(), this.bubbleDesign.largeFont);
+        setSmallTextSize(viewHolder.inReplyTo(), this.bubbleDesign.largeFont);
         setTextSize(viewHolder.inReplyToQuote(), this.bubbleDesign.largeFont);
-        viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+        viewHolder.messageBody().setTypeface(notoRegular);
         viewHolder.messageBox().setBackgroundTintMode(PorterDuff.Mode.SRC);
         viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
         viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
@@ -828,14 +836,8 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         final ViewGroup.LayoutParams layoutParams = viewHolder.messageBody().getLayoutParams();
         layoutParams.width = ViewGroup.LayoutParams.WRAP_CONTENT;
         viewHolder.messageBody().setLayoutParams(layoutParams);
-        if (appSettings.isLargeFont()) {
-            viewHolder.inReplyToQuote().setTextAppearance(
-                    com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
-            viewHolder.inReplyToQuote().setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        } else {
-            viewHolder.inReplyToQuote().setTextAppearance(
-                    com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        }
+        viewHolder.inReplyToQuote().setTextSize(
+                TypedValue.COMPLEX_UNIT_SP, appSettings.isLargeFont() ? 18 : 14);
         final ViewGroup.LayoutParams qlayoutParams = viewHolder.inReplyToQuote().getLayoutParams();
         qlayoutParams.width = ViewGroup.LayoutParams.WRAP_CONTENT;
         viewHolder.inReplyToQuote().setLayoutParams(qlayoutParams);
@@ -877,6 +879,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                 } else {
                     viewHolder.inReplyToQuote().setText(body.subSequence(start, end));
                     viewHolder.inReplyToQuote().setVisibility(View.VISIBLE);
+                    viewHolder.inReplyToBox().setVisibility(View.VISIBLE);
                     body.delete(start, end);
                     while (body.length() > start && body.charAt(start) == '\n')
                         body.delete(start, 1); // Newlines after quote
@@ -997,14 +1000,14 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                         viewHolder.messageBody().getIncludeFontPadding());
             }
 
-            final boolean isLong = staticLayout.getLineCount() > 10 || (staticLayout.getLineCount() == 10 && staticLayout.getEllipsisCount(9) > 0);
+            final boolean isLong = staticLayout.getLineCount() > 10;
 
             if (message.isExpanded()) {
                 viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
                 viewHolder.showMore().setText(R.string.show_less);
                 viewHolder.showMore().setVisibility(View.VISIBLE);
             } else {
-                viewHolder.messageBody().setMaxLines(8);
+                viewHolder.messageBody().setMaxLines(10);
                 viewHolder.showMore().setText(R.string.show_more);
                 viewHolder.showMore().setVisibility(isLong ? View.VISIBLE : View.GONE);
             }
@@ -1022,7 +1025,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                     viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
                     viewHolder.showMore().setText(R.string.show_less);
                 } else {
-                    viewHolder.messageBody().setMaxLines(8);
+                    viewHolder.messageBody().setMaxLines(10);
                     viewHolder.showMore().setText(R.string.show_more);
                 }
             });
@@ -1540,7 +1543,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                     privateMarker.length(),
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             viewHolder.messageBody().setText(body);
-            viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+            viewHolder.messageBody().setTypeface(notoRegular);
             viewHolder.messageBody().setVisibility(View.VISIBLE);
         } else {
             viewHolder.messageBody().setVisibility(GONE);
@@ -1697,9 +1700,9 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
         if (viewHolder.time() != null) {
             if (message.isAttention()) {
-                viewHolder.time().setTypeface(null, Typeface.BOLD);
+                viewHolder.time().setTypeface(notoBold);
             } else {
-                viewHolder.time().setTypeface(null, Typeface.NORMAL);
+                viewHolder.time().setTypeface(notoRegular);
             }
         }
 
@@ -2041,13 +2044,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         } else {
             viewHolder.inReplyToBox().setVisibility(View.VISIBLE);
             viewHolder.inReplyTo().setText(UIHelper.getMessageDisplayName(message.getInReplyTo()));
-            viewHolder.inReplyTo().setOnClickListener(v -> {
-                ReplyClickListener l = listener.get();
-                if (l != null) {
-                    l.onReplyClick(message);
-                }
-            });
-            viewHolder.inReplyToQuote().setOnClickListener(v -> {
+            viewHolder.inReplyToBox().setOnClickListener(v -> {
                 ReplyClickListener l = listener.get();
                 if (l != null) {
                     l.onReplyClick(message);
@@ -2689,14 +2686,11 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
     }
 
     private static void setTextSize(final TextView textView, final boolean largeFont) {
-        if (largeFont) {
-            textView.setTextAppearance(
-                    com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
-            textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        } else {
-            textView.setTextAppearance(
-                    com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        }
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, largeFont ? 18 : 14);
+    }
+
+    private static void setSmallTextSize(final TextView textView, final boolean largeFont) {
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, largeFont ? 16 : 12);
     }
 
     private static @ColorInt int bubbleToOnSurfaceVariant(
@@ -2811,7 +2805,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
         protected abstract ListView linkDescriptions();
 
-        protected abstract LinearLayout inReplyToBox();
+        protected abstract CardView inReplyToBox();
 
         protected abstract TextView inReplyTo();
 
@@ -2937,7 +2931,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         }
 
         @Override
-        protected LinearLayout inReplyToBox() {
+        protected CardView inReplyToBox() {
             return this.binding.messageContent.inReplyToBox;
         }
 
@@ -3102,7 +3096,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         }
 
         @Override
-        protected LinearLayout inReplyToBox() {
+        protected CardView inReplyToBox() {
             return this.binding.messageContent.inReplyToBox;
         }
 
