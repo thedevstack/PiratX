@@ -157,8 +157,8 @@ android {
         minSdkVersion 23
         targetSdkVersion 36
         applicationId = "de.thedevstack.piratx"
-        versionCode 17
-        versionName "0.0.17"
+        versionCode 18
+        versionName "0.0.18"
 
         def xmppDomain = "jabber.thedevstack.de"
         buildConfigField "String", "PRIVACY_POLICY", "\"https://piratx.thedevstack.de/privacy.html\""
