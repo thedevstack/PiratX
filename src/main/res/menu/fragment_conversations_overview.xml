@@ -25,7 +25,8 @@
         android:title="@string/feeds"
         android:icon="@drawable/outline_newspaper_24"
         app:showAsAction="never"
-        android:visible="false" />
+        android:visible="false"
+        android:enabled="false" />
 
     <item
         android:id="@+id/action_accounts"
@@ -48,7 +49,8 @@
         android:title="@string/stories"
         android:icon="@drawable/outline_stories_24"
         app:showAsAction="ifRoom"
-        android:visible="false" />
+        android:visible="false"
+        android:enabled="false" />
     <item
         android:id="@+id/action_calls"
         android:orderInCategory="94"
