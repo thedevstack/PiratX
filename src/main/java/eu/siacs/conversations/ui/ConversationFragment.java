@@ -3531,6 +3531,11 @@ public class ConversationFragment extends XmppFragment
         } else if (id == R.id.action_refresh_feature_discovery) {
             refreshFeatureDiscovery();
         }
+        /* PiratX MediaBrowser action */
+        else if (id == R.id.action_mediabrowser) {
+            MediaBrowserActivity.launch(activity, conversation.getContact());
+        }
+        /* PiratX MediaBrowser action */
         return super.onOptionsItemSelected(item);
     }
 
