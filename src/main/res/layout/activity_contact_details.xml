@@ -167,7 +167,9 @@
                                 android:id="@+id/follow_feed_switch"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:text="@string/follow_feed" />
+                                android:text="@string/follow_feed"
+                                android:visibility="gone"
+                                android:enabled="false" />
 
                             <com.google.android.material.materialswitch.MaterialSwitch
                                 android:id="@+id/details_send_presence"

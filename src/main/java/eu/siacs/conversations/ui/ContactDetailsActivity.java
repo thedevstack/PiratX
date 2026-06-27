@@ -124,7 +124,9 @@ public class ContactDetailsActivity extends OmemoActivity
 
     private Contact contact;
     private MaterialSwitch mDisableCallsSwitch;
+    /* PiratX: Disable feed follow stuff
     private MaterialSwitch mFollowFeedSwitch;
+     */
     private final DialogInterface.OnClickListener removeFromRoster =
             new DialogInterface.OnClickListener() {
 
@@ -320,13 +322,16 @@ public class ContactDetailsActivity extends OmemoActivity
                 });
         binding.addContactButton.setOnClickListener(v -> showAddToRosterDialog(contact));
         mDisableCallsSwitch = binding.disableCalls;
+        /* PiratX: Disable feed follow stuff
         mFollowFeedSwitch = binding.followFeedSwitch;
+         */
 
         final var ephemeralDurationEntries = getResources().getStringArray(R.array.ephemeral_durations);
         final var spinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, ephemeralDurationEntries);
         spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         binding.ephemeralMessagesDurationSpinner.setAdapter(spinnerAdapter);
 
+        /* PiratX: Disable feed follow stuff
         this.mOnFollowFeedCheckedChange =
                 (buttonView, isChecked) -> {
                     if (contact != null) {
@@ -394,6 +399,7 @@ public class ContactDetailsActivity extends OmemoActivity
                     }
                 };
         mFollowFeedSwitch.setOnCheckedChangeListener(mOnFollowFeedCheckedChange);
+         */
 
         mMediaAdapter = new MediaAdapter(this, R.dimen.media_size, false);
         this.binding.media.setAdapter(mMediaAdapter);
@@ -686,9 +692,11 @@ public class ContactDetailsActivity extends OmemoActivity
                 contact.setCallsDisabled(isChecked);
                 xmppConnectionService.updateContact(contact);
             });
+            /* PiratX: Disable feed follow stuff
             mFollowFeedSwitch.setVisibility(View.VISIBLE);
             mFollowFeedSwitch.setOnCheckedChangeListener(mOnFollowFeedCheckedChange);
             mFollowFeedSwitch.setChecked(contact.isFollowed());
+             */
 
             List<String> statusMessages = contact.getPresences().getStatusMessages();
             if (statusMessages.isEmpty()) {
@@ -772,7 +780,9 @@ public class ContactDetailsActivity extends OmemoActivity
             binding.detailsSendPresence.setVisibility(View.GONE);
             binding.detailsReceivePresence.setVisibility(View.GONE);
             binding.statusMessage.setVisibility(View.GONE);
+            /* PiratX: Disable feed follow stuff
             mFollowFeedSwitch.setVisibility(View.GONE);
+             */
         }
 
         if (contact.isBlocked() && !this.showDynamicTags) {
@@ -969,7 +979,9 @@ public class ContactDetailsActivity extends OmemoActivity
             Util.justifyListViewHeightBasedOnChildren(binding.recentThreads);
         }
         if (contact != null) {
+            /* PiratX: Disable feed follow stuff
             mFollowFeedSwitch.setChecked(contact.isFollowed());
+             */
         }
 
         binding.ephemeralMessagesSwitch.setOnCheckedChangeListener(null);
