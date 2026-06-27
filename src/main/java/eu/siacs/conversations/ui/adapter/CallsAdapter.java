@@ -20,6 +20,7 @@ import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.util.AvatarWorkerTask;
 import eu.siacs.conversations.ui.widget.AvatarView;
+import eu.siacs.conversations.utils.TimeFrameUtils;
 import eu.siacs.conversations.utils.UIHelper;
 
 public class CallsAdapter extends RecyclerView.Adapter<CallsAdapter.CallViewHolder> {
@@ -98,7 +99,10 @@ public class CallsAdapter extends RecyclerView.Adapter<CallsAdapter.CallViewHold
             final boolean missed = received && !rtpSessionStatus.successful;
 
             int color;
+            /*
             if (missed) {
+             */
+            if (!rtpSessionStatus.successful) {
                 color = ContextCompat.getColor(itemView.getContext(), R.color.red_700);
             } else {
                 color = contactName.getCurrentTextColor();
@@ -111,11 +115,38 @@ public class CallsAdapter extends RecyclerView.Adapter<CallsAdapter.CallViewHold
                 drawable.setBounds(0, 0, size, size);
             }
 
+            /*
             if (xmppConnectionService != null) callInfo.setText(UIHelper.getMessagePreview(xmppConnectionService, call).first);
+             */
+            String callInfoText = "";
+            long duration = rtpSessionStatus.duration;
+            if (received) {
+                if (duration > 0) {
+                    callInfoText = itemView.getContext().getString(
+                            R.string.call_duration,
+                            TimeFrameUtils.resolve(itemView.getContext(), duration));
+                } else if (rtpSessionStatus.successful) {
+                    callInfoText = itemView.getContext().getString(R.string.incoming_call);
+                } else {
+                    callInfoText = itemView.getContext().getString(R.string.missed_call);
+                }
+            } else {
+                if (duration > 0) {
+                    callInfoText = itemView.getContext().getString(
+                                    R.string.call_duration,
+                                    TimeFrameUtils.resolve(itemView.getContext(), duration));
+                } else {
+                    callInfoText = itemView.getContext().getString(R.string.outgoing_call);
+                }
+            }
+            callInfo.setText(callInfoText);
             callInfo.setCompoundDrawables(drawable, null, null, null);
             callInfo.setCompoundDrawablePadding((int) (6 * itemView.getContext().getResources().getDisplayMetrics().density));
 
+            /*
             callDate.setText(UIHelper.readableTimeDifference(itemView.getContext(), call.getTimeSent(), false));
+             */
+            callDate.setText(UIHelper.readableTimeDifferenceFull(itemView.getContext(), call.getTimeSent(), false));
             callAgainButton.setOnClickListener(v -> {
                 PopupMenu popup = new PopupMenu(v.getContext(), v);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

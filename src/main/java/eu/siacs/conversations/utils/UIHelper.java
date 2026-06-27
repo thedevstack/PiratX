@@ -261,8 +261,12 @@ public class UIHelper {
         } else if (message.getType() == Message.TYPE_RTP_SESSION) {
             RtpSessionStatus rtpSessionStatus = RtpSessionStatus.of(message.getBody());
             final boolean received = message.getStatus() == Message.STATUS_RECEIVED;
+            /*
             if (!rtpSessionStatus.successful && received) {
                 return new Pair<>(context.getString(R.string.missed_call), true);
+             */
+            if (!rtpSessionStatus.successful) {
+                return new Pair<>(context.getString(received ? R.string.missed_call : R.string.failed_call), true);
             } else {
                 return new Pair<>(
                         context.getString(

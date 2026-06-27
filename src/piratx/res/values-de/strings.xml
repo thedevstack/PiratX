@@ -28,4 +28,6 @@
     <string name="copied_to_clipboard">\"%s\" in Zwischenablage kopiert.</string>
     <string name="copy">Kopieren</string>
     <string name="info">Info</string>
+    <string name="failed_call">Unbeantworteter Anruf</string>
+    <string name="call_duration">Anruf (%s)</string>
 </resources>
