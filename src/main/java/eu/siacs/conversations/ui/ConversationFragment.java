@@ -2487,6 +2487,15 @@ public class ConversationFragment extends XmppFragment
             }
         });
         binding.contextPreview.setVisibility(View.VISIBLE);
+        /* PiratX: set focus on input and show normal tastatur */
+        binding.textinput.requestFocus();
+        binding.textinput.post(() -> {
+            InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(binding.textinput, InputMethodManager.SHOW_IMPLICIT);
+            }
+        });
+        /* PiratX: end set focus */
     }
 
     private void setThread(Element thread) {
