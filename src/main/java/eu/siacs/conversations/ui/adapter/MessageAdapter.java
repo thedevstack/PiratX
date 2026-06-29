@@ -2050,6 +2050,13 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                     l.onReplyClick(message);
                 }
             });
+            viewHolder.inReplyToBox().setOnLongClickListener(v -> {
+                if (MessageAdapter.this.mOnMessageLongPressListener != null) {
+                    MessageAdapter.this.mOnMessageLongPressListener.onMessageLongPress(message.getInReplyTo(), viewHolder.inReplyToBox(), lastTouchRaw[0], lastTouchRaw[1]);
+                    return true;
+                }
+                return false;
+            });
             setTextColor(viewHolder.inReplyTo(), bubbleColor);
         }
 
