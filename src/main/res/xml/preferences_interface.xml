@@ -258,8 +258,7 @@
             android:defaultValue="@bool/message_autocomplete"
             android:key="message_autocomplete"
             android:summary="@string/pref_message_autocomplete_summary"
-            android:title="@string/pref_message_autocomplete"
-            android:enabled="false" />
+            android:title="@string/pref_message_autocomplete"/>
         <SwitchPreferenceCompat
             android:icon="@drawable/ic_format_size_24dp"
             android:defaultValue="@bool/compose_rich_text"
