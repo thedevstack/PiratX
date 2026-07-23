@@ -64,9 +64,14 @@ public class ConversationMenuConfigurator {
 		if (menuAttach != null) menuAttach.setVisible(visible);
 		// if (visible) menu.findItem(R.id.attach_record_voice).setVisible(microphoneAvailable);
 		/*
-		final boolean encryptionNone = conversation.getNextEncryption() == Message.ENCRYPTION_NONE;
-		menu.findItem(R.id.attach_subject).setVisible(encryptionNone);
-		menu.findItem(R.id.attach_live_location).setVisible(encryptionNone);
+                final int nextEncryption = conversation.getNextEncryption();
+		final boolean encryptionNone = nextEncryption == Message.ENCRYPTION_NONE;
+		final boolean subjectSupported = encryptionNone
+				|| nextEncryption == Message.ENCRYPTION_AXOLOTL_OMEMO2;
+		menu.findItem(R.id.attach_subject).setVisible(subjectSupported);
+		final boolean liveLocationSupported = encryptionNone
+				|| nextEncryption == Message.ENCRYPTION_AXOLOTL_OMEMO2;
+		menu.findItem(R.id.attach_live_location).setVisible(liveLocationSupported);
 		if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N || isTextEmpty) {
 			menu.findItem(R.id.attach_schedule).setVisible(false);
 		}
@@ -86,7 +91,8 @@ public class ConversationMenuConfigurator {
 		final MenuItem none = menu.findItem(R.id.encryption_choice_none);
 		final MenuItem otr = menu.findItem(R.id.encryption_choice_otr);
 		final MenuItem pgp = menu.findItem(R.id.encryption_choice_pgp);
-		final MenuItem axolotl = menu.findItem(R.id.encryption_choice_axolotl);
+		final MenuItem omemo2 = menu.findItem(R.id.encryption_choice_axolotl_omemo2);
+		final MenuItem omemoLegacy = menu.findItem(R.id.action_toggle_legacy_omemo);
 
 		final int next = conversation.getNextEncryption();
 
@@ -111,12 +117,18 @@ public class ConversationMenuConfigurator {
 
 		if (next == Message.ENCRYPTION_NONE) {
 			menuSecure.setIcon(R.drawable.outline_lock_open_24);
+		} else if (next == Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+			menuSecure.setIcon(R.drawable.ic_lock_omemo2_24dp);
 		} else {
 			menuSecure.setIcon(R.drawable.lock_icon);
 		}
 		pgp.setVisible(Config.supportOpenPgp());
-		none.setVisible(Config.supportUnencrypted() || conversation.getMode() == Conversation.MODE_MULTI);
-		axolotl.setVisible(Config.supportOmemo());
+		none.setVisible((Config.supportUnencrypted() && activity.xmppConnectionService.getBooleanPreference("allow_unencrypted", R.bool.allow_unencrypted)) || conversation.getMode() == Conversation.MODE_MULTI);
+		if (omemo2 != null) omemo2.setVisible(Config.supportOmemo());
+		if (omemoLegacy != null) {
+			final boolean globalLegacy = activity.xmppConnectionService.getAppSettings().isLegacyOmemoEnabled();
+			omemoLegacy.setVisible(globalLegacy);
+		}
 		otr.setVisible(Config.supportOtr() && activity.xmppConnectionService.getBooleanPreference("enable_otr_encryption", R.bool.enable_otr));
 		if (conversation.getMode() == Conversation.MODE_MULTI) {
 			otr.setVisible(false);
@@ -127,8 +139,12 @@ public class ConversationMenuConfigurator {
 				pgp.setChecked(true);
 				break;
 			case Message.ENCRYPTION_AXOLOTL:
-				menuSecure.setTitle(R.string.encrypted_with_omemo);
-				axolotl.setChecked(true);
+				menuSecure.setTitle(R.string.encrypted_with_omemo_legacy);
+				if (omemoLegacy != null) omemoLegacy.setChecked(true);
+				break;
+			case Message.ENCRYPTION_AXOLOTL_OMEMO2:
+				menuSecure.setTitle(R.string.encrypted_with_omemo2);
+				if (omemo2 != null) omemo2.setChecked(true);
 				break;
 			case Message.ENCRYPTION_OTR:
 				menuSecure.setTitle(R.string.encrypted_with_otr);

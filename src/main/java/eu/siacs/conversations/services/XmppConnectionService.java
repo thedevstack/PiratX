@@ -426,7 +426,7 @@ public class XmppConnectionService extends Service {
                     }
                 };
     private final PresenceGenerator mPresenceGenerator = new PresenceGenerator(this);
-    private List<Account> accounts;
+    private List<Account> accounts = new ArrayList<>();
     private final JingleConnectionManager mJingleConnectionManager =
             new JingleConnectionManager(this);
     private final HttpConnectionManager mHttpConnectionManager = new HttpConnectionManager(this);
@@ -950,6 +950,11 @@ public class XmppConnectionService extends Service {
 
     private void sendLiveLocationUpdate(final Conversation conversation, final String sessionId,
                                         final double lat, final double lon, final float accuracy) {
+        final Element updateEl = new Element("live-location-update", Namespace.LIVE_LOCATION);
+        updateEl.setAttribute("id", sessionId);
+        updateEl.setAttribute("lat", String.valueOf(lat));
+        updateEl.setAttribute("lon", String.valueOf(lon));
+
         final im.conversations.android.xmpp.model.stanza.Message packet =
                 new im.conversations.android.xmpp.model.stanza.Message();
         packet.setTo(conversation.getMode() == Conversation.MODE_SINGLE
@@ -957,12 +962,15 @@ public class XmppConnectionService extends Service {
         packet.setType(conversation.getMode() == Conversation.MODE_SINGLE
                 ? im.conversations.android.xmpp.model.stanza.Message.Type.CHAT
                 : im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT);
-        final Element update = packet.addChild("live-location-update", Namespace.LIVE_LOCATION);
-        update.setAttribute("id", sessionId);
-        update.setAttribute("lat", String.valueOf(lat));
-        update.setAttribute("lon", String.valueOf(lon));
         packet.addChild("no-store", Namespace.HINTS);
-        sendMessagePacket(conversation.getAccount(), packet);
+
+        if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+            conversation.getAccount().getAxolotlService().sendOmemo2Packet(
+                    conversation, packet, java.util.Collections.singletonList(updateEl));
+        } else {
+            packet.addChild(updateEl);
+            sendMessagePacket(conversation.getAccount(), packet);
+        }
         eu.siacs.conversations.utils.LiveLocationManager.getInstance().notifyOutgoingPositionUpdate(sessionId, lat, lon);
         updateMessageGeoPayload(conversation.getUuid(), getLiveLocationMessageUuid(sessionId), lat, lon);
     }
@@ -991,6 +999,9 @@ public class XmppConnectionService extends Service {
         // Notify receiver that sharing has stopped
         final Conversation conversation = findConversationByUuid(conversationUuid);
         if (conversation != null) {
+            final Element stopEl = new Element("live-location-stop", Namespace.LIVE_LOCATION);
+            stopEl.setAttribute("id", info.sessionId);
+
             final im.conversations.android.xmpp.model.stanza.Message packet =
                     new im.conversations.android.xmpp.model.stanza.Message();
             packet.setTo(conversation.getMode() == Conversation.MODE_SINGLE
@@ -998,9 +1009,15 @@ public class XmppConnectionService extends Service {
             packet.setType(conversation.getMode() == Conversation.MODE_SINGLE
                     ? im.conversations.android.xmpp.model.stanza.Message.Type.CHAT
                     : im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT);
-            packet.addChild("live-location-stop", Namespace.LIVE_LOCATION).setAttribute("id", info.sessionId);
             packet.addChild("no-store", Namespace.HINTS);
-            sendMessagePacket(conversation.getAccount(), packet);
+
+            if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+                conversation.getAccount().getAxolotlService().sendOmemo2Packet(
+                        conversation, packet, java.util.Collections.singletonList(stopEl));
+            } else {
+                packet.addChild(stopEl);
+                sendMessagePacket(conversation.getAccount(), packet);
+            }
         }
         mNotificationService.cancelLiveLocationNotification();
         toggleForegroundService();
@@ -1042,6 +1059,10 @@ public class XmppConnectionService extends Service {
             // Session was active when app died — send stop stanza now
             final Conversation conversation = findConversationByUuid(conversationUuid);
             if (conversation == null || conversation.getAccount() != account) continue;
+
+            final Element stopEl = new Element("live-location-stop", Namespace.LIVE_LOCATION);
+            stopEl.setAttribute("id", sessionId);
+
             final im.conversations.android.xmpp.model.stanza.Message packet =
                     new im.conversations.android.xmpp.model.stanza.Message();
             packet.setTo(conversation.getMode() == Conversation.MODE_SINGLE
@@ -1049,9 +1070,15 @@ public class XmppConnectionService extends Service {
             packet.setType(conversation.getMode() == Conversation.MODE_SINGLE
                     ? im.conversations.android.xmpp.model.stanza.Message.Type.CHAT
                     : im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT);
-            packet.addChild("live-location-stop", Namespace.LIVE_LOCATION).setAttribute("id", sessionId);
             packet.addChild("no-store", Namespace.HINTS);
-            sendMessagePacket(account, packet);
+
+            if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+                conversation.getAccount().getAxolotlService().sendOmemo2Packet(
+                        conversation, packet, java.util.Collections.singletonList(stopEl));
+            } else {
+                packet.addChild(stopEl);
+                sendMessagePacket(account, packet);
+            }
             Log.d(Config.LOGTAG, account.getJid().asBareJid() + ": sent live-location-stop for orphaned session " + sessionId);
         }
     }
@@ -1077,7 +1104,8 @@ public class XmppConnectionService extends Service {
             message.setEncryption(Message.ENCRYPTION_DECRYPTED);
         }
         if (subject != null && subject.length() > 0) message.setSubject(subject);
-        if (getBooleanPreference("show_thread_feature", R.bool.show_thread_feature)) {
+        final boolean isWebxdc = "application/webxdc+zip".equals(type);
+        if (isWebxdc || getBooleanPreference("show_thread_feature", R.bool.show_thread_feature)) {
             message.setThread(conversation.getThread());
         }
         if (!Message.configurePrivateFileMessage(message)) {
@@ -1160,6 +1188,223 @@ public class XmppConnectionService extends Service {
         });
     }
 
+    /**
+     * Share one or more attachments (or a piece of text) to several conversations at once.
+     *
+     * For encrypted file shares the file is uploaded only once per representation
+     * (aesgcm for OMEMO/OMEMO2, https for unencrypted) and the resulting URL is reused
+     * for the remaining recipients of that representation. This does not weaken security:
+     * the aesgcm key travels inside each recipient's own OMEMO envelope, exactly like a
+     * single file sent into a group chat. A plaintext (https) upload is never reused for an
+     * end-to-end-encrypted recipient, and PGP recipients are always encrypted/uploaded
+     * individually.
+     */
+    public void shareToConversations(
+            final List<Conversation> targets,
+            final List<Uri> uris,
+            final String type,
+            final String caption,
+            final String text) {
+        if (targets == null || targets.isEmpty()) {
+            return;
+        }
+        // Text-only share: the shared/edited text is the message body.
+        if (uris == null || uris.isEmpty()) {
+            if (Strings.isNullOrEmpty(text)) {
+                return;
+            }
+            for (final Conversation target : targets) {
+                sendMessage(new Message(target, text, target.getNextEncryption()));
+            }
+            return;
+        }
+        // File/image share: upload once per representation and reuse where it is safe.
+        for (final Uri uri : uris) {
+            shareUriToConversations(new ArrayList<>(targets), uri, type, caption);
+        }
+        if (!Strings.isNullOrEmpty(caption)) {
+            // The caption is embedded directly in the file message (inside the encrypted
+            // SCE envelope) for OMEMO2 and plaintext recipients — see canEmbedCaption().
+            // Recipients whose wire format can't carry a file caption (legacy OMEMO v0.3,
+            // which encrypts only the URL, and PGP) still receive it as a separate
+            // encrypted text message so nobody silently loses the caption.
+            for (final Conversation target : targets) {
+                if (!canEmbedCaption(target.getNextEncryption())) {
+                    sendMessage(new Message(target, caption, target.getNextEncryption()));
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether a file message to a recipient using {@code encryption} can carry the caption
+     * inside the same (encrypted) message. True for plaintext (body + OOB) and PQ OMEMO2
+     * (SCE body + OOB). False for legacy OMEMO v0.3 (single body = URL) and PGP.
+     */
+    private boolean canEmbedCaption(final int encryption) {
+        return encryption == Message.ENCRYPTION_NONE
+                || encryption == Message.ENCRYPTION_AXOLOTL_OMEMO2;
+    }
+
+    private void shareUriToConversations(
+            final List<Conversation> targets, final Uri uri, final String type,
+            final String caption) {
+        // Privacy option: when enabled, every recipient gets its own fresh upload so the
+        // file host cannot correlate that the same encrypted blob went to several
+        // contacts. Off by default (single-upload reuse, which never weakens encryption).
+        if (getBooleanPreference("share_separate_uploads", R.bool.share_separate_uploads)) {
+            for (final Conversation target : targets) {
+                attachUriToConversation(target, uri, type, caption, null);
+            }
+            return;
+        }
+        final List<Conversation> encrypted = new ArrayList<>();
+        final List<Conversation> plain = new ArrayList<>();
+        final List<Conversation> individual = new ArrayList<>();
+        for (final Conversation target : targets) {
+            switch (target.getNextEncryption()) {
+                case Message.ENCRYPTION_AXOLOTL:
+                case Message.ENCRYPTION_AXOLOTL_OMEMO2:
+                    encrypted.add(target);
+                    break;
+                case Message.ENCRYPTION_NONE:
+                    plain.add(target);
+                    break;
+                default:
+                    // PGP/DECRYPTED (per-recipient public-key encryption) and anything
+                    // else are never reused — upload/encrypt each one separately.
+                    individual.add(target);
+                    break;
+            }
+        }
+        sendUriToBucketWithReuse(encrypted, uri, type, caption);
+        sendUriToBucketWithReuse(plain, uri, type, caption);
+        for (final Conversation target : individual) {
+            attachUriToConversation(target, uri, type, caption, null);
+        }
+    }
+
+    private void sendUriToBucketWithReuse(
+            final List<Conversation> bucket, final Uri uri, final String type,
+            final String caption) {
+        if (bucket.isEmpty()) {
+            return;
+        }
+        final Conversation first = bucket.get(0);
+        final List<Conversation> remaining =
+                new ArrayList<>(bucket.subList(1, bucket.size()));
+        if (remaining.isEmpty()) {
+            // Only one recipient in this bucket — nothing to reuse, normal upload.
+            attachUriToConversation(first, uri, type, caption, null);
+            return;
+        }
+        final UiCallback<Message> callback =
+                new UiCallback<>() {
+                    @Override
+                    public void success(final Message firstMessage) {
+                        // Runs after the first recipient's upload completes (the URL is set
+                        // by then on success; null when offline/queued or on failure).
+                        final Message.FileParams params = firstMessage.getFileParams();
+                        final String url = params == null ? null : params.url;
+                        if (Strings.isNullOrEmpty(url)) {
+                            for (final Conversation target : remaining) {
+                                attachUriToConversation(target, uri, type, caption, null);
+                            }
+                            return;
+                        }
+                        reuseUploadedFile(firstMessage, url, remaining, type, caption);
+                    }
+
+                    @Override
+                    public void error(final int errorCode, final Message object) {
+                        for (final Conversation target : remaining) {
+                            attachUriToConversation(target, uri, type, caption, null);
+                        }
+                    }
+
+                    @Override
+                    public void userInputRequired(
+                            final PendingIntent pi, final Message object) {}
+                };
+        attachUriToConversation(first, uri, type, caption, callback);
+    }
+
+    private void attachUriToConversation(
+            final Conversation conversation,
+            final Uri uri,
+            final String type,
+            final String caption,
+            final UiCallback<Message> callback) {
+        // attachImage/FileToConversation read the caption from conversation.getCaption()
+        // (synchronously, while building the message). Set it only for recipients whose
+        // wire format can embed it; clear it otherwise so legacy/PGP recipients fall back
+        // to the separate caption message instead of silently dropping it.
+        if (!Strings.isNullOrEmpty(caption) && canEmbedCaption(conversation.getNextEncryption())) {
+            conversation.setCaption(caption);
+        } else {
+            conversation.setCaption(null);
+        }
+        final UiCallback<Message> cb =
+                callback != null
+                        ? callback
+                        : new UiCallback<>() {
+                            @Override
+                            public void success(final Message object) {}
+
+                            @Override
+                            public void error(final int errorCode, final Message object) {}
+
+                            @Override
+                            public void userInputRequired(
+                                    final PendingIntent pi, final Message object) {}
+                        };
+        if (type != null && type.startsWith("image/")) {
+            attachImageToConversation(conversation, uri, type, null, cb);
+        } else {
+            attachFileToConversation(conversation, uri, type, null, cb);
+        }
+    }
+
+    private void reuseUploadedFile(
+            final Message firstMessage,
+            final String url,
+            final List<Conversation> remaining,
+            final String type,
+            final String caption) {
+        final File source = getFileBackend().getFile(firstMessage);
+        final boolean image = firstMessage.getType() == Message.TYPE_IMAGE;
+        for (final Conversation target : remaining) {
+            final Message message;
+            if (target.getReplyTo() == null) {
+                message = new Message(target, "", target.getNextEncryption());
+            } else {
+                message = target.getReplyTo().reply();
+                message.setEncryption(target.getNextEncryption());
+            }
+            // Embed the caption in the file message body for OMEMO2/plaintext recipients
+            // (it then rides inside their own encrypted envelope); legacy/PGP recipients
+            // get the separate caption message sent by shareToConversations instead.
+            if (!Strings.isNullOrEmpty(caption) && canEmbedCaption(target.getNextEncryption())) {
+                message.appendBody(caption + " ");
+            }
+            if (!Message.configurePrivateFileMessage(message)) {
+                message.setCounterpart(target.getNextCounterpart());
+                message.setType(image ? Message.TYPE_IMAGE : Message.TYPE_FILE);
+            }
+            try {
+                getFileBackend().copyFileToPrivateStorage(message, Uri.fromFile(source), type);
+                // Pre-set the shared URL so needsUploading() is false: no second upload,
+                // the message just transmits the already-uploaded (aesgcm or https) URL.
+                getFileBackend().updateFileParams(message, url);
+            } catch (final FileBackend.FileCopyException e) {
+                Log.d(Config.LOGTAG, "reuse copy failed; falling back to a fresh upload", e);
+                attachUriToConversation(target, Uri.fromFile(source), type, caption, null);
+                continue;
+            }
+            sendMessage(message);
+        }
+    }
+
     public File stickerDir() {
         /*
         SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
@@ -1183,6 +1428,7 @@ public class XmppConnectionService extends Service {
         mLastStickerRescan = SystemClock.elapsedRealtime();
         mStickerScanExecutor.execute(() -> {
             Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
+            StickersMigration.requireMigration(this);
             try {
                 for (File file : Files.fileTraverser().breadthFirst(stickerDir())) {
                     try {
@@ -1239,6 +1485,48 @@ public class XmppConnectionService extends Service {
             }
         }
         preferences.edit().putBoolean("cache_migrated_to_internal_v2", true).apply();
+    }
+
+    private void migrateRecordingsToInternalStorage() {
+        final SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        if (preferences.getBoolean("recordings_migrated_to_internal", false)) {
+            return;
+        }
+        final File oldDir = new File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                "monocles chat" + File.separator + "recordings");
+        boolean allMoved = true;
+        if (oldDir.isDirectory()) {
+            final File newDir = new File(getFilesDir(), "media");
+            if (!newDir.exists()) {
+                newDir.mkdirs();
+            }
+            final File[] files = oldDir.listFiles();
+            if (files != null) {
+                for (final File file : files) {
+                    if (file.isDirectory()) {
+                        continue;
+                    }
+                    final File newFile = new File(newDir, file.getName());
+                    if (!file.renameTo(newFile)) {
+                        try (InputStream in = new FileInputStream(file);
+                             OutputStream out = new FileOutputStream(newFile)) {
+                            ByteStreams.copy(in, out);
+                            if (!file.delete()) {
+                                allMoved = false;
+                            }
+                        } catch (IOException e) {
+                            allMoved = false;
+                            Log.w(Config.LOGTAG, "failed to migrate recording: " + file.getAbsolutePath());
+                        }
+                    }
+                }
+            }
+            oldDir.delete();
+        }
+        if (allMoved) {
+            preferences.edit().putBoolean("recordings_migrated_to_internal", true).apply();
+        }
     }
 
     protected void cleanupTemporaryStorage() {
@@ -1349,12 +1637,17 @@ public class XmppConnectionService extends Service {
                 logoutAndSave(true);
                 return START_NOT_STICKY;
             case ACTION_CLEAR_MESSAGE_NOTIFICATION:
+                final int id = intent.getIntExtra("id", -1);
                 mNotificationExecutor.execute(
                         () -> {
                             try {
                                 final Conversation c = findConversationByUuid(uuid);
                                 if (c != null) {
                                     mNotificationService.clearMessages(c);
+                                    if (id == NotificationService.GROUP_CALL_INVITE_NOTIFICATION_ID) {
+                                        mNotificationService.cancelGroupCallInvite(c);
+                                        mNotificationService.stopSoundAndVibration();
+                                    }
                                 } else {
                                     mNotificationService.clearMessages();
                                 }
@@ -2293,6 +2586,7 @@ public class XmppConnectionService extends Service {
         toggleForegroundService();
         rescanStickers();
         migrateCacheToInternalStorage();
+        mStickerScanExecutor.execute(this::migrateRecordingsToInternalStorage);
         cleanupTemporaryStorage();
 
         internalPingExecutor.scheduleWithFixedDelay(
@@ -2553,13 +2847,17 @@ public class XmppConnectionService extends Service {
 
     private void logoutAndSave(boolean stop) {
         int activeAccounts = 0;
-        for (final Account account : accounts) {
-            if (account.isConnectionEnabled()) {
-                databaseBackend.writeRoster(account.getRoster());
-                activeAccounts++;
-            }
-            if (account.getXmppConnection() != null) {
-                new Thread(() -> disconnect(account, false)).start();
+        if (accounts != null) {
+            for (final Account account : accounts) {
+                if (account.isConnectionEnabled()) {
+                    if (databaseBackend != null) {
+                        databaseBackend.writeRoster(account.getRoster());
+                    }
+                    activeAccounts++;
+                }
+                if (account.getXmppConnection() != null) {
+                    new Thread(() -> disconnect(account, false)).start();
+                }
             }
         }
         if (stop || activeAccounts == 0) {
@@ -2666,10 +2964,24 @@ public class XmppConnectionService extends Service {
     }
 
     public void sendChatState(Conversation conversation) {
-        if (sendChatStates()) {
-            final var packet = mMessageGenerator.generateChatState(conversation);
-            sendMessagePacket(conversation.getAccount(), packet);
+        if (!sendChatStates()) return;
+        if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+            // Wrap the chat state into an OMEMO2 SCE envelope so typing/active
+            // metadata is not exposed to the server / passive observers.
+            final var basePacket = new im.conversations.android.xmpp.model.stanza.Message();
+            basePacket.setType(conversation.getMode() == Conversation.MODE_MULTI
+                    ? im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT
+                    : im.conversations.android.xmpp.model.stanza.Message.Type.CHAT);
+            basePacket.setTo(conversation.getJid().asBareJid());
+            basePacket.addChild("no-store", "urn:xmpp:hints");
+            final Element chatState = ChatState
+                    .toElement(conversation.getOutgoingChatState());
+            conversation.getAccount().getAxolotlService()
+                    .sendOmemo2Packet(conversation, basePacket, java.util.List.of(chatState));
+            return;
         }
+        final var packet = mMessageGenerator.generateChatState(conversation);
+        sendMessagePacket(conversation.getAccount(), packet);
     }
 
     private void sendFileMessage(final Message message, final boolean delay, final Runnable cb, final boolean forceP2P) {
@@ -2773,6 +3085,12 @@ public class XmppConnectionService extends Service {
         }
 
         boolean waitForPreview = false;
+        // OMEMO2 is allowed into this block (legacy OMEMO is not). The OGP /
+        // RDF Description metadata produced by the HTML branch below ends up
+        // in message.getPayloads() which AxolotlService.encryptOmemo2 places
+        // inside the authenticated SCE envelope. The image/audio/video/pdf
+        // file-attachment branch is gated separately below so OMEMO2 doesn't
+        // silently re-upload a linked file.
         if (getPreferences().getBoolean("send_link_previews", true) && !previewedLinks && !message.needsUploading() && message.getEncryption() != Message.ENCRYPTION_AXOLOTL) {
             message.clearLinkDescriptions();
             final List<URI> links = message.getLinks();
@@ -2799,7 +3117,16 @@ public class XmppConnectionService extends Service {
                                     final boolean video = mimeType.startsWith("video/");
                                     final boolean pdf = mimeType.equals("application/pdf");
                                     final boolean html = mimeType.startsWith("text/html") || mimeType.startsWith("application/xhtml+xml");
-                                    if (response.isSuccessful() && (image || audio || video || pdf)) {
+                                    if (response.isSuccessful() && (image || audio || video || pdf)
+                                            && message.getEncryption() != Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+                                        // OMEMO2 messages do not auto-convert a linked
+                                        // public file into a re-uploaded encrypted file
+                                        // attachment. Doing so would silently change a
+                                        // user's plain "share a link" intent into a full
+                                        // download + per-message AES-GCM re-upload to
+                                        // their own HTTP-upload server. The OGP/HTML
+                                        // branch below still runs for OMEMO2 and yields
+                                        // an encrypted link-description payload.
                                         Message.FileParams params = message.getFileParams();
                                         params.url = url.toString();
                                         if (response.header("Content-Length") != null) params.size = Long.parseLong(response.header("Content-Length"), 10);
@@ -2966,6 +3293,28 @@ public class XmppConnectionService extends Service {
                         }
                     }
                     break;
+                case Message.ENCRYPTION_AXOLOTL_OMEMO2:
+                    message.setFingerprint(account.getAxolotlService().getOwnFingerprint());
+                    if (message.needsUploading()) {
+                        if (account.httpUploadAvailable(
+                                fileBackend.getFile(message, false).getSize())
+                                || conversation.getMode() == Conversation.MODE_MULTI
+                                || message.fixCounterpart()) {
+                            this.sendFileMessage(message, delay, cb, forceP2P);
+                            passedCbOn = true;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        eu.siacs.conversations.crypto.axolotl.XmppOmemo2Message omemo2Message =
+                                account.getAxolotlService().fetchOmemo2MessageFromCache(message);
+                        if (omemo2Message == null) {
+                            account.getAxolotlService().prepareOmemo2PayloadMessage(message, delay);
+                        } else {
+                            packet = mMessageGenerator.generateOmemo2Chat(message, omemo2Message);
+                        }
+                    }
+                    break;
             }
             if (packet != null) {
                 if (account.getXmppConnection().getFeatures().sm()
@@ -3008,6 +3357,9 @@ public class XmppConnectionService extends Service {
                     }
                     break;
                 case Message.ENCRYPTION_AXOLOTL:
+                    message.setFingerprint(account.getAxolotlService().getOwnFingerprint());
+                    break;
+                case Message.ENCRYPTION_AXOLOTL_OMEMO2:
                     message.setFingerprint(account.getAxolotlService().getOwnFingerprint());
                     break;
             }
@@ -3060,7 +3412,11 @@ public class XmppConnectionService extends Service {
                 mMessageGenerator.addDelay(packet, message.getTimeSent());
             }
             if (conversation.setOutgoingChatState(Config.DEFAULT_CHAT_STATE)) {
-                if (this.sendChatStates()) {
+                // Do not piggy-back the chat state on OMEMO2 messages: it would
+                // sit on the outer stanza, outside the SCE envelope. The standalone
+                // sendChatState() path encrypts it instead.
+                if (this.sendChatStates()
+                        && message.getEncryption() != Message.ENCRYPTION_AXOLOTL_OMEMO2) {
                     packet.addChild(ChatState.toElement(conversation.getOutgoingChatState()));
                 }
             }
@@ -3844,6 +4200,9 @@ public class XmppConnectionService extends Service {
     }
 
     public List<Account> getAccounts() {
+        if (this.accounts == null) {
+            return new ArrayList<>();
+        }
         return this.accounts;
     }
 
@@ -4756,7 +5115,8 @@ public class XmppConnectionService extends Service {
             editor.putLong(SETTING_LAST_ACTIVITY_TS, mLastActivity);
             editor.apply();
         }
-        for (Account account : getAccounts()) {
+        final List<Account> accounts = getAccounts();
+        for (Account account : accounts) {
             if (account.getStatus() == Account.State.ONLINE) {
                 XmppConnection connection = account.getXmppConnection();
                 if (connection != null) {
@@ -5036,7 +5396,8 @@ public class XmppConnectionService extends Service {
                     @Override
                     public void accept(Iq response) {
                         final boolean omemoEnabled =
-                                conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL;
+                                conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL
+                                || conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2;
                         Element query = response.query("http://jabber.org/protocol/muc#admin");
                         if (response.getType() == Iq.Type.RESULT && query != null) {
                             for (Element child : query.getChildren()) {
@@ -7170,7 +7531,12 @@ public class XmppConnectionService extends Service {
 
         final String stanzaId = last.getServerMsgId();
 
-        if (sendDisplayedMarker && serverAssist) {
+        final boolean useOmemo2 =
+                conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2;
+        if (sendDisplayedMarker && serverAssist && !useOmemo2) {
+            // Server-assist path: <displayed> must be readable by our server so it
+            // can both forward it to the peer and sync the MDS marker to our other
+            // devices. Skip it for OMEMO2, where we encrypt the marker instead.
             final var mdsDisplayed = mIqGenerator.mdsDisplayed(stanzaId, conversation);
             final var packet = mMessageGenerator.confirm(last);
             packet.addChild(mdsDisplayed);
@@ -7188,10 +7554,44 @@ public class XmppConnectionService extends Service {
                         conversation.getAccount().getJid().asBareJid()
                                 + ": sending displayed marker to "
                                 + last.getCounterpart().toString());
-                final var packet = mMessageGenerator.confirm(last);
-                this.sendMessagePacket(account, packet);
+                sendDisplayedMarker(conversation, last);
             }
         }
+    }
+
+    /**
+     * Send an {@code <displayed/>} chat marker for {@code message}. For OMEMO2
+     * conversations the marker is wrapped in an SCE envelope so the peer learns
+     * about the read but the server does not.
+     */
+    private void sendDisplayedMarker(final Conversation conversation, final Message message) {
+        final var account = conversation.getAccount();
+        if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+            final boolean groupChat = conversation.getMode() == Conversation.MODE_MULTI;
+            final var basePacket = new im.conversations.android.xmpp.model.stanza.Message();
+            basePacket.setType(groupChat
+                    ? im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT
+                    : im.conversations.android.xmpp.model.stanza.Message.Type.CHAT);
+            basePacket.setTo(groupChat ? message.getCounterpart().asBareJid() : message.getCounterpart());
+            basePacket.addChild("store", "urn:xmpp:hints");
+            final Element displayed = new Element("displayed", "urn:xmpp:chat-markers:0");
+            if (groupChat) {
+                final String stanzaId = message.getServerMsgId();
+                if (stanzaId != null) {
+                    displayed.setAttribute("id", stanzaId);
+                } else {
+                    displayed.setAttribute("sender", message.getCounterpart().toString());
+                    displayed.setAttribute("id", message.getRemoteMsgId());
+                }
+            } else {
+                displayed.setAttribute("id", message.getRemoteMsgId());
+            }
+            account.getAxolotlService()
+                    .sendOmemo2Packet(conversation, basePacket, java.util.List.of(displayed));
+            return;
+        }
+        final var packet = mMessageGenerator.confirm(message);
+        sendMessagePacket(account, packet);
     }
 
     private void publishMds(@Nullable final Message message) {
@@ -7298,78 +7698,7 @@ public class XmppConnectionService extends Service {
     public boolean sendReactions(final Message message, final Collection<String> reactions) {
         if (message.isPrivateMessage()) throw new IllegalArgumentException("Reactions to PM not implemented");
         if (message.getConversation() instanceof Conversation conversation) {
-            if (getBooleanPreference("disable_reactions_fallback", R.bool.disable_reactions_fallback)) {
-                final var isPrivateMessage = message.isPrivateMessage();
-                final Jid reactTo;
-                final boolean typeGroupChat;
-                final String reactToId;
-                final Collection<Reaction> combinedReactions;
-                if (conversation.getMode() == Conversational.MODE_MULTI && !isPrivateMessage) {
-                    final var mucOptions = conversation.getMucOptions();
-                    if (!mucOptions.participating()) {
-                        Log.e(Config.LOGTAG, "not participating in MUC");
-                        return false;
-                    }
-                    final var self = mucOptions.getSelf();
-                    final String occupantId = self.getOccupantId();
-                    if (Strings.isNullOrEmpty(occupantId)) {
-                        Log.e(Config.LOGTAG, "occupant id not found for reaction in MUC");
-                        return false;
-                    }
-                    final var existingRaw =
-                            ImmutableSet.copyOf(
-                                    Collections2.transform(message.getReactions(), r -> r.reaction));
-                    final var reactionsAsExistingVariants =
-                            ImmutableSet.copyOf(
-                                    Collections2.transform(
-                                            reactions, r -> Emoticons.existingVariant(r, existingRaw)));
-                    if (!reactions.equals(reactionsAsExistingVariants)) {
-                        Log.d(Config.LOGTAG, "modified reactions to existing variants");
-                    }
-                    reactToId = message.getServerMsgId();
-                    reactTo = conversation.getJid().asBareJid();
-                    typeGroupChat = true;
-                    combinedReactions =
-                            Reaction.withMine(
-                                    message.getReactions(),
-                                    reactionsAsExistingVariants,
-                                    false,
-                                    self.getFullJid(),
-                                    conversation.getAccount().getJid(),
-                                    occupantId,
-                                    null);
-                } else {
-                    if (message.isCarbon() || message.getStatus() == Message.STATUS_RECEIVED) {
-                        reactToId = message.getRemoteMsgId();
-                    } else {
-                        reactToId = message.getUuid();
-                    }
-                    typeGroupChat = false;
-                    if (isPrivateMessage) {
-                        reactTo = message.getCounterpart();
-                    } else {
-                        reactTo = conversation.getJid().asBareJid();
-                    }
-                    combinedReactions =
-                            Reaction.withFrom(
-                                    message.getReactions(),
-                                    reactions,
-                                    false,
-                                    conversation.getAccount().getJid(),
-                                    null);
-                }
-                if (reactTo == null || Strings.isNullOrEmpty(reactToId)) {
-                    Log.e(Config.LOGTAG, "could not find id to react to");
-                    return false;
-                }
-                final var reactionMessage =
-                        mMessageGenerator.reaction(reactTo, typeGroupChat, message, reactToId, reactions);
-                sendMessagePacket(conversation.getAccount(), reactionMessage);
-                message.setReactions(combinedReactions);
-                updateMessage(message, false);
-                return true;
-            } else {
-
+            {
                 final var isPrivateMessage = message.isPrivateMessage();
                 final Jid reactTo;
                 final boolean typeGroupChat;
@@ -7441,7 +7770,47 @@ public class XmppConnectionService extends Service {
 
                 final var quote = QuoteHelper.quote(MessageUtils.prepareQuote(message, 1, 2)) + "\n\n";
                 final var body = quote + String.join(" ", newReactions);
-                if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL && newReactions.size() > 0) {
+                if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+                    final var omemo2Packet = new im.conversations.android.xmpp.model.stanza.Message();
+                    omemo2Packet.setType(typeGroupChat
+                            ? im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT
+                            : im.conversations.android.xmpp.model.stanza.Message.Type.CHAT);
+                    omemo2Packet.setTo(reactTo);
+                    omemo2Packet.addChild("store", "urn:xmpp:hints");
+                    final Element reactionsEl = new Element("reactions", Namespace.REACTIONS);
+                    reactionsEl.setAttribute("id", reactToId);
+                    for (final String r : reactions) {
+                        reactionsEl.addChild("reaction").setContent(r);
+                    }
+                    final List<Element> sceContent = new ArrayList<>();
+                    sceContent.add(reactionsEl);
+                    if (newReactions.size() > 0) {
+                        final Element bodyEl = new Element("body", "jabber:client");
+                        bodyEl.setContent(body);
+                        sceContent.add(bodyEl);
+                        final Jid replyTo = typeGroupChat ? reactTo : message.getCounterpart();
+                        final Element reply = new Element("reply", "urn:xmpp:reply:0");
+                        reply.setAttribute("to", replyTo != null ? replyTo.toString() : reactTo.toString());
+                        reply.setAttribute("id", reactToId);
+                        sceContent.add(reply);
+                        final Element replyFallback = new Element("fallback", "urn:xmpp:fallback:0");
+                        replyFallback.setAttribute("for", "urn:xmpp:reply:0");
+                        replyFallback.addChild("body", "urn:xmpp:fallback:0")
+                                .setAttribute("start", "0")
+                                .setAttribute("end", String.valueOf(quote.codePointCount(0, quote.length())));
+                        sceContent.add(replyFallback);
+                        final Element reactionsFallback = new Element("fallback", "urn:xmpp:fallback:0");
+                        reactionsFallback.setAttribute("for", "urn:xmpp:reactions:0");
+                        reactionsFallback.addChild("body", "urn:xmpp:fallback:0");
+                        sceContent.add(reactionsFallback);
+                    }
+                    final Element thread = message.getThread();
+                    if (thread != null) sceContent.add(thread);
+                    message.setReactions(combinedReactions);
+                    updateMessage(message, false);
+                    conversation.getAccount().getAxolotlService()
+                            .sendOmemo2Packet(conversation, omemo2Packet, sceContent);
+                } else if (conversation.getNextEncryption() == Message.ENCRYPTION_AXOLOTL && newReactions.size() > 0) {
                     FILE_ATTACHMENT_EXECUTOR.execute(() -> {
                         XmppAxolotlMessage axolotlMessage = conversation.getAccount().getAxolotlService().encrypt(body, conversation);
                         if (axolotlMessage == null) {
@@ -8557,6 +8926,11 @@ public class XmppConnectionService extends Service {
     }
 
     private final List<eu.siacs.conversations.entities.Story> stories = new java.util.concurrent.CopyOnWriteArrayList<>();
+    // Tombstones for retracted story ids (uuid -> retraction time). A fetch that was already in
+    // flight when a retract event arrived, or a replayed publish notification, would otherwise
+    // re-add the item via onStoryReceived. Entries are pruned after 24h in retractOldStories,
+    // since stories expire by then anyway.
+    private final Map<String, Long> retractedStoryIds = new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<OnStoriesUpdate> mOnStoriesUpdates =
             java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
@@ -8566,6 +8940,14 @@ public class XmppConnectionService extends Service {
 
     public void onStoryReceived(eu.siacs.conversations.entities.Story story) {
         if (story == null) {
+            return;
+        }
+        if (story.getPublished() < System.currentTimeMillis() - 86400000L) {
+            Log.d(Config.LOGTAG, "Ignoring expired story with id: " + story.getUuid());
+            return;
+        }
+        if (story.getUuid() != null && retractedStoryIds.containsKey(story.getUuid())) {
+            Log.d(Config.LOGTAG, "Ignoring retracted story with id: " + story.getUuid());
             return;
         }
         mDatabaseWriterExecutor.execute(() -> databaseBackend.upsertStory(story));
@@ -8634,7 +9016,16 @@ public class XmppConnectionService extends Service {
         final Iq iq = getIqGenerator().deleteItem(Namespace.PUBSUB_STORIES, storyId);
         iq.setTo(account.getJid().asBareJid());
         this.sendIqPacket(account, iq, response -> {
-            if (response.getType() == Iq.Type.RESULT) {
+            // Treat item-not-found as already gone (e.g. it expired, or was stored under a
+            // stale id) so we still drop the local copy and the UI can clear it.
+            final Element error = response.findChild("error");
+            final boolean alreadyGone = error != null && error.hasChild("item-not-found");
+            if (response.getType() == Iq.Type.RESULT || alreadyGone) {
+                retractedStoryIds.put(storyId, System.currentTimeMillis());
+                // this.stories is a CopyOnWriteArrayList; its iterator is a snapshot and does not
+                // support remove() (throws UnsupportedOperationException).
+                // We avoid removeIf() because on some platforms it might fall back to the default
+                // implementation which uses iterator.remove().
                 for (eu.siacs.conversations.entities.Story s : this.stories) {
                     if (s.getUuid().equals(storyId)) {
                         this.stories.remove(s);
@@ -8657,6 +9048,7 @@ public class XmppConnectionService extends Service {
         if (storyId == null) {
             return;
         }
+        retractedStoryIds.put(storyId, System.currentTimeMillis());
         boolean removed = false;
         for (eu.siacs.conversations.entities.Story s : this.stories) {
             if (s.getUuid().equals(storyId)) {
@@ -8675,6 +9067,7 @@ public class XmppConnectionService extends Service {
 
     public void retractOldStories() {
         final long twentyFourHoursAgo = System.currentTimeMillis() - 86400000;
+        retractedStoryIds.values().removeIf(retractedAt -> retractedAt < twentyFourHoursAgo);
         mDatabaseWriterExecutor.execute(() -> databaseBackend.deleteExpiredStories());
         final Map<Jid, Account> onlineAccounts = new HashMap<>();
         for (final Account account : getAccounts()) {

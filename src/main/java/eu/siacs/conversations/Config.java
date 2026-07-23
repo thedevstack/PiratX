@@ -126,7 +126,14 @@ public final class Config {
     public static final boolean RESET_ATTEMPT_COUNT_ON_NETWORK_CHANGE =
             true; // setting to true might increase power consumption
 
-    public static final boolean ENCRYPT_ON_HTTP_UPLOADED = false;
+    // Encrypt every HTTP file upload with a per-upload aesgcm key, regardless of
+    // whether the message itself is end-to-end encrypted. Keeps the file ciphertext
+    // off the HTTP host for cleartext chats (unless encryption is set to NONE); 
+    // the URL fragment carrying the key still travels in the message, so 
+    // e2e-encrypted chats also benefit (key is inside the SCE envelope) while 
+    // cleartext chats (without explicit NONE) at least defeat
+    // passive HTTP-server snooping.
+    public static final boolean ENCRYPT_ON_HTTP_UPLOADED = true;
 
     public static final boolean X509_VERIFICATION =
             false; // use x509 certificates to verify OMEMO keys
@@ -191,7 +198,7 @@ public final class Config {
     }
 
     // How deep nested quotes should be displayed. '2' means one quote nested in another.
-    public static final int QUOTE_MAX_DEPTH = 7;
+    public static final int QUOTE_MAX_DEPTH = 1;
     // How deep nested quotes should be created on quoting a message.
     public static final int QUOTING_MAX_DEPTH = 2;
 }

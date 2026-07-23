@@ -8,6 +8,7 @@ import de.thedevstack.piratx.xmpp.Retract;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.crypto.axolotl.XmppAxolotlMessage;
+import eu.siacs.conversations.crypto.axolotl.XmppOmemo2Message;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Conversational;
@@ -37,6 +38,7 @@ public class MessageGenerator extends AbstractGenerator {
     public static final String OTR_FALLBACK_MESSAGE = "I would like to start a private (OTR encrypted) conversation but your client doesn’t seem to support that";
     private static final String OMEMO_FALLBACK_MESSAGE =
             "I sent you an OMEMO encrypted message but your client doesn’t seem to support that.";
+    private static final String OMEMO2_FALLBACK_MESSAGE = "This message is PQ OMEMO2 encrypted.";
     private static final String PGP_FALLBACK_MESSAGE =
             "I sent you a PGP encrypted message but your client doesn’t seem to support that.";
 
@@ -46,6 +48,11 @@ public class MessageGenerator extends AbstractGenerator {
 
     private im.conversations.android.xmpp.model.stanza.Message preparePacket(
             final Message message, final boolean legacyEncryption) {
+        return preparePacket(message, legacyEncryption, false);
+    }
+
+    private im.conversations.android.xmpp.model.stanza.Message preparePacket(
+            final Message message, final boolean legacyEncryption, final boolean omemo2Mode) {
         Conversation conversation = (Conversation) message.getConversation();
         Account account = conversation.getAccount();
         im.conversations.android.xmpp.model.stanza.Message packet =
@@ -53,7 +60,10 @@ public class MessageGenerator extends AbstractGenerator {
         packet.setFrom(account.getJid());
         packet.setId(message.getUuid());
 
-        if (message.isDeleted() && message.getRetractId() != null) {
+        // Cleartext retraction (unencrypted / legacy chats): <retract> on the outer stanza.
+        // OMEMO2 retractions fall through to the normal flow so the <retract> is placed inside
+        // the encrypted SCE content by AxolotlService.encryptOmemo2.
+        if (message.isDeleted() && message.getRetractId() != null && !omemo2Mode) {
             if (conversation.getMode() == Conversation.MODE_SINGLE || message.isPrivateMessage()) {
                 packet.setTo(message.getCounterpart());
                 packet.setType(im.conversations.android.xmpp.model.stanza.Message.Type.CHAT);
@@ -93,10 +103,12 @@ public class MessageGenerator extends AbstractGenerator {
             packet.addChild("markable", "urn:xmpp:chat-markers:0");
         }
         if (message.getEphemeralTimer() > 0) {
-            packet.addChild("ephemeral", Namespace.EPHEMERAL).setAttribute("timer", String.valueOf(message.getEphemeralTimer()));
+            if (!omemo2Mode) {
+                packet.addChild("ephemeral", Namespace.EPHEMERAL).setAttribute("timer", String.valueOf(message.getEphemeralTimer()));
+            }
             packet.addChild("no-permanent-store", Namespace.HINTS);
         }
-        if (message.isEphemeralIWantOut()) {
+        if (!omemo2Mode && message.isEphemeralIWantOut()) {
             packet.addChild("i-want-out", Namespace.EPHEMERAL);
         }
         if (message.getRawBody() == null && (message.getEphemeralTimer() > 0 || message.isEphemeralIWantOut())) {
@@ -109,11 +121,13 @@ public class MessageGenerator extends AbstractGenerator {
         } else if (conversation.getMode() == Conversational.MODE_SINGLE) {
             packet.addExtension(new OriginId(message.getUuid()));
         }
-        if (message.edited() && !message.isDeleted()) {
+        if (!omemo2Mode && message.edited() && !message.isDeleted()) {
             packet.addExtension(new Replace(message.getEditedIdWireFormat()));
         }
 
-        if (!legacyEncryption) {
+        if (omemo2Mode) {
+            // All metadata (<subject>, <replace>, payloads) go into SCE content — nothing here
+        } else if (!legacyEncryption) {
             if (message.getSubject() != null && message.getSubject().length() > 0) packet.addChild("subject").setContent(message.getSubject());
             // Legacy encryption can't handle advanced payloads
             for (Element el : message.getPayloads()) {
@@ -158,6 +172,19 @@ public class MessageGenerator extends AbstractGenerator {
         return packet;
     }
 
+    public im.conversations.android.xmpp.model.stanza.Message generateOmemo2Chat(
+            final Message message, final XmppOmemo2Message omemo2Message) {
+        final im.conversations.android.xmpp.model.stanza.Message packet = preparePacket(message, true, true);
+        if (omemo2Message == null) return null;
+        packet.setAxolotlMessage(omemo2Message.toElement());
+        packet.setBody(OMEMO2_FALLBACK_MESSAGE);
+        packet.addChild("store", "urn:xmpp:hints");
+        packet.addChild("encryption", "urn:xmpp:eme:0")
+                .setAttribute("name", "PQ-OMEMO2")
+                .setAttribute("namespace", Namespace.OMEMO2);
+        return packet;
+    }
+
     public im.conversations.android.xmpp.model.stanza.Message generateKeyTransportMessage(
             Jid to, XmppAxolotlMessage axolotlMessage) {
         im.conversations.android.xmpp.model.stanza.Message packet =
@@ -166,6 +193,21 @@ public class MessageGenerator extends AbstractGenerator {
         packet.setTo(to);
         packet.setAxolotlMessage(axolotlMessage.toElement());
         packet.addChild("store", "urn:xmpp:hints");
+        return packet;
+    }
+
+    /** OMEMO2 key-transport (no payload) used to heal a broken OMEMO2 session. */
+    public im.conversations.android.xmpp.model.stanza.Message generateOmemo2KeyTransportMessage(
+            final Jid to, final XmppOmemo2Message omemo2Message) {
+        final im.conversations.android.xmpp.model.stanza.Message packet =
+                new im.conversations.android.xmpp.model.stanza.Message();
+        packet.setType(im.conversations.android.xmpp.model.stanza.Message.Type.CHAT);
+        packet.setTo(to);
+        packet.setAxolotlMessage(omemo2Message.toElement());
+        packet.addChild("store", "urn:xmpp:hints");
+        packet.addChild("encryption", "urn:xmpp:eme:0")
+                .setAttribute("name", "PQ-OMEMO2")
+                .setAttribute("namespace", Namespace.OMEMO2);
         return packet;
     }
 

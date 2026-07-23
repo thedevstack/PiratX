@@ -36,12 +36,6 @@
             android:summary="@string/pref_allow_unencrypted_reactions_summary"
             android:title="@string/pref_allow_unencrypted_reactions" />
 
-        <SwitchPreferenceCompat
-            android:defaultValue="@bool/disable_reactions_fallback"
-            android:icon="@drawable/ic_add_reaction_24dp"
-            android:key="disable_reactions_fallback"
-            android:summary="@string/pref_disable_reactions_fallback_summary"
-            android:title="@string/pref_disable_reactions_fallback_title" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/pref_ui_options">
         <SwitchPreferenceCompat
@@ -125,6 +119,13 @@
             android:summary="@string/pref_load_providers_list_external_summary"
             android:title="@string/pref_load_providers_list_external"
             android:enabled="false" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/share_separate_uploads"
+            android:icon="@drawable/ic_attach_file_24dp"
+            android:key="share_separate_uploads"
+            android:summary="@string/pref_share_separate_uploads_summary"
+            android:title="@string/pref_share_separate_uploads" />
 
     </PreferenceCategory>
 

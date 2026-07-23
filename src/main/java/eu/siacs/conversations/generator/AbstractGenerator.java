@@ -136,6 +136,15 @@ public abstract class AbstractGenerator {
         }
         if (Config.supportOmemo()) {
             features.add(AxolotlService.PEP_DEVICE_LIST_NOTIFY);
+            features.add(AxolotlService.PEP_OMEMO2_DEVICE_LIST_NOTIFY);
+            features.add(Namespace.OMEMO2);  // urn:monocles:omemo-pq:1 (proto-XEP OMEMO-PQXDH)
+            features.add(Namespace.SCE);     // urn:xmpp:sce:1 — XEP-0420 §2
+            // Post-quantum capability advertisement (proto-XEP-omemo-pqxdh §11):
+            // lets peers detect that this device does PQXDH session initiation and
+            // runs the SPQR / ML-KEM Braid continuous ratchet before attempting a
+            // session, instead of discovering a mismatch only as a failed build.
+            features.add(Namespace.OMEMO2 + ":pqxdh");
+            features.add(Namespace.OMEMO2 + ":spqr");
         }
         if (!mXmppConnectionService.useTorToConnect() && !account.isOnion() && !mXmppConnectionService.useI2PToConnect() && !account.isI2P()) {
             features.addAll(Arrays.asList(PRIVACY_SENSITIVE));

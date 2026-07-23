@@ -62,7 +62,6 @@ import static eu.siacs.conversations.AppSettings.LOAD_PROVIDERS_EXTERNAL;
 import static eu.siacs.conversations.AppSettings.REQUIRE_TLS_V1_3;
 import static eu.siacs.conversations.AppSettings.SHOW_LINK_PREVIEWS;
 import static eu.siacs.conversations.AppSettings.SHOW_MAPS_INSIDE;
-import static eu.siacs.conversations.AppSettings.UNENCRYPTED_REACTIONS;
 import static eu.siacs.conversations.AppSettings.BLIND_TRUST_BEFORE_VERIFICATION;
 import static eu.siacs.conversations.AppSettings.SEND_CRASH_REPORTS;
 import static eu.siacs.conversations.AppSettings.USE_INTERNAL_SECURE_STORAGE;
@@ -343,7 +342,7 @@ public class WelcomeActivity extends XmppActivity implements XmppConnectionServi
                 break;
             case BLINDTRUST:
                 title = getString(R.string.pref_blind_trust_before_verification);
-                message = getString(R.string.blindly_trusted_omemo_keys);
+                message = getString(R.string.blindly_trusted_omemo2_keys);
                 break;
             case ENFORCEDANE:
                 title = getString(R.string.pref_enforce_dane);

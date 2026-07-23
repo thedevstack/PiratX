@@ -17,6 +17,27 @@
             android:title="@string/pref_blind_trust_before_verification" />
 
         <SwitchPreferenceCompat
+            android:defaultValue="@bool/allow_unencrypted"
+            android:icon="@drawable/outline_lock_open_24"
+            android:key="allow_unencrypted"
+            android:summary="@string/pref_allow_unencrypted_summary"
+            android:title="@string/pref_allow_unencrypted" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/legacy_omemo_enabled"
+            android:icon="@drawable/outline_lock_open_24"
+            android:key="legacy_omemo_enabled"
+            android:summary="@string/pref_legacy_omemo_enabled_summary"
+            android:title="@string/pref_legacy_omemo_enabled" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/omemo2_session_without_onetime_prekey"
+            android:icon="@drawable/outline_lock_open_24"
+            android:key="omemo2_session_without_onetime_prekey"
+            android:summary="@string/pref_omemo2_session_without_onetime_prekey_summary"
+            android:title="@string/pref_omemo2_session_without_onetime_prekey" />
+
+        <SwitchPreferenceCompat
             android:defaultValue="@bool/enable_otr"
             android:icon="@drawable/ic_lock_24dp"
             android:key="enable_otr_encryption"
@@ -26,8 +47,8 @@
         <Preference
             android:icon="@drawable/outline_delete_red_24"
             android:key="delete_omemo_identities"
-            android:summary="@string/pref_delete_omemo_identities_summary"
-            android:title="@string/pref_delete_omemo_identities" />
+            android:summary="@string/pref_delete_omemo2_identities_summary"
+            android:title="@string/pref_delete_omemo2_identities" />
 
         <ListPreference
             android:defaultValue="@integer/omemo_auto_expiry"

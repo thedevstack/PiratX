@@ -40,6 +40,18 @@ public class AppSettings {
     public static final String LOAD_PROVIDERS_EXTERNAL = "load_providers_list_external";
     public static final String RINGTONE = "call_ringtone";
     public static final String BTBV = "btbv";
+    // Allow incoming legacy OMEMO (XEP-0384 v0.3). When true, a legacy bundle
+    // is published so peers can build legacy sessions with us. Off by default —
+    // legacy OMEMO is pre-PQ and has no SCE-encrypted metadata; turning this
+    // on lowers the security floor of the account.
+    public static final String LEGACY_OMEMO_ENABLED = "legacy_omemo_enabled";
+    // When enabled, an OMEMO2 (PQXDH) session may be built even if the peer has
+    // run out of one-time EC prekeys, using a signed-prekey-only handshake. Off
+    // by default: this trades a little handshake forward secrecy for
+    // availability, so we fail closed unless the user opts in. The post-quantum
+    // KEM contribution and the SPQR ratchet are unaffected either way.
+    public static final String OMEMO2_SESSION_WITHOUT_ONETIME_PREKEY =
+            "omemo2_session_without_onetime_prekey";
     public static final String APP_LOCK_PIN = "app_lock_pin";
 
     public static final String CONFIRM_MESSAGES = "confirm_messages";
@@ -72,7 +84,6 @@ public class AppSettings {
     private static final String INSTALLATION_ID = "im.conversations.android.install_id";
     public static final String SECURE_TLS = "secure_tls";
     public static final String PREFER_IPV6 = "prefer_ipv6";
-    public static final String UNENCRYPTED_REACTIONS = "allow_unencrypted_reactions";
     public static final String DELETE_UNUSED_FILES = "delete_unused_files";
     public static final String USE_INTERNAL_SECURE_STORAGE = "default_store_media_securely";
     public static final String SHOW_MAPS_INSIDE = "show_maps_inside";
@@ -178,6 +189,15 @@ public class AppSettings {
         return getBooleanPreference(BTBV, R.bool.btbv);
     }
 
+    public boolean isLegacyOmemoEnabled() {
+        return getBooleanPreference(LEGACY_OMEMO_ENABLED, R.bool.legacy_omemo_enabled);
+    }
+
+    public boolean isOmemo2SessionWithoutOnetimePrekeyAllowed() {
+        return getBooleanPreference(OMEMO2_SESSION_WITHOUT_ONETIME_PREKEY,
+                R.bool.omemo2_session_without_onetime_prekey);
+    }
+
     public boolean isTrustSystemCAStore() {
         return getBooleanPreference(TRUST_SYSTEM_CA_STORE, R.bool.trust_system_ca_store);
     }
@@ -188,6 +208,11 @@ public class AppSettings {
 
     public boolean isAllowScreenshots() {
         return getBooleanPreference(ALLOW_SCREENSHOTS, R.bool.allow_screenshots);
+    }
+
+    public boolean isAppLockActive() {
+        p32929.easypasscodelock.Utils.EasylockSP.init(context);
+        return p32929.easypasscodelock.Utils.EasylockSP.getString("password", null) != null;
     }
 
     public boolean isColorfulChatBubbles() {

@@ -23,6 +23,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.GridLayout;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -47,7 +48,11 @@ import org.webrtc.VideoTrack;
 import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import eu.siacs.conversations.Config;
@@ -81,6 +86,7 @@ public class RtpSessionActivity extends XmppActivity
 
     public static final String EXTRA_WITH = "with";
     public static final String EXTRA_SESSION_ID = "session_id";
+    public static final String EXTRA_MUJI_ROOM = "muji_room";
     public static final String EXTRA_PROPOSED_SESSION_ID = "proposed_session_id";
     public static final String EXTRA_LAST_REPORTED_STATE = "last_reported_state";
     public static final String EXTRA_LAST_ACTION = "last_action";
@@ -132,6 +138,18 @@ public class RtpSessionActivity extends XmppActivity
     private static final int REQUEST_ADD_CONTENT = 0x1113;
     private WeakReference<JingleRtpConnection> rtpConnectionReference;
 
+    private Account mujiAccount;
+    private String mujiRoom;
+    private Set<Media> mujiWaitingMedia;
+
+    // XEP-0272 Muji: one SurfaceViewRenderer per remote participant (keyed by per-pair session id),
+    // shown in the muji_video_grid for a group video call. Empty for 1:1 calls.
+    private final Map<String, SurfaceViewRenderer> mujiRenderers = new HashMap<>();
+    // Grid size at the last layout — so the 250ms tick only re-lays-out the grid when the
+    // participant set or the orientation/size actually changed (not every tick).
+    private int mujiLaidOutWidth = -1;
+    private int mujiLaidOutHeight = -1;
+
     private ActivityRtpSessionBinding binding;
     private PowerManager.WakeLock mProximityWakeLock;
 
@@ -141,6 +159,17 @@ public class RtpSessionActivity extends XmppActivity
                 @Override
                 public void run() {
                     updateCallDuration();
+                    // Re-sync the Muji participant grid so a leg that connects without targeting
+                    // this activity's session still shows up.
+                    if (isMujiCall()) {
+                        final JingleRtpConnection c =
+                                rtpConnectionReference != null ? rtpConnectionReference.get() : null;
+                        if (c != null) {
+                            updateMujiGrid(c.getEndUserState());
+                        } else if (RtpSessionActivity.this.mujiRoom != null) {
+                            updateMujiGrid(RtpEndUserState.CONNECTED);
+                        }
+                    }
                     mHandler.postDelayed(mTickExecutor, CALL_DURATION_UPDATE_INTERVAL);
                 }
             };
@@ -184,6 +213,7 @@ public class RtpSessionActivity extends XmppActivity
         this.binding = DataBindingUtil.setContentView(this, R.layout.activity_rtp_session);
         this.binding.remoteVideo.setOnClickListener(this::onVideoScreenClick);
         this.binding.localVideo.setOnClickListener(this::onVideoScreenClick);
+        this.binding.mujiVideoGrid.setOnClickListener(this::onVideoScreenClick);
         setSupportActionBar(binding.toolbar);
 
         binding.dialpad.setClickConsumer(tag -> {
@@ -270,6 +300,9 @@ public class RtpSessionActivity extends XmppActivity
 
     private void switchToConversation() {
         final Contact contact = getWith();
+        if (contact == null) {
+            return;
+        }
         final Conversation conversation =
                 xmppConnectionService.findOrCreateConversation(
                         contact.getAccount(), contact.getJid(), false, true);
@@ -320,11 +353,33 @@ public class RtpSessionActivity extends XmppActivity
 
     private void endCall() {
         if (this.rtpConnectionReference == null) {
+            if (this.mujiRoom != null && this.mujiAccount != null && xmppConnectionService != null) {
+                xmppConnectionService
+                        .getJingleConnectionManager()
+                        .getMujiConferenceManager()
+                        .leaveGroupCall(this.mujiAccount, this.mujiRoom);
+                finish();
+                return;
+            }
             retractSessionProposal();
             finish();
         } else {
             try {
-                requireRtpConnection().endCall();
+                final JingleRtpConnection connection = requireRtpConnection();
+                final String room = connection.getMujiRoom();
+                if (room != null) {
+                    // XEP-0272 Muji: the call UI is per-leg, but hanging up means leaving the whole
+                    // conference — end every leg + drop our <muji> presence (releasing the shared
+                    // mic/factory). This is the ONLY place that leaves the conference; a single leg
+                    // ending (peer left / re-mesh dropping a stuck leg) must not.
+                    xmppConnectionService
+                            .getJingleConnectionManager()
+                            .getMujiConferenceManager()
+                            .leaveGroupCall(connection.getId().account, room);
+                    finish();
+                } else {
+                    connection.endCall();
+                }
             } catch (final IllegalStateException e) {
                 // No call, already done
                 finish();
@@ -540,10 +595,19 @@ public class RtpSessionActivity extends XmppActivity
         final String action = intent.getAction();
         Log.d(Config.LOGTAG, "initializeWithIntent(" + event + "," + action + ")");
         final Account account = extractAccount(intent);
+        if (account == null) {
+            Log.e(Config.LOGTAG, "intent is missing account");
+            return;
+        }
+        final String mujiRoomExtra = intent.getStringExtra(EXTRA_MUJI_ROOM);
+        if (mujiRoomExtra != null) {
+            initializeActivityWithMujiRoom(account, Jid.of(mujiRoomExtra), intent.getStringExtra(EXTRA_LAST_ACTION));
+            return;
+        }
         final var extraWith = intent.getStringExtra(EXTRA_WITH);
         final Jid with = Strings.isNullOrEmpty(extraWith) ? null : Jid.of(extraWith);
-        if (with == null || account == null) {
-            Log.e(Config.LOGTAG, "intent is missing extras (account or with)");
+        if (with == null) {
+            Log.e(Config.LOGTAG, "intent is missing with");
             return;
         }
         final String sessionId = intent.getStringExtra(EXTRA_SESSION_ID);
@@ -574,7 +638,7 @@ public class RtpSessionActivity extends XmppActivity
             if (state != null) {
                 Log.d(Config.LOGTAG, "restored last state from intent extra");
                 updateButtonConfiguration(state);
-                updateVerifiedShield(false);
+                updateVerifiedShield(0);
                 updateStateDisplay(state);
                 updateIncomingCallScreen(state);
                 updateSupportWarning(state, contact);
@@ -600,6 +664,27 @@ public class RtpSessionActivity extends XmppActivity
             Log.d(Config.LOGTAG, "restored state (" + state + ") was not an end card. finishing");
             finish();
         }
+    }
+
+    private void initializeActivityWithMujiRoom(
+            final Account account, final Jid room, final String lastAction) {
+        this.mujiAccount = account;
+        this.mujiRoom = room.asBareJid().toString();
+        this.mujiWaitingMedia = actionToMedia(lastAction);
+
+        final Conversation muc = xmppConnectionService.find(account, room.asBareJid());
+        final Contact contact =
+                muc != null ? muc.getContact() : account.getRoster().getContact(room);
+
+        setWith(RtpEndUserState.CONNECTED, contact);
+
+        putScreenInCallMode(this.mujiWaitingMedia);
+        updateVideoViews(RtpEndUserState.CONNECTED);
+        updateStateDisplay(RtpEndUserState.CONNECTED, this.mujiWaitingMedia, null);
+        updateButtonConfiguration(RtpEndUserState.CONNECTED, this.mujiWaitingMedia, null);
+        invalidateOptionsMenu();
+
+        mHandler.post(this.mTickExecutor);
     }
 
     private void setWith(final RtpEndUserState state) {
@@ -671,6 +756,7 @@ public class RtpSessionActivity extends XmppActivity
         binding.remoteVideo.release();
         binding.remoteVideo.setOnAspectRatioChanged(null);
         binding.localVideo.release();
+        releaseMujiGrid();
         final WeakReference<JingleRtpConnection> weakReference = this.rtpConnectionReference;
         final JingleRtpConnection jingleRtpConnection =
                 weakReference == null ? null : weakReference.get();
@@ -820,8 +906,14 @@ public class RtpSessionActivity extends XmppActivity
             return true;
         }
         this.rtpConnectionReference = reference;
+        final JingleRtpConnection connection = reference.get();
+        if (connection != null && connection.getMujiRoom() != null) {
+            this.mujiAccount = account;
+            this.mujiRoom = connection.getMujiRoom();
+        }
         final RtpEndUserState currentState = requireRtpConnection().getEndUserState();
-        final boolean verified = requireRtpConnection().isVerified();
+        final int callTrust = requireRtpConnection().getCallTrustLevel();
+        final boolean callTrustLegacy = requireRtpConnection().isCallVerifiedLegacy();
         if (currentState == RtpEndUserState.ENDED) {
             finish();
             return true;
@@ -838,7 +930,9 @@ public class RtpSessionActivity extends XmppActivity
         setWith(currentState);
         updateVideoViews(currentState);
         updateStateDisplay(currentState, media, contentAddition);
-        updateVerifiedShield(verified && STATES_SHOWING_SWITCH_TO_CHAT.contains(currentState));
+        updateVerifiedShield(
+                STATES_SHOWING_SWITCH_TO_CHAT.contains(currentState) ? callTrust : 0,
+                callTrustLegacy);
         updateButtonConfiguration(currentState, media, contentAddition);
         updateIncomingCallScreen(currentState);
         invalidateOptionsMenu();
@@ -860,7 +954,7 @@ public class RtpSessionActivity extends XmppActivity
         updateStateDisplay(state);
         updateIncomingCallScreen(state);
         updateCallDuration();
-        updateVerifiedShield(false);
+        updateVerifiedShield(0);
         invalidateOptionsMenu();
         final var contact = account.getRoster().getContact(with);
         setWith(state, contact);
@@ -942,12 +1036,28 @@ public class RtpSessionActivity extends XmppActivity
         }
     }
 
-    private void updateVerifiedShield(final boolean verified) {
-        if (isPictureInPicture()) {
+    private void updateVerifiedShield(final int trustLevel) {
+        updateVerifiedShield(trustLevel, false);
+    }
+
+    private void updateVerifiedShield(final int trustLevel, final boolean legacyOmemo) {
+        if (isPictureInPicture() || trustLevel <= 0) {
             this.binding.verified.setVisibility(View.GONE);
             return;
         }
-        this.binding.verified.setVisibility(verified ? View.VISIBLE : View.GONE);
+        // Same icon convention as the message list: legacy OMEMO and PQ OMEMO2 each have
+        // their own lock (trusted) and shield (manually verified) variants.
+        final int icon;
+        if (legacyOmemo) {
+            icon = trustLevel >= 2 ? R.drawable.ic_verified_user_24dp : R.drawable.ic_lock_24dp;
+        } else {
+            icon =
+                    trustLevel >= 2
+                            ? R.drawable.ic_shield_omemo2_verified_24dp
+                            : R.drawable.ic_lock_omemo2_24dp;
+        }
+        this.binding.verified.setImageResource(icon);
+        this.binding.verified.setVisibility(View.VISIBLE);
     }
 
     private void updateIncomingCallScreen(final RtpEndUserState state) {
@@ -992,11 +1102,17 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private Set<Media> getMedia() {
-        return requireRtpConnection().getMedia();
+        if (this.rtpConnectionReference != null && this.rtpConnectionReference.get() != null) {
+            return this.rtpConnectionReference.get().getMedia();
+        }
+        return this.mujiWaitingMedia != null ? this.mujiWaitingMedia : Collections.emptySet();
     }
 
     public ContentAddition getPendingContentAddition() {
-        return requireRtpConnection().getPendingContentAddition();
+        if (this.rtpConnectionReference != null && this.rtpConnectionReference.get() != null) {
+            return this.rtpConnectionReference.get().getPendingContentAddition();
+        }
+        return null;
     }
 
     private void updateButtonConfiguration(final RtpEndUserState state) {
@@ -1087,49 +1203,61 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private void updateInCallButtonConfiguration() {
-        updateInCallButtonConfiguration(
-                requireRtpConnection().getEndUserState(), requireRtpConnection().getMedia());
+        final JingleRtpConnection connection =
+                this.rtpConnectionReference == null ? null : this.rtpConnectionReference.get();
+        if (connection != null) {
+            updateInCallButtonConfiguration(connection.getEndUserState(), connection.getMedia());
+        } else if (this.mujiRoom != null) {
+            updateInCallButtonConfiguration(RtpEndUserState.CONNECTED, getMedia());
+        }
     }
 
     @SuppressLint("RestrictedApi")
     private void updateInCallButtonConfiguration(
             final RtpEndUserState state, final Set<Media> media) {
         final var showButtons = !isPictureInPicture() && !buttonsHiddenAfterTimeout;
-        if (STATES_CONSIDERED_CONNECTED.contains(state) && showButtons) {
-            Preconditions.checkArgument(!media.isEmpty(), "Media must not be empty");
+        final JingleRtpConnection rtpConnection =
+                this.rtpConnectionReference == null ? null : this.rtpConnectionReference.get();
+        if (STATES_CONSIDERED_CONNECTED.contains(state) && showButtons && !media.isEmpty()) {
             if (media.contains(Media.VIDEO)) {
-                final JingleRtpConnection rtpConnection = requireRtpConnection();
-                updateInCallButtonConfigurationVideo(
-                        rtpConnection.isVideoEnabled(), rtpConnection.isCameraSwitchable());
+                if (rtpConnection != null) {
+                    updateInCallButtonConfigurationVideo(
+                            rtpConnection.isVideoEnabled(), rtpConnection.isCameraSwitchable());
+                } else {
+                    updateInCallButtonConfigurationVideo(true, false);
+                }
                 /* piratx: there is a video call ongoing - configure speaker buttons */
                 updateInCallButtonConfigurationSpeakerVideoCall();
                 /* piratx */
             } else {
-                final CallIntegration callIntegration = requireRtpConnection().getCallIntegration();
-                updateInCallButtonConfigurationSpeaker(
-                        callIntegration.getSelectedAudioDevice(),
-                        callIntegration.getAudioDevices().size());
+                if (rtpConnection != null) {
+                    final CallIntegration callIntegration = rtpConnection.getCallIntegration();
+                    updateInCallButtonConfigurationSpeaker(
+                            callIntegration.getSelectedAudioDevice(),
+                            callIntegration.getAudioDevices().size());
+                } else {
+                    this.binding.inCallActionRight.setVisibility(View.GONE);
+                }
                 this.binding.inCallActionFarRight.setVisibility(View.GONE);
             }
             if (media.contains(Media.AUDIO)) {
                 updateInCallButtonConfigurationMicrophone(
-                        requireRtpConnection().isMicrophoneEnabled());
+                        rtpConnection == null || rtpConnection.isMicrophoneEnabled());
             } else {
                 this.binding.inCallActionLeft.setVisibility(View.GONE);
             }
         } else if (STATES_SHOWING_SPEAKER_CONFIGURATION.contains(state)
                 && showButtons
                 && Media.audioOnly(media)) {
-            final CallIntegration callIntegration;
-            try {
-                callIntegration = requireCallIntegration();
-            } catch (final IllegalStateException e) {
-                Log.e(Config.LOGTAG, "can not update InCallButtonConfiguration in state " + state);
-                return;
+            final CallIntegration callIntegration =
+                    rtpConnection != null ? rtpConnection.getCallIntegration() : null;
+            if (callIntegration != null) {
+                updateInCallButtonConfigurationSpeaker(
+                        callIntegration.getSelectedAudioDevice(),
+                        callIntegration.getAudioDevices().size());
+            } else {
+                this.binding.inCallActionRight.setVisibility(View.GONE);
             }
-            updateInCallButtonConfigurationSpeaker(
-                    callIntegration.getSelectedAudioDevice(),
-                    callIntegration.getAudioDevices().size());
             this.binding.inCallActionFarRight.setVisibility(View.GONE);
         /* piratx: there is a video call ongoing - configure speaker buttons */
         }
@@ -1307,7 +1435,21 @@ public class RtpSessionActivity extends XmppActivity
     private void enableVideo(final View view) {
         resetVisibilityToggleExecutor();
         try {
-            requireRtpConnection().setVideoEnabled(true);
+            // Muji: enable our camera on every leg so all peers see us.
+            for (final JingleRtpConnection leg : callLegs()) {
+                leg.setVideoEnabled(true);
+            }
+            if (isMujiCall()) {
+                final JingleRtpConnection primary = rtpConnectionReference == null ? null : rtpConnectionReference.get();
+                final Account account = primary != null ? primary.getAccount() : mujiAccount;
+                final String room = primary != null ? primary.getMujiRoom() : mujiRoom;
+                if (account != null && room != null) {
+                    xmppConnectionService
+                            .getJingleConnectionManager()
+                            .getMujiConferenceManager()
+                            .setVideoEnabled(account, room, true);
+                }
+            }
         } catch (final IllegalStateException e) {
             Toast.makeText(this, R.string.unable_to_enable_video, Toast.LENGTH_SHORT).show();
             return;
@@ -1324,7 +1466,21 @@ public class RtpSessionActivity extends XmppActivity
             return;
         }
         try {
-            requireRtpConnection().setVideoEnabled(false);
+            // Muji: stop sending video on every leg.
+            for (final JingleRtpConnection leg : callLegs()) {
+                leg.setVideoEnabled(false);
+            }
+            if (isMujiCall()) {
+                final JingleRtpConnection primary = rtpConnectionReference == null ? null : rtpConnectionReference.get();
+                final Account account = primary != null ? primary.getAccount() : mujiAccount;
+                final String room = primary != null ? primary.getMujiRoom() : mujiRoom;
+                if (account != null && room != null) {
+                    xmppConnectionService
+                            .getJingleConnectionManager()
+                            .getMujiConferenceManager()
+                            .setVideoEnabled(account, room, false);
+                }
+            }
         } catch (final IllegalStateException e) {
             Toast.makeText(this, R.string.could_not_disable_video, Toast.LENGTH_SHORT).show();
             return;
@@ -1410,6 +1566,7 @@ public class RtpSessionActivity extends XmppActivity
             binding.localVideo.release();
             binding.remoteVideoWrapper.setVisibility(View.GONE);
             binding.remoteVideo.release();
+            releaseMujiGrid();
             binding.pipLocalMicOffIndicator.setVisibility(View.GONE);
             if (isPictureInPicture()) {
                 binding.appBarLayout.setVisibility(View.GONE);
@@ -1449,8 +1606,17 @@ public class RtpSessionActivity extends XmppActivity
             binding.localVideo.setZOrderMediaOverlay(true);
             binding.localVideo.setMirror(requireRtpConnection().isFrontCamera());
             addSink(localVideoTrack.get(), binding.localVideo);
+            binding.localVideo.setVisibility(View.VISIBLE);
+            binding.localVideo.bringToFront();
         } else {
             binding.localVideo.setVisibility(View.GONE);
+        }
+        // XEP-0272 Muji group call: render every participant in the grid instead of a single
+        // remote video. (The local self-preview above is shared across legs — one camera.)
+        if (isMujiCall()) {
+            updateMujiGrid(state);
+            binding.remoteVideoWrapper.setVisibility(View.GONE);
+            return;
         }
         final Optional<VideoTrack> remoteVideoTrack = getRemoteVideoTrack();
         if (remoteVideoTrack.isPresent()) {
@@ -1478,6 +1644,240 @@ public class RtpSessionActivity extends XmppActivity
             binding.remoteVideoWrapper.setVisibility(View.GONE);
             binding.pipLocalMicOffIndicator.setVisibility(View.GONE);
         }
+    }
+
+    /**
+     * Muji: after re-binding to a surviving leg (because the previously-bound one ended/errored),
+     * fully refresh the call UI for the new leg. The dying leg's last state update may have left
+     * the in-call buttons (hang up / mute / …) hidden — a transitional or END_CARD state is not in
+     * {@link #STATES_CONSIDERED_CONNECTED} — so the buttons must be re-shown for the still-CONNECTED
+     * conference, otherwise they vanish when a participant leaves and never come back.
+     */
+    private void refreshBoundMujiLegUi() {
+        resetVisibilityToggleExecutor();
+        final Set<Media> media = getMedia();
+        final ContentAddition contentAddition = getPendingContentAddition();
+        updateStateDisplay(RtpEndUserState.CONNECTED, media, contentAddition);
+        updateButtonConfiguration(RtpEndUserState.CONNECTED, media, contentAddition);
+        updateVideoViews(RtpEndUserState.CONNECTED);
+        updateMujiGrid(RtpEndUserState.CONNECTED);
+    }
+
+    /**
+     * Muji: the bound leg `endedSid` ended — if the conference still has another live leg, re-bind
+     * this activity to it so the call UI continues (only the leaver's tile drops). Returns false
+     * (→ caller finishes) when no other leg remains, e.g. the local user left the whole call.
+     */
+    private boolean rebindToAnotherMujiLeg(final String endedSid) {
+        final JingleRtpConnection current =
+                this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
+        if (current == null || current.getMujiRoom() == null || xmppConnectionService == null) {
+            return false;
+        }
+        final List<JingleRtpConnection> connections =
+                xmppConnectionService
+                        .getJingleConnectionManager()
+                        .getMujiConnections(current.getId().account, current.getMujiRoom());
+        Log.d(
+                Config.LOGTAG,
+                "muji: bound leg " + endedSid + " ended; room=" + current.getMujiRoom()
+                        + " has " + connections.size() + " live leg(s)");
+        for (final JingleRtpConnection connection : connections) {
+            if (connection.getId().sessionId.equals(endedSid)) {
+                continue;
+            }
+            if (END_CARD.contains(connection.getEndUserState())
+                    || connection.getEndUserState() == RtpEndUserState.ENDED) {
+                continue;
+            }
+            this.rtpConnectionReference = new WeakReference<>(connection);
+            resetIntent(
+                    connection.getId().account,
+                    connection.getId().with,
+                    connection.getId().sessionId);
+            Log.d(Config.LOGTAG, "muji: rebinding to surviving leg " + connection.getId().sessionId);
+            return true;
+        }
+        Log.d(Config.LOGTAG, "muji: no surviving leg — finishing call screen");
+        return false;
+    }
+
+    /** Whether the call on screen is a XEP-0272 Muji group call (vs. a 1:1 call). */
+    private boolean isMujiCall() {
+        final JingleRtpConnection connection =
+                this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
+        return (connection != null && connection.getMujiRoom() != null) || mujiRoom != null;
+    }
+
+    /**
+     * Sync the participant grid for a Muji group call: one cell per conference leg that has a
+     * remote video track. Idempotent — called from {@code updateVideoViews} and the periodic tick
+     * (so a leg that connects without targeting this activity's session still appears). Renderers
+     * are created/initialised once and released when their leg leaves or the call ends.
+     */
+    private void updateMujiGrid(final RtpEndUserState state) {
+        JingleRtpConnection primary =
+                this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
+        if (primary == null
+                && this.mujiRoom != null
+                && this.mujiAccount != null
+                && xmppConnectionService != null) {
+            for (final JingleRtpConnection c :
+                    xmppConnectionService
+                            .getJingleConnectionManager()
+                            .getMujiConnections(this.mujiAccount, this.mujiRoom)) {
+                // Only adopt a still-live leg as the primary. A terminated/errored leg (e.g. one
+                // whose verification failed) reports an empty media set, which would crash the
+                // button configuration ("Media must not be empty").
+                final RtpEndUserState legState = c.getEndUserState();
+                if (legState == RtpEndUserState.ENDED || END_CARD.contains(legState)) {
+                    continue;
+                }
+                primary = c;
+                this.rtpConnectionReference = new WeakReference<>(c);
+                runOnUiThread(
+                        () -> {
+                            updateVideoViews(state);
+                            final Set<Media> media = getMedia();
+                            if (media.isEmpty()) {
+                                return;
+                            }
+                            updateStateDisplay(state, media, getPendingContentAddition());
+                            updateButtonConfiguration(
+                                    state, media, getPendingContentAddition());
+                        });
+                break;
+            }
+        }
+        if (primary == null || primary.getMujiRoom() == null || xmppConnectionService == null) {
+            return;
+        }
+        if (isPictureInPicture() || state != RtpEndUserState.CONNECTED) {
+            // Only show the grid for an in-progress (non-PiP) call.
+            binding.mujiVideoGrid.setVisibility(View.GONE);
+            return;
+        }
+        final List<JingleRtpConnection> connections =
+                xmppConnectionService
+                        .getJingleConnectionManager()
+                        .getMujiConferenceManager()
+                        .getConnections(primary.getId().account, primary.getMujiRoom());
+        boolean changed = false;
+        final Set<String> live = new HashSet<>();
+        for (final JingleRtpConnection connection : connections) {
+            final Optional<VideoTrack> remote = connection.getRemoteVideoTrack();
+            if (!remote.isPresent()) {
+                continue;
+            }
+            final String sid = connection.getId().sessionId;
+            live.add(sid);
+            if (!mujiRenderers.containsKey(sid)) {
+                final SurfaceViewRenderer renderer = new SurfaceViewRenderer(this);
+                try {
+                    renderer.init(primary.getEglBaseContext(), null);
+                } catch (final IllegalStateException e) {
+                    Log.w(Config.LOGTAG, "muji: renderer already initialised", e);
+                }
+                // Fit (not crop) so a portrait phone shows the whole frame — FILL would cut it off.
+                renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
+                // Tapping a tile toggles the in-call controls, like the 1:1 remote view.
+                renderer.setOnClickListener(this::onVideoScreenClick);
+                binding.mujiVideoGrid.addView(renderer);
+                mujiRenderers.put(sid, renderer);
+                addSink(remote.get(), renderer);
+                changed = true;
+            }
+        }
+        // Drop renderers for participants that left.
+        for (final Iterator<Map.Entry<String, SurfaceViewRenderer>> it =
+                        mujiRenderers.entrySet().iterator();
+                it.hasNext(); ) {
+            final Map.Entry<String, SurfaceViewRenderer> entry = it.next();
+            if (!live.contains(entry.getKey())) {
+                binding.mujiVideoGrid.removeView(entry.getValue());
+                entry.getValue().release();
+                it.remove();
+                changed = true;
+            }
+        }
+        // Only re-lay-out when the participant set changed or the grid was resized (orientation),
+        // not every tick — otherwise the constant setLayoutParams triggers endless re-measures.
+        final int gw = binding.mujiVideoGrid.getWidth();
+        final int gh = binding.mujiVideoGrid.getHeight();
+        if (changed || gw != mujiLaidOutWidth || gh != mujiLaidOutHeight) {
+            layoutMujiGrid();
+            mujiLaidOutWidth = gw;
+            mujiLaidOutHeight = gh;
+        }
+        binding.mujiVideoGrid.setVisibility(mujiRenderers.isEmpty() ? View.GONE : View.VISIBLE);
+        if (!mujiRenderers.isEmpty()) {
+            binding.appBarLayout.setVisibility(View.GONE);
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            if (binding.localVideo.getVisibility() == View.VISIBLE) {
+                binding.localVideo.bringToFront();
+            }
+        }
+    }
+
+    /**
+     * Arrange the grid with explicit pixel cell sizes (GridLayout weight distribution is
+     * unreliable and overflowed the screen in portrait → tiles cut off). Cells are an exact
+     * fraction of the grid's measured size; portrait stacks vertically (fewer columns) so
+     * landscape video frames aren't squished.
+     */
+    private void layoutMujiGrid() {
+        final int count = binding.mujiVideoGrid.getChildCount();
+        if (count == 0) {
+            return;
+        }
+        final int gridW = binding.mujiVideoGrid.getWidth();
+        final int gridH = binding.mujiVideoGrid.getHeight();
+        if (gridW == 0 || gridH == 0) {
+            // Not laid out yet — the 250 ms tick re-runs this once the grid has a size.
+            return;
+        }
+        final boolean portrait = gridH >= gridW;
+        int columns = (int) Math.ceil(Math.sqrt(count));
+        if (portrait && count <= 3) {
+            columns = 1; // stack on a phone so wide video frames fill the width
+        }
+        final int rows = (int) Math.ceil((double) count / columns);
+        final int cellW = gridW / columns;
+        final int cellH = gridH / rows;
+        // GridLayout validates child specs against the column/row count at BOTH setLayoutParams
+        // and setColumn/RowCount — so changing the count while any tile references an
+        // out-of-range cell crashes (growing crashes setLayoutParams, shrinking crashes
+        // setColumnCount). Do it in three safe steps: (1) park every tile at cell (0,0) — always
+        // valid — (2) set the new counts, (3) place each tile in its cell.
+        for (int i = 0; i < count; i++) {
+            final GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+            lp.rowSpec = GridLayout.spec(0);
+            lp.columnSpec = GridLayout.spec(0);
+            binding.mujiVideoGrid.getChildAt(i).setLayoutParams(lp);
+        }
+        binding.mujiVideoGrid.setColumnCount(columns);
+        binding.mujiVideoGrid.setRowCount(rows);
+        for (int i = 0; i < count; i++) {
+            final View child = binding.mujiVideoGrid.getChildAt(i);
+            final GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+            lp.width = cellW;
+            lp.height = cellH;
+            lp.rowSpec = GridLayout.spec(i / columns);
+            lp.columnSpec = GridLayout.spec(i % columns);
+            child.setLayoutParams(lp);
+        }
+    }
+
+    /** Release + remove all participant-grid renderers (call end / leaving the screen). */
+    private void releaseMujiGrid() {
+        for (final SurfaceViewRenderer renderer : mujiRenderers.values()) {
+            renderer.release();
+        }
+        mujiRenderers.clear();
+        binding.mujiVideoGrid.removeAllViews();
+        binding.mujiVideoGrid.setVisibility(View.GONE);
+        mujiLaidOutWidth = -1;
+        mujiLaidOutHeight = -1;
     }
 
     private Optional<VideoTrack> getLocalVideoTrack() {
@@ -1509,13 +1909,49 @@ public class RtpSessionActivity extends XmppActivity
     private void setMicrophoneEnabled(final boolean enabled) {
         resetVisibilityExecutorShowButtons();
         try {
-            final JingleRtpConnection rtpConnection = requireRtpConnection();
-            if (rtpConnection.setMicrophoneEnabled(enabled)) {
+            // Muji: apply to EVERY leg, otherwise only one peer is (un)muted.
+            boolean changed = false;
+            for (final JingleRtpConnection leg : callLegs()) {
+                changed |= leg.setMicrophoneEnabled(enabled);
+            }
+            if (isMujiCall()) {
+                final JingleRtpConnection primary = rtpConnectionReference == null ? null : rtpConnectionReference.get();
+                final Account account = primary != null ? primary.getAccount() : mujiAccount;
+                final String room = primary != null ? primary.getMujiRoom() : mujiRoom;
+                if (account != null && room != null) {
+                    xmppConnectionService
+                            .getJingleConnectionManager()
+                            .getMujiConferenceManager()
+                            .setMicrophoneEnabled(account, room, enabled);
+                }
+                changed = true;
+            }
+            if (changed) {
                 updateInCallButtonConfiguration();
             }
         } catch (final IllegalStateException e) {
             Toast.makeText(this, R.string.could_not_modify_call, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /**
+     * Every per-pair leg the in-call controls (mute / video) should apply to: all conference legs
+     * for a Muji group call, or just the single connection for a 1:1 call.
+     */
+    private List<JingleRtpConnection> callLegs() {
+        final JingleRtpConnection primary =
+                this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
+        if (primary == null) {
+            return Collections.emptyList();
+        }
+        if (primary.getMujiRoom() == null || xmppConnectionService == null) {
+            return Collections.singletonList(primary);
+        }
+        final List<JingleRtpConnection> legs =
+                xmppConnectionService
+                        .getJingleConnectionManager()
+                        .getMujiConnections(primary.getId().account, primary.getMujiRoom());
+        return legs.isEmpty() ? Collections.singletonList(primary) : legs;
     }
 
     private void switchToEarpiece(final View view) {
@@ -1572,7 +2008,23 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private Contact getWith() {
-        final AbstractJingleConnection.Id id = requireRtpConnection().getId();
+        final JingleRtpConnection connection =
+                this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
+        final String room = connection != null ? connection.getMujiRoom() : this.mujiRoom;
+        if (room != null) {
+            final Account account =
+                    connection != null ? connection.getId().account : this.mujiAccount;
+            if (account != null && xmppConnectionService != null) {
+                final Conversation muc = xmppConnectionService.find(account, Jid.of(room));
+                return muc != null
+                        ? muc.getContact()
+                        : account.getRoster().getContact(Jid.of(room));
+            }
+        }
+        if (connection == null) {
+            return null;
+        }
+        final AbstractJingleConnection.Id id = connection.getId();
         final Account account = id.account;
         return account.getRoster().getContact(id.with);
     }
@@ -1638,13 +2090,20 @@ public class RtpSessionActivity extends XmppActivity
             return;
         }
         final AbstractJingleConnection.Id id = requireRtpConnection().getId();
-        final boolean verified = requireRtpConnection().isVerified();
+        final int callTrust = requireRtpConnection().getCallTrustLevel();
+        final boolean callTrustLegacy = requireRtpConnection().isCallVerifiedLegacy();
         final Set<Media> media = getMedia();
         lockOrientation(media);
         final ContentAddition contentAddition = getPendingContentAddition();
         final Contact contact = getWith();
         if (account == id.account && id.with.equals(with) && id.sessionId.equals(sessionId)) {
             if (state == RtpEndUserState.ENDED) {
+                // Muji: one participant leaving ends only their leg — if other legs are still
+                // live, keep the call going by re-binding to one of them instead of finishing.
+                if (rebindToAnotherMujiLeg(sessionId)) {
+                    runOnUiThread(this::refreshBoundMujiLegUi);
+                    return;
+                }
                 finish();
                 return;
             }
@@ -1653,7 +2112,8 @@ public class RtpSessionActivity extends XmppActivity
                     () -> {
                         updateStateDisplay(state, media, contentAddition);
                         updateVerifiedShield(
-                                verified && STATES_SHOWING_SWITCH_TO_CHAT.contains(state));
+                                STATES_SHOWING_SWITCH_TO_CHAT.contains(state) ? callTrust : 0,
+                                callTrustLegacy);
                         updateButtonConfiguration(state, media, contentAddition);
                         updateVideoViews(state);
                         updateIncomingCallScreen(state, contact);
@@ -1661,6 +2121,12 @@ public class RtpSessionActivity extends XmppActivity
                         invalidateOptionsMenu();
                     });
             if (END_CARD.contains(state)) {
+                // Muji: a single leg erroring/ending shouldn't tear down the whole conference UI
+                // if other legs are alive — re-bind to one of them.
+                if (rebindToAnotherMujiLeg(sessionId)) {
+                    runOnUiThread(this::refreshBoundMujiLegUi);
+                    return;
+                }
                 final JingleRtpConnection rtpConnection = requireRtpConnection();
                 resetIntent(account, with, state, rtpConnection.getMedia());
                 releaseVideoTracks(rtpConnection);
@@ -1736,7 +2202,7 @@ public class RtpSessionActivity extends XmppActivity
         if (Jid.of(withExtra).asBareJid().equals(with)) {
             runOnUiThread(
                     () -> {
-                        updateVerifiedShield(false);
+                        updateVerifiedShield(0);
                         updateStateDisplay(state);
                         updateButtonConfiguration(state, media, null);
                         updateIncomingCallScreen(state);

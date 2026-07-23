@@ -5,24 +5,24 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import org.whispersystems.libsignal.DuplicateMessageException;
-import org.whispersystems.libsignal.IdentityKey;
-import org.whispersystems.libsignal.InvalidKeyException;
-import org.whispersystems.libsignal.InvalidKeyIdException;
-import org.whispersystems.libsignal.InvalidMessageException;
-import org.whispersystems.libsignal.InvalidVersionException;
-import org.whispersystems.libsignal.LegacyMessageException;
-import org.whispersystems.libsignal.NoSessionException;
-import org.whispersystems.libsignal.SessionCipher;
-import org.whispersystems.libsignal.SignalProtocolAddress;
-import org.whispersystems.libsignal.UntrustedIdentityException;
-import org.whispersystems.libsignal.protocol.CiphertextMessage;
-import org.whispersystems.libsignal.protocol.PreKeySignalMessage;
-import org.whispersystems.libsignal.protocol.SignalMessage;
-import org.whispersystems.libsignal.util.guava.Optional;
+import org.signal.libsignal.protocol.DuplicateMessageException;
+import org.signal.libsignal.protocol.IdentityKey;
+import org.signal.libsignal.protocol.InvalidKeyException;
+import org.signal.libsignal.protocol.InvalidKeyIdException;
+import org.signal.libsignal.protocol.InvalidMessageException;
+import org.signal.libsignal.protocol.InvalidVersionException;
+import org.signal.libsignal.protocol.LegacyMessageException;
+import org.signal.libsignal.protocol.NoSessionException;
+import org.signal.libsignal.protocol.SessionCipher;
+import org.signal.libsignal.protocol.SignalProtocolAddress;
+import org.signal.libsignal.protocol.UntrustedIdentityException;
+import org.signal.libsignal.protocol.message.CiphertextMessage;
+import org.signal.libsignal.protocol.message.PreKeySignalMessage;
+import org.signal.libsignal.protocol.message.SignalMessage;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.entities.Account;
@@ -36,14 +36,19 @@ public class XmppAxolotlSession implements Comparable<XmppAxolotlSession> {
 	private IdentityKey identityKey;
 	private Integer preKeyId = null;
 	private boolean fresh = true;
+	private int lastWhisperCounter = -1;
+	private byte[] lastWhisperRatchetKey = null;
 
-	public XmppAxolotlSession(Account account, SQLiteAxolotlStore store, SignalProtocolAddress remoteAddress, IdentityKey identityKey) {
-		this(account, store, remoteAddress);
+	public XmppAxolotlSession(Account account, SQLiteAxolotlStore store,
+	                          SignalProtocolAddress localAddress, SignalProtocolAddress remoteAddress,
+	                          IdentityKey identityKey) {
+		this(account, store, localAddress, remoteAddress);
 		this.identityKey = identityKey;
 	}
 
-	public XmppAxolotlSession(Account account, SQLiteAxolotlStore store, SignalProtocolAddress remoteAddress) {
-		this.cipher = new SessionCipher(store, remoteAddress);
+	public XmppAxolotlSession(Account account, SQLiteAxolotlStore store,
+	                          SignalProtocolAddress localAddress, SignalProtocolAddress remoteAddress) {
+		this.cipher = new SessionCipher(store, localAddress, remoteAddress);
 		this.remoteAddress = remoteAddress;
 		this.sqLiteAxolotlStore = store;
 		this.account = account;
@@ -53,6 +58,33 @@ public class XmppAxolotlSession implements Comparable<XmppAxolotlSession> {
 		final Integer preKeyId = this.preKeyId;
 		this.preKeyId = null;
 		return preKeyId;
+	}
+
+	/**
+	 * The Double Ratchet message counter + sender ratchet key of the last whisper
+	 * (non-PreKey) message decrypted on this session, consumed once. A PreKey message
+	 * starts a fresh chain so it records nothing and this returns {@code null}. Used by
+	 * {@link AxolotlService} to apply XEP-0384's heartbeat rule (first message for a
+	 * given ratchet key with counter ≥ 53 → send a heartbeat).
+	 */
+	public WhisperRatchet getLastWhisperRatchetAndReset() {
+		if (this.lastWhisperRatchetKey == null) {
+			return null;
+		}
+		final WhisperRatchet ratchet = new WhisperRatchet(this.lastWhisperCounter, this.lastWhisperRatchetKey);
+		this.lastWhisperCounter = -1;
+		this.lastWhisperRatchetKey = null;
+		return ratchet;
+	}
+
+	public static class WhisperRatchet {
+		public final int counter;
+		public final byte[] ratchetKey;
+
+		WhisperRatchet(final int counter, final byte[] ratchetKey) {
+			this.counter = counter;
+			this.ratchetKey = ratchetKey;
+		}
 	}
 
 	public String getFingerprint() {
@@ -116,18 +148,23 @@ public class XmppAxolotlSession implements Comparable<XmppAxolotlSession> {
 						SignalMessage signalMessage = new SignalMessage(encryptedKey.key);
 						try {
 							plaintext = cipher.decrypt(signalMessage);
+							// Record the ratchet position for the XEP-0384 heartbeat rule.
+							this.lastWhisperCounter = signalMessage.getCounter();
+							this.lastWhisperRatchetKey = signalMessage.getSenderRatchetKey().serialize();
 						} catch (InvalidMessageException | NoSessionException e) {
 							if (iterator.hasNext()) {
-								Log.w(Config.LOGTAG,account.getJid().asBareJid()+": ignoring crypto exception because possible keys left to try",e);
+								Log.w(Config.LOGTAG, account.getJid().asBareJid() + ": ignoring crypto exception because possible keys left to try", e);
 								continue;
 							}
 							throw new BrokenSessionException(this.remoteAddress, e);
 						}
-						preKeyId = null; //better safe than sorry because we use that to do special after prekey handling
+						preKeyId = null;
 					}
-				} catch (InvalidVersionException | InvalidKeyException | LegacyMessageException | InvalidMessageException | DuplicateMessageException | InvalidKeyIdException | UntrustedIdentityException e) {
+				} catch (InvalidVersionException | InvalidKeyException | LegacyMessageException
+				         | InvalidMessageException | DuplicateMessageException
+				         | InvalidKeyIdException | UntrustedIdentityException e) {
 					if (iterator.hasNext()) {
-						Log.w(Config.LOGTAG,account.getJid().asBareJid()+": ignoring crypto exception because possible keys left to try",e);
+						Log.w(Config.LOGTAG, account.getJid().asBareJid() + ": ignoring crypto exception because possible keys left to try", e);
 						continue;
 					}
 					throw new CryptoFailedException("Error decrypting SignalMessage", e);
@@ -138,10 +175,9 @@ public class XmppAxolotlSession implements Comparable<XmppAxolotlSession> {
 			}
 			if (!status.isActive()) {
 				setTrust(status.toActive());
-				//TODO: also (re)add to device list?
 			}
 		} else {
-			throw new CryptoFailedException("not encrypting omemo message from fingerprint "+getFingerprint()+" because it was marked as compromised");
+			throw new CryptoFailedException("not encrypting omemo message from fingerprint " + getFingerprint() + " because it was marked as compromised");
 		}
 		return plaintext;
 	}
@@ -152,8 +188,9 @@ public class XmppAxolotlSession implements Comparable<XmppAxolotlSession> {
 		if (ignoreSessionTrust || status.isTrustedAndActive()) {
 			try {
 				CiphertextMessage ciphertextMessage = cipher.encrypt(outgoingMessage);
-				return new AxolotlKey(getRemoteAddress().getDeviceId(), ciphertextMessage.serialize(),ciphertextMessage.getType() == CiphertextMessage.PREKEY_TYPE);
-			} catch (UntrustedIdentityException e) {
+				return new AxolotlKey(getRemoteAddress().getDeviceId(), ciphertextMessage.serialize(),
+						ciphertextMessage.getType() == CiphertextMessage.PREKEY_TYPE);
+			} catch (UntrustedIdentityException | NoSessionException e) {
 				return null;
 			}
 		} else {
@@ -171,7 +208,6 @@ public class XmppAxolotlSession implements Comparable<XmppAxolotlSession> {
 	}
 
 	public static class AxolotlKey {
-
 
 		public final byte[] key;
 		public final boolean prekey;

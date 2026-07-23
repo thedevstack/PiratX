@@ -11,10 +11,11 @@ import de.monocles.chat.BobTransfer;
 import com.google.common.base.Strings;
 import com.google.common.io.ByteStreams;
 
-import org.whispersystems.libsignal.IdentityKey;
-import org.whispersystems.libsignal.ecc.ECPublicKey;
-import org.whispersystems.libsignal.state.PreKeyRecord;
-import org.whispersystems.libsignal.state.SignedPreKeyRecord;
+import org.signal.libsignal.protocol.IdentityKey;
+import org.signal.libsignal.protocol.ecc.ECPublicKey;
+import org.signal.libsignal.protocol.state.KyberPreKeyRecord;
+import org.signal.libsignal.protocol.state.PreKeyRecord;
+import org.signal.libsignal.protocol.state.SignedPreKeyRecord;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -78,22 +79,6 @@ public class IqGenerator extends AbstractGenerator {
         Element query = packet.query("jabber:iq:version");
         query.addChild("name").setContent(mXmppConnectionService.getString(R.string.app_name));
         query.addChild("version").setContent(getIdentityVersion());
-        final StringBuilder os = new StringBuilder();
-        if ("chromium".equals(android.os.Build.BRAND)) {
-            os.append("Chrome OS");
-        } else {
-            os.append("Android");
-        }
-        os.append(" ");
-        os.append(android.os.Build.VERSION.RELEASE);
-        if (QuickConversationsService.isPlayStoreFlavor()) {
-            os.append(" (");
-            os.append(android.os.Build.BOARD);
-            os.append(", ");
-            os.append(android.os.Build.FINGERPRINT);
-            os.append(")");
-            query.addChild("os").setContent(os.toString());
-        }
         return packet;
     }
 
@@ -406,12 +391,56 @@ public class IqGenerator extends AbstractGenerator {
             final Set<PreKeyRecord> preKeyRecords,
             final int deviceId,
             Bundle publishOptions) {
+        try {
+            final Element item = new Element("item");
+            item.setAttribute("id", "current");
+            final Element bundle = item.addChild("bundle", AxolotlService.PEP_PREFIX);
+            final Element signedPreKeyPublic = bundle.addChild("signedPreKeyPublic");
+            signedPreKeyPublic.setAttribute("signedPreKeyId", signedPreKeyRecord.getId());
+            ECPublicKey publicKey = signedPreKeyRecord.getKeyPair().getPublicKey();
+            signedPreKeyPublic.setContent(Base64.encodeToString(publicKey.serialize(), Base64.NO_WRAP));
+            final Element signedPreKeySignature = bundle.addChild("signedPreKeySignature");
+            signedPreKeySignature.setContent(
+                    Base64.encodeToString(signedPreKeyRecord.getSignature(), Base64.NO_WRAP));
+            final Element identityKeyElement = bundle.addChild("identityKey");
+            identityKeyElement.setContent(
+                    Base64.encodeToString(identityKey.serialize(), Base64.NO_WRAP));
+
+            final Element prekeys = bundle.addChild("prekeys", AxolotlService.PEP_PREFIX);
+            for (PreKeyRecord preKeyRecord : preKeyRecords) {
+                final Element prekey = prekeys.addChild("preKeyPublic");
+                prekey.setAttribute("preKeyId", preKeyRecord.getId());
+                prekey.setContent(
+                        Base64.encodeToString(
+                                preKeyRecord.getKeyPair().getPublicKey().serialize(), Base64.NO_WRAP));
+            }
+
+            return publish(AxolotlService.PEP_BUNDLES + ":" + deviceId, item, publishOptions);
+        } catch (org.signal.libsignal.protocol.InvalidKeyException e) {
+            throw new AssertionError("locally generated key is invalid", e);
+        }
+    }
+
+    /**
+     * Publish a legacy XEP-0384 v0.3 bundle (no KEM material) using
+     * old-libsignal types. Same wire format as {@link #publishBundles}; only the
+     * Java types of the prekeys differ. Used only when the user enables global
+     * legacy OMEMO support so peers without OMEMO2/PQXDH can build a session
+     * with us.
+     */
+    public Iq publishLegacyBundles(
+            final org.whispersystems.libsignal.state.SignedPreKeyRecord signedPreKeyRecord,
+            final org.whispersystems.libsignal.IdentityKey identityKey,
+            final Set<org.whispersystems.libsignal.state.PreKeyRecord> preKeyRecords,
+            final int deviceId,
+            final Bundle publishOptions) {
         final Element item = new Element("item");
         item.setAttribute("id", "current");
         final Element bundle = item.addChild("bundle", AxolotlService.PEP_PREFIX);
         final Element signedPreKeyPublic = bundle.addChild("signedPreKeyPublic");
         signedPreKeyPublic.setAttribute("signedPreKeyId", signedPreKeyRecord.getId());
-        ECPublicKey publicKey = signedPreKeyRecord.getKeyPair().getPublicKey();
+        final org.whispersystems.libsignal.ecc.ECPublicKey publicKey =
+                signedPreKeyRecord.getKeyPair().getPublicKey();
         signedPreKeyPublic.setContent(Base64.encodeToString(publicKey.serialize(), Base64.NO_WRAP));
         final Element signedPreKeySignature = bundle.addChild("signedPreKeySignature");
         signedPreKeySignature.setContent(
@@ -419,17 +448,110 @@ public class IqGenerator extends AbstractGenerator {
         final Element identityKeyElement = bundle.addChild("identityKey");
         identityKeyElement.setContent(
                 Base64.encodeToString(identityKey.serialize(), Base64.NO_WRAP));
-
         final Element prekeys = bundle.addChild("prekeys", AxolotlService.PEP_PREFIX);
-        for (PreKeyRecord preKeyRecord : preKeyRecords) {
+        for (final org.whispersystems.libsignal.state.PreKeyRecord r : preKeyRecords) {
             final Element prekey = prekeys.addChild("preKeyPublic");
-            prekey.setAttribute("preKeyId", preKeyRecord.getId());
+            prekey.setAttribute("preKeyId", r.getId());
             prekey.setContent(
-                    Base64.encodeToString(
-                            preKeyRecord.getKeyPair().getPublicKey().serialize(), Base64.NO_WRAP));
+                    Base64.encodeToString(r.getKeyPair().getPublicKey().serialize(), Base64.NO_WRAP));
         }
-
         return publish(AxolotlService.PEP_BUNDLES + ":" + deviceId, item, publishOptions);
+    }
+
+    /** Publish PQ-OMEMO2 bundle to Namespace.OMEMO2_BUNDLES (item id = deviceId). */
+    public Iq publishOmemo2Bundles(
+            final SignedPreKeyRecord signedPreKeyRecord,
+            final IdentityKey identityKey,
+            final Set<PreKeyRecord> preKeyRecords,
+            final KyberPreKeyRecord kyberSignedPreKeyRecord,
+            final List<KyberPreKeyRecord> kyberPreKeyRecords,
+            final byte[] pqIdentityKey,
+            final byte[] pqSignature,
+            final int deviceId,
+            final Bundle publishOptions) {
+        try {
+            final Element item = new Element("item");
+            item.setAttribute("id", String.valueOf(deviceId));
+            final Element bundle = item.addChild("bundle", Namespace.OMEMO2);
+            final Element spk = bundle.addChild("spk");
+            spk.setAttribute("id", signedPreKeyRecord.getId());
+            // OMEMO2 spec: EC public keys are raw 32-byte Curve25519 keys (no 0x05 type prefix)
+            spk.setContent(Base64.encodeToString(
+                    signedPreKeyRecord.getKeyPair().getPublicKey().getPublicKeyBytes(), Base64.NO_WRAP));
+            bundle.addChild("spks").setContent(
+                    Base64.encodeToString(signedPreKeyRecord.getSignature(), Base64.NO_WRAP));
+            bundle.addChild("ik").setContent(
+                    Base64.encodeToString(identityKey.getPublicKey().getPublicKeyBytes(), Base64.NO_WRAP));
+            final Element prekeys = bundle.addChild("prekeys");
+            for (final PreKeyRecord preKeyRecord : preKeyRecords) {
+                final Element pk = prekeys.addChild("pk");
+                pk.setAttribute("id", preKeyRecord.getId());
+                pk.setContent(Base64.encodeToString(
+                        preKeyRecord.getKeyPair().getPublicKey().getPublicKeyBytes(), Base64.NO_WRAP));
+            }
+            // PQXDH: signed KEM prekey
+            if (kyberSignedPreKeyRecord != null) {
+                final Element kemSpk = bundle.addChild("kem-spk");
+                kemSpk.setAttribute("id", kyberSignedPreKeyRecord.getId());
+                kemSpk.setContent(Base64.encodeToString(
+                        kyberSignedPreKeyRecord.getKeyPair().getPublicKey().serialize(), Base64.NO_WRAP));
+                bundle.addChild("kem-spks").setContent(
+                        Base64.encodeToString(kyberSignedPreKeyRecord.getSignature(), Base64.NO_WRAP));
+            }
+            // PQXDH: one-time KEM prekeys
+            if (kyberPreKeyRecords != null && !kyberPreKeyRecords.isEmpty()) {
+                final Element kemPrekeys = bundle.addChild("kem-prekeys");
+                for (final KyberPreKeyRecord kemRecord : kyberPreKeyRecords) {
+                    final Element kemPk = kemPrekeys.addChild("kem-pk");
+                    kemPk.setAttribute("id", kemRecord.getId());
+                    kemPk.setAttribute("sig", Base64.encodeToString(kemRecord.getSignature(), Base64.NO_WRAP));
+                    kemPk.setContent(Base64.encodeToString(
+                            kemRecord.getKeyPair().getPublicKey().serialize(), Base64.NO_WRAP));
+                }
+            }
+            // monocles PQ-OMEMO2 hybrid identity: post-quantum (ML-DSA-87) identity
+            // key and its signature over the bundle transcript. Mandatory for this
+            // build — peers refuse a bundle that lacks them (never downgrade).
+            if (pqIdentityKey != null && pqSignature != null) {
+                final Element pqIk = bundle.addChild("pq-ik");
+                pqIk.setAttribute("type", "ML-DSA-87");
+                pqIk.setContent(Base64.encodeToString(pqIdentityKey, Base64.NO_WRAP));
+                bundle.addChild("pq-sig").setContent(
+                        Base64.encodeToString(pqSignature, Base64.NO_WRAP));
+            }
+            return publish(AxolotlService.PEP_OMEMO2_BUNDLES, item, publishOptions);
+        } catch (org.signal.libsignal.protocol.InvalidKeyException e) {
+            throw new AssertionError("locally generated key is invalid", e);
+        }
+    }
+
+    /** Publish PQ-OMEMO2 device list to Namespace.OMEMO2_DEVICES. */
+    public Iq publishOmemo2DeviceIds(final Set<Integer> ids, final Bundle publishOptions) {
+        final Element item = new Element("item");
+        item.setAttribute("id", "current");
+        final Element devices = item.addChild("devices", Namespace.OMEMO2);
+        for (final Integer id : ids) {
+            devices.addChild("device").setAttribute("id", id);
+        }
+        return publish(AxolotlService.PEP_OMEMO2_DEVICE_LIST, item, publishOptions);
+    }
+
+    /** Retrieve OMEMO2 device list for a JID. */
+    public Iq retrieveOmemo2DeviceIds(final Jid to) {
+        final var packet = retrieve(AxolotlService.PEP_OMEMO2_DEVICE_LIST, null);
+        if (to != null) {
+            packet.setTo(to);
+        }
+        return packet;
+    }
+
+    /** Retrieve OMEMO2 bundle for a specific device (OMEMO2 bundles use item id = deviceId). */
+    public Iq retrieveOmemo2BundlesForDevice(final Jid to, final int deviceId) {
+        final Element itemFilter = new Element("item");
+        itemFilter.setAttribute("id", String.valueOf(deviceId));
+        final var packet = retrieve(AxolotlService.PEP_OMEMO2_BUNDLES, itemFilter);
+        packet.setTo(to);
+        return packet;
     }
 
     public Iq publishVerification(

@@ -210,6 +210,15 @@ public class Conversation extends AbstractEntity
     public static final String ATTRIBUTE_FORMERLY_PRIVATE_NON_ANONYMOUS =
             "formerly_private_non_anonymous";
     public static final String ATTRIBUTE_PINNED_ON_TOP = "pinned_on_top";
+    /**
+     * Per-conversation opt-in for legacy XEP-0384 v0.3 OMEMO fallback. When true
+     * and the peer publishes only a legacy bundle (no OMEMO2 bundle with KEM
+     * prekeys), the client builds a legacy session via the old libsignal stack
+     * and uses pre-PQ OMEMO for this conversation. OMEMO2 still wins when both
+     * bundles are available. Off by default; requires the global
+     * {@link eu.siacs.conversations.AppSettings#LEGACY_OMEMO_ENABLED} flag.
+     */
+    public static final String ATTRIBUTE_ALLOW_LEGACY_OMEMO = "allow_legacy_omemo";
     static final String ATTRIBUTE_MUC_PASSWORD = "muc_password";
     static final String ATTRIBUTE_MEMBERS_ONLY = "members_only";
     static final String ATTRIBUTE_MODERATED = "moderated";
@@ -217,10 +226,11 @@ public class Conversation extends AbstractEntity
     private static final String ATTRIBUTE_NEXT_MESSAGE = "next_message";
     private static final String ATTRIBUTE_NEXT_MESSAGE_TIMESTAMP = "next_message_timestamp";
     private static final String ATTRIBUTE_CRYPTO_TARGETS = "crypto_targets";
+    private static final String ATTRIBUTE_KEYLESS_EXCLUDED_CRYPTO_TARGETS =
+            "keyless_excluded_crypto_targets";
     private static final String ATTRIBUTE_NEXT_ENCRYPTION = "next_encryption";
     private static final String ATTRIBUTE_CORRECTING_MESSAGE = "correcting_message";
     public static final String ATTRIBUTE_EPHEMERAL_TIMER = "ephemeral_timer";
-    public static final String ATTRIBUTE_EPHEMERAL_HINT_HIDDEN = "ephemeral_hint_hidden";
     public static final String ATTRIBUTE_EPHEMERAL_BY = "ephemeral_by";
     protected final ArrayList<Message> messages = new ArrayList<>();
     protected final ArrayList<Message> historyPartMessages = new ArrayList<>();
@@ -993,6 +1003,23 @@ public class Conversation extends AbstractEntity
         setAttribute(ATTRIBUTE_CRYPTO_TARGETS, acceptedTargets);
     }
 
+    /**
+     * Group chat members the user has explicitly confirmed to send encrypted messages without,
+     * because they have no usable OMEMO keys. The exclusion only takes effect while a member
+     * remains keyless: as soon as one of their keys is trusted they are a normal recipient
+     * again, and newly published keys surface as undecided and re-open the trust screen.
+     */
+    public List<Jid> getKeylessExcludedCryptoTargets() {
+        if (mode == MODE_SINGLE) {
+            return Collections.emptyList();
+        }
+        return getJidListAttribute(ATTRIBUTE_KEYLESS_EXCLUDED_CRYPTO_TARGETS);
+    }
+
+    public void setKeylessExcludedCryptoTargets(List<Jid> excludedTargets) {
+        setAttribute(ATTRIBUTE_KEYLESS_EXCLUDED_CRYPTO_TARGETS, excludedTargets);
+    }
+
     public boolean setCorrectingMessage(Message correctingMessage) {
         setAttribute(
                 ATTRIBUTE_CORRECTING_MESSAGE,
@@ -1384,7 +1411,7 @@ public class Conversation extends AbstractEntity
         }
         if (OmemoSetting.isAlways()) {
             return suitableForOmemoByDefault(this)
-                    ? Message.ENCRYPTION_AXOLOTL
+                    ? OmemoSetting.getEncryption()
                     : Message.ENCRYPTION_NONE;
         }
         final int defaultEncryption;
@@ -1394,6 +1421,24 @@ public class Conversation extends AbstractEntity
             defaultEncryption = Message.ENCRYPTION_NONE;
         }
         int encryption = this.getIntAttribute(ATTRIBUTE_NEXT_ENCRYPTION, defaultEncryption);
+        // The account's AxolotlService (and its XmppConnectionService) can be null
+        // during early startup before initAccountServices() runs. Guard the
+        // legacy→OMEMO2 / unencrypted→OMEMO2 auto-upgrades on it; if unavailable,
+        // fall back to the stored/default encryption rather than risk an NPE.
+        final var axolotlService = getAccount().getAxolotlService();
+        final var service = axolotlService == null ? null : axolotlService.mXmppConnectionService;
+        if (service != null) {
+            final var appSettings = service.getAppSettings();
+            if (encryption == Message.ENCRYPTION_AXOLOTL && !appSettings.isLegacyOmemoEnabled()) {
+                encryption = Message.ENCRYPTION_AXOLOTL_OMEMO2;
+            }
+            if (encryption == Message.ENCRYPTION_NONE && !suitableForOmemoByDefault(this)) {
+                return Message.ENCRYPTION_NONE;
+            }
+            if (encryption == Message.ENCRYPTION_NONE && !service.getBooleanPreference("allow_unencrypted", R.bool.allow_unencrypted)) {
+                encryption = Message.ENCRYPTION_AXOLOTL_OMEMO2;
+            }
+        }
         if (encryption < 0) {
             return defaultEncryption;
         } else {
@@ -2027,18 +2072,7 @@ public class Conversation extends AbstractEntity
     }
 
     public boolean setEphemeralTimer(int timer) {
-        if (getEphemeralTimer() != timer && timer > 0) {
-            setEphemeralHintHidden(false);
-        }
         return setAttribute(ATTRIBUTE_EPHEMERAL_TIMER, timer);
-    }
-
-    public boolean ephemeralHintHidden() {
-        return getBooleanAttribute(ATTRIBUTE_EPHEMERAL_HINT_HIDDEN, false);
-    }
-
-    public void setEphemeralHintHidden(boolean hidden) {
-        setAttribute(ATTRIBUTE_EPHEMERAL_HINT_HIDDEN, hidden);
     }
 
     public String getEphemeralBy() {

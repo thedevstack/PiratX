@@ -141,7 +141,6 @@ import eu.siacs.conversations.utils.XmppUri;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.OnUpdateBlocklist;
 import me.drakeet.support.toast.ToastCompat;
-import p32929.easypasscodelock.Utils.EasyLock;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -210,6 +209,7 @@ public class ConversationsActivity extends XmppActivity
     private final PendingItem<Intent> pendingViewIntent = new PendingItem<>();
     private final PendingItem<ActivityResult> postponedActivityResult = new PendingItem<>();
     private ActivityConversationsBinding binding;
+    private eu.siacs.conversations.ui.service.AudioMiniPlayer audioMiniPlayer;
     private boolean mActivityPaused = true;
     private final AtomicBoolean mRedirectInProcess = new AtomicBoolean(false);
     private boolean refreshForNewCaps = false;
@@ -822,6 +822,7 @@ public class ConversationsActivity extends XmppActivity
         final Fragment fragment = getFragmentManager().findFragmentById(R.id.main_fragment);
         if (fragment instanceof ConversationsOverviewFragment) {
             if (ExceptionHelper.checkForCrash(this)) return;
+            if (offerPostQuantumOmemoNoticeIfNeeded()) return;
             if (offerToSetupDiallerIntegration()) return;
             if (offerToDownloadStickers()) return;
             if (openBatteryOptimizationDialogIfNeeded()) return;
@@ -829,6 +830,40 @@ public class ConversationsActivity extends XmppActivity
             if (askAboutNomedia()) return;
             xmppConnectionService.rescanStickers();
         }
+    }
+
+    /**
+     * One-time notice shown after updating to (or first installing) the
+     * post-quantum build. PQ OMEMO2 is the default and legacy OMEMO is off, so
+     * contacts on other/older XMPP apps can't read OMEMO2 messages. Offer to turn
+     * legacy OMEMO on (publishing the legacy bundle immediately) for a smooth
+     * rollout, while keeping post-quantum as the default for capable peers.
+     */
+    private boolean offerPostQuantumOmemoNoticeIfNeeded() {
+        if (getPreferences().getBoolean("pq_omemo2_notice_shown", false)) {
+            return false;
+        }
+        final MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
+        builder.setTitle(R.string.pq_omemo2_notice_title);
+        builder.setMessage(getString(R.string.pq_omemo2_notice_message, getString(R.string.app_name)));
+        builder.setPositiveButton(R.string.enable_legacy_omemo, (dialog, which) -> {
+            getPreferences().edit().putBoolean("legacy_omemo_enabled", true).apply();
+            if (xmppConnectionService != null) {
+                for (final Account account : xmppConnectionService.getAccounts()) {
+                    final var axolotlService = account.getAxolotlService();
+                    if (axolotlService != null) {
+                        axolotlService.publishLegacyBundleNow();
+                    }
+                }
+            }
+        });
+        builder.setNegativeButton(R.string.use_post_quantum_only, null);
+        builder.setOnDismissListener(dialog ->
+                getPreferences().edit().putBoolean("pq_omemo2_notice_shown", true).apply());
+        final AlertDialog dialog = builder.create();
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.show();
+        return true;
     }
 
     private String getBatteryOptimizationPreferenceKey() {
@@ -1123,23 +1158,17 @@ public class ConversationsActivity extends XmppActivity
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
-        // Check if lock is set
-        if (getBooleanPreference("app_lock_enabled", R.bool.app_lock_enabled)) {
-            EasyLock.setBackgroundColor(getColor(R.color.black26));
-            EasyLock.checkPassword(this);
-            EasyLock.forgotPassword(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    Toast.makeText(ConversationsActivity.this, R.string.app_lock_forgot_password, Toast.LENGTH_LONG).show();
-                }
-            });
-        }
         super.onCreate(savedInstanceState);
         savedState = savedInstanceState;
         ConversationMenuConfigurator.reloadFeatures(this);
         OmemoSetting.load(this);
         this.binding = DataBindingUtil.setContentView(this, R.layout.activity_conversations);
         Activities.setStatusAndNavigationBarColors(this, binding.getRoot());
+        final View miniPlayerRoot = binding.getRoot().findViewById(R.id.audio_miniplayer);
+        if (miniPlayerRoot != null) {
+            this.audioMiniPlayer =
+                    new eu.siacs.conversations.ui.service.AudioMiniPlayer(this, miniPlayerRoot);
+        }
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
         this.getFragmentManager().addOnBackStackChangedListener(this::invalidateActionBarTitle);
@@ -1487,6 +1516,9 @@ public class ConversationsActivity extends XmppActivity
     @Override
     public void onPause() {
         this.mActivityPaused = true;
+        if (this.audioMiniPlayer != null) {
+            this.audioMiniPlayer.onPause();
+        }
         super.onPause();
     }
 
@@ -1494,6 +1526,16 @@ public class ConversationsActivity extends XmppActivity
     public void onResume() {
         super.onResume();
         this.mActivityPaused = false;
+        if (this.audioMiniPlayer != null) {
+            this.audioMiniPlayer.onResume();
+        }
+    }
+
+    /** Open a conversation and scroll to / highlight a specific message (used by the mini-player). */
+    public void openConversationAtMessage(final Conversation conversation, final String messageUuid) {
+        final Bundle extras = new Bundle();
+        extras.putString(EXTRA_MESSAGE_UUID, messageUuid);
+        openConversation(conversation, extras);
     }
 
     private void initializeFragments() {

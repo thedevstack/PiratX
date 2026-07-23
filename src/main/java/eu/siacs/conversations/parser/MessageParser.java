@@ -100,6 +100,9 @@ public class MessageParser extends AbstractParser
     private static final List<String> JINGLE_MESSAGE_ELEMENT_NAMES =
             Arrays.asList("accept", "propose", "proceed", "reject", "retract", "ringing", "finish");
 
+    /** Upper bound on an inline Bits-of-Binary (XEP-0231) payload we will decode and store. */
+    private static final int MAX_INLINE_BOB_BYTES = 1024 * 1024; // 1 MiB
+
     public MessageParser(final XmppConnectionService service, final Account account) {
         super(service, account);
     }
@@ -336,6 +339,383 @@ public class MessageParser extends AbstractParser
         return null;
     }
 
+    private Message parseOmemo2Chat(
+            final Element omemo2Element,
+            final Jid from,
+            final Conversation conversation,
+            final int status,
+            final boolean checkedForDuplicates,
+            final boolean postpone,
+            final OccupantId occupant,
+            final Jid counterpart,
+            final String remoteMsgId,
+            final im.conversations.android.xmpp.model.stanza.Message packet,
+            final Long stanzaTimestamp) {
+        final AxolotlService service = conversation.getAccount().getAxolotlService();
+        final eu.siacs.conversations.crypto.axolotl.XmppOmemo2Message omemo2Message =
+                eu.siacs.conversations.crypto.axolotl.XmppOmemo2Message.fromElement(
+                        omemo2Element, from.asBareJid());
+        if (omemo2Message == null) {
+            Log.d(Config.LOGTAG, conversation.getAccount().getJid().asBareJid()
+                    + ": invalid OMEMO2 message received");
+            return null;
+        }
+        if (!omemo2Message.hasPayload()) {
+            Log.d(Config.LOGTAG, conversation.getAccount().getJid().asBareJid()
+                    + ": received OMEMO2 key transport message (no payload)");
+            return null;
+        }
+        // XEP-0420 §4.5: the SCE <to> must match the recipient JID.
+        //  - MUC: the room bare JID (what every sender to that room sets)
+        //  - 1:1 incoming: our account bare JID
+        //  - 1:1 carbon-sent (our own outgoing message reflected to another own
+        //    device): the counterpart bare JID, because the original send set
+        //    <to> to the recipient
+        final Jid ownBareJid = conversation.getAccount().getJid().asBareJid();
+        final Jid expectedTo;
+        if (conversation.getMode() == Conversation.MODE_MULTI) {
+            expectedTo = conversation.getJid().asBareJid();
+        } else if (from.asBareJid().equals(ownBareJid)) {
+            // carbon of our own outgoing message
+            expectedTo = counterpart.asBareJid();
+        } else {
+            expectedTo = ownBareJid;
+        }
+        // A real OMEMO2 content message always carries the OMEMO fallback <body>
+        // on the outer stanza; metadata-only stanzas (chat states, chat markers,
+        // delivery receipts — sent via sendOmemo2Packet) never do. When we cannot
+        // decrypt, only surface a "not for this device" / "failed" placeholder for
+        // an actual content message. Otherwise every undecryptable typing
+        // notification or read marker would spawn an empty message bubble (the
+        // root cause of the "empty messages on first contact" bug while sessions
+        // are still being established).
+        final boolean isContentMessage = packet.getBody() != null;
+        final eu.siacs.conversations.crypto.axolotl.XmppOmemo2Message.DecryptedSce decrypted;
+        try {
+            decrypted = service.processReceivingOmemo2PayloadMessage(
+                    omemo2Message, postpone, expectedTo, stanzaTimestamp);
+        } catch (NotEncryptedForThisDeviceException e) {
+            return isContentMessage
+                    ? new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_OMEMO2_NOT_FOR_THIS_DEVICE, status)
+                    : null;
+        } catch (BrokenSessionException e) {
+            if (checkedForDuplicates) {
+                service.reportBrokenSessionException(e, postpone, true);
+            }
+            return isContentMessage
+                    ? new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED, status)
+                    : null;
+        } catch (OutdatedSenderException e) {
+            return isContentMessage
+                    ? new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED, status)
+                    : null;
+        } catch (eu.siacs.conversations.crypto.axolotl.CryptoFailedException e) {
+            // Generic decrypt failure: GCM tag mismatch, SCE from/to binding
+            // violation, future-dated <time>, malformed envelope. The ratchet may
+            // already have advanced, so the message is unrecoverable — surface a
+            // visible failure placeholder for content messages instead of
+            // dropping silently (silence would let tampering go unnoticed).
+            Log.w(Config.LOGTAG, conversation.getAccount().getJid().asBareJid()
+                    + ": OMEMO2 payload failed to decrypt from " + from + ": " + e.getMessage());
+            return isContentMessage
+                    ? new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED, status)
+                    : null;
+        }
+        if (decrypted == null) return null;
+
+        // Route SCE content elements that are handled outside normal message storage
+        for (final eu.siacs.conversations.xml.Element el : decrypted.elements) {
+            final String elName = el.getName();
+            if ("live-location-update".equals(elName)) {
+                processLiveLocationUpdate(el);
+                return null;
+            } else if ("live-location-stop".equals(elName)) {
+                final String sessionId = el.getAttribute("id");
+                if (sessionId != null) {
+                    eu.siacs.conversations.utils.LiveLocationManager.getInstance()
+                            .expireIncomingSession(sessionId);
+                    mXmppConnectionService.updateConversationUi();
+                }
+                return null;
+            } else if ("reactions".equals(elName) && Namespace.REACTIONS.equals(el.getNamespace())) {
+                final Reactions reactionsModel = Reactions.to(el.getAttribute("id"));
+                for (final eu.siacs.conversations.xml.Element child : el.getChildren()) {
+                    if ("reaction".equals(child.getName()) && child.getContent() != null) {
+                        reactionsModel.addExtension(
+                                new im.conversations.android.xmpp.model.reactions.Reaction(
+                                        child.getContent()));
+                    }
+                }
+                final boolean isTypeGroupChat =
+                        conversation.getMode() == Conversational.MODE_MULTI;
+                processReactions(reactionsModel, conversation, isTypeGroupChat,
+                        occupant, counterpart, from, status, null);
+                return null;
+            }
+        }
+
+        // WebXDC status/realtime updates: process side effect even when the message
+        // has no body (realtime data carries the payload inside <x xmlns="urn:xmpp:webxdc:0">).
+        eu.siacs.conversations.xml.Element webxdcEl = null;
+        eu.siacs.conversations.xml.Element threadEl = null;
+        for (final eu.siacs.conversations.xml.Element el : decrypted.elements) {
+            if ("x".equals(el.getName()) && "urn:xmpp:webxdc:0".equals(el.getNamespace())) {
+                webxdcEl = el;
+            } else if ("thread".equals(el.getName())) {
+                threadEl = el;
+            }
+        }
+        if (webxdcEl != null && threadEl != null) {
+            processWebxdc(conversation, webxdcEl, threadEl, remoteMsgId, from, decrypted.body);
+        }
+
+        // Re-inject metadata elements that downstream handlers in receiveMessage()
+        // expect to find on the outer packet — chat states, chat markers and
+        // delivery receipts. The senders' SCE envelopes carry them inside the
+        // encrypted content so the server never sees them; we copy them onto the
+        // packet here so the existing extractChatState / processReceived /
+        // processDisplayed code paths keep working unchanged.
+        //
+        // SECURITY: strip any pre-existing plaintext copies of these element
+        // types FIRST. The downstream handlers use first-match semantics
+        // (Iterables.find / hasChild), so a malicious server that prepends a
+        // plaintext <displayed/> or <received/> on the outer stanza would win
+        // precedence over the authentic decrypted element — letting the server
+        // forge read-receipts, delivery receipts, and typing indicators that
+        // the SCE work was designed to prevent.
+        final java.util.List<eu.siacs.conversations.xml.Element> outerChildren =
+                new java.util.ArrayList<>(packet.getChildren());
+        for (final eu.siacs.conversations.xml.Element existing : outerChildren) {
+            final String exName = existing.getName();
+            final String exNs = existing.getNamespace();
+            if ("http://jabber.org/protocol/chatstates".equals(exNs)
+                    || ("received".equals(exName) && "urn:xmpp:receipts".equals(exNs))
+                    || ("received".equals(exName) && "urn:xmpp:chat-markers:0".equals(exNs))
+                    || ("displayed".equals(exName) && "urn:xmpp:chat-markers:0".equals(exNs))) {
+                packet.removeChild(existing);
+                Log.w(Config.LOGTAG, conversation.getAccount().getJid().asBareJid()
+                        + ": stripped server-injected plaintext " + exName
+                        + " from " + from + " before SCE re-injection");
+            }
+        }
+        for (final eu.siacs.conversations.xml.Element el : decrypted.elements) {
+            final String elName = el.getName();
+            final String elNs = el.getNamespace();
+            if ("http://jabber.org/protocol/chatstates".equals(elNs)
+                    || ("received".equals(elName) && "urn:xmpp:receipts".equals(elNs))
+                    || ("received".equals(elName) && "urn:xmpp:chat-markers:0".equals(elNs))
+                    || ("displayed".equals(elName) && "urn:xmpp:chat-markers:0".equals(elNs))) {
+                packet.addChild(el);
+            }
+        }
+
+        // An OMEMO2 content stanza whose SCE envelope carries no body — or an
+        // *empty* <body></body>, which decodes to "" rather than null (see
+        // Element.getContent(), which joins zero text nodes to an empty string) —
+        // must never spawn a visible bubble. This is the remaining root cause of
+        // the "empty messages on first contact" report: while sessions are being
+        // established peers exchange OMEMO2 stanzas that decrypt to a blank body,
+        // and "" slipped past the previous `== null` check. Metadata side effects
+        // (chat states, markers, webxdc, reactions, live-location) are already
+        // handled above, so dropping here loses nothing renderable.
+        // Exception: a subject-only message (<subject> + <thread>, no <body>)
+        // is renderable content — mirror the plaintext acceptance condition in
+        // receiveMessage(). Requiring BOTH keeps session-setup blanks dropped.
+        boolean sceHasSubject = false;
+        boolean sceHasThread = false;
+        for (final eu.siacs.conversations.xml.Element el : decrypted.elements) {
+            if ("subject".equals(el.getName())) sceHasSubject = true;
+            else if ("thread".equals(el.getName())) sceHasThread = true;
+        }
+        if ((decrypted.body == null || decrypted.body.isEmpty())
+                && !(sceHasSubject && sceHasThread)) return null;
+
+        final Message finishedMessage = new Message(
+                conversation, decrypted.body,
+                Message.ENCRYPTION_AXOLOTL_OMEMO2, status);
+        finishedMessage.setFingerprint(decrypted.fingerprint);
+
+        for (final eu.siacs.conversations.xml.Element el : decrypted.elements) {
+            final String elName = el.getName();
+            final String elNs = el.getNamespace();
+            if ("reply".equals(elName) && "urn:xmpp:reply:0".equals(elNs)) {
+                finishedMessage.addPayload(el);
+                final String replyId = el.getAttribute("id");
+                if (replyId != null) {
+                    for (final var parent : mXmppConnectionService.getMessageFuzzyIds(
+                            conversation, List.of(replyId)).entrySet()) {
+                        finishedMessage.setInReplyTo(parent.getValue());
+                    }
+                }
+            } else if ("fallback".equals(elName) && "urn:xmpp:fallback:0".equals(elNs)) {
+                finishedMessage.addPayload(el);
+            } else if ("subject".equals(elName)) {
+                finishedMessage.setSubject(el.getContent());
+            } else if ("thread".equals(elName)) {
+                finishedMessage.addPayload(el);
+            } else if ("replace".equals(elName) && "urn:xmpp:message-correct:0".equals(elNs)) {
+                finishedMessage.addPayload(el);
+            } else if ("retract".equals(elName) && "urn:xmpp:message-retract:1".equals(elNs)) {
+                finishedMessage.addPayload(el);
+            } else if ("ephemeral".equals(elName) && eu.siacs.conversations.xml.Namespace.EPHEMERAL.equals(elNs)) {
+                try {
+                    final int timer = Integer.parseInt(el.getAttribute("timer"));
+                    finishedMessage.setEphemeralTimer(timer);
+                    if (conversation.getMode() != Conversation.MODE_MULTI
+                            || conversation.isPrivateAndNonAnonymous()) {
+                        conversation.setEphemeralTimer(timer);
+                        if (conversation.getMode() == Conversation.MODE_MULTI) {
+                            conversation.setEphemeralBy(from.isBareJid() ? null : from.getResource());
+                        } else {
+                            conversation.setEphemeralBy(null);
+                        }
+                        mXmppConnectionService.databaseBackend.updateConversation(conversation);
+                    }
+                } catch (final NumberFormatException ignored) {}
+            } else if ("i-want-out".equals(elName) && eu.siacs.conversations.xml.Namespace.EPHEMERAL.equals(elNs)) {
+                conversation.setEphemeralTimer(0);
+                mXmppConnectionService.databaseBackend.updateConversation(conversation);
+            } else if ("live-location".equals(elName) && Namespace.LIVE_LOCATION.equals(elNs)) {
+                finishedMessage.addPayload(el);
+            } else if ("html".equals(elName) && "http://jabber.org/protocol/xhtml-im".equals(elNs)) {
+                if (el.findChild("body", "http://www.w3.org/1999/xhtml") != null) {
+                    finishedMessage.addPayload(el);
+                }
+            } else if ("Description".equals(elName)
+                    && "http://www.w3.org/1999/02/22-rdf-syntax-ns#".equals(elNs)) {
+                // OGP / RDF link-description embedded by the sender's
+                // showLinkPreviews flow. Carried inside the SCE envelope, so
+                // here it has been decrypted and authenticated. Forward to
+                // Message.getLinkDescriptions() for MessageAdapter rendering.
+                finishedMessage.addPayload(el);
+            } else if ("data".equals(elName) && "urn:xmpp:bob".equals(elNs)) {
+                final String cidAttr = el.getAttribute("cid");
+                final String contentType = el.getAttribute("type");
+                final String base64Content = el.getContent();
+                if (cidAttr != null && base64Content != null) {
+                    try {
+                        final Cid cid = BobTransfer.cid(cidAttr);
+                        if (cid != null && mXmppConnectionService.getFileForCid(cid) == null) {
+                            String fileExt = "dat";
+                            if (contentType != null) {
+                                final String ext = eu.siacs.conversations.utils.MimeUtils.guessExtensionFromMimeType(contentType);
+                                if (ext != null) fileExt = ext;
+                            }
+                            // Defensive size cap: a BoB sticker/thumbnail is small. Refuse to
+                            // decode/write anything whose base64 alone already exceeds the
+                            // decoded-byte cap (~4/3 of it), so a malformed or hostile inline
+                            // <data> cannot force a large heap allocation and disk write.
+                            final String trimmed = base64Content.trim();
+                            if ((long) trimmed.length() * 3 / 4 > MAX_INLINE_BOB_BYTES) {
+                                Log.w(Config.LOGTAG, "ignoring oversized inline OMEMO2 BoB data (~"
+                                        + ((long) trimmed.length() * 3 / 4) + " bytes) from " + from);
+                            } else {
+                            final byte[] bytes = android.util.Base64.decode(trimmed, android.util.Base64.DEFAULT);
+                            if (bytes.length > MAX_INLINE_BOB_BYTES) {
+                                Log.w(Config.LOGTAG, "ignoring oversized inline OMEMO2 BoB data ("
+                                        + bytes.length + " bytes) from " + from);
+                            } else {
+                            final java.io.File file = mXmppConnectionService.getFileBackend()
+                                    .getStorageLocation(null, new java.io.ByteArrayInputStream(bytes), fileExt);
+                            file.getParentFile().mkdirs();
+                            if (!file.exists()) file.createNewFile();
+                            try (final java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) {
+                                fos.write(bytes);
+                            }
+                            } // end inner size-check else
+                            } // end outer size-check else
+                        }
+                    } catch (final Exception e) {
+                        Log.w(Config.LOGTAG, "failed to save inline OMEMO2 BoB sticker: " + e);
+                    }
+                }
+            } else if ("reference".equals(elName) && "urn:xmpp:reference:0".equals(elNs)) {
+                if (el.findChild("media-sharing", "urn:xmpp:sims:1") != null) {
+                    finishedMessage.setFileParams(new Message.FileParams(el));
+                    if (CryptoHelper.isPgpEncryptedUrl(finishedMessage.getFileParams().url)) {
+                        finishedMessage.setEncryption(Message.ENCRYPTION_DECRYPTED);
+                    }
+                }
+            } else if ("x".equals(elName) && Namespace.OOB.equals(elNs)) {
+                // File share carried inside the encrypted SCE envelope: the <x
+                // xmlns='jabber:x:oob'><url> holds the file URL while decrypted.body keeps
+                // the caption (the <fallback for='oob'> payload above strips the URL span
+                // from the body for display). Mirrors the plaintext OOB handling.
+                final Message.FileParams fileParams = new Message.FileParams(el);
+                if (fileParams.url != null) {
+                    finishedMessage.setFileParams(fileParams);
+                    if (CryptoHelper.isPgpEncryptedUrl(fileParams.url)) {
+                        finishedMessage.setEncryption(Message.ENCRYPTION_DECRYPTED);
+                    }
+                }
+            } else if ("x".equals(elName) && "urn:xmpp:webxdc:0".equals(elNs)) {
+                finishedMessage.addPayload(el);
+            }
+        }
+
+        return finishedMessage;
+    }
+
+    private void processWebxdc(final Conversation conversation, final Element webxdc,
+                               final Element thread, final String remoteMsgId,
+                               final Jid sender, final String body) {
+        Jid webxdcSender = sender.asBareJid();
+        if (conversation.getMode() == Conversation.MODE_MULTI) {
+            if (conversation.getMucOptions().nonanonymous()) {
+                webxdcSender = conversation.getMucOptions().getTrueCounterpart(sender);
+            } else {
+                webxdcSender = sender;
+            }
+        }
+        final var document = webxdc.findChildContent("document", "urn:xmpp:webxdc:0");
+        final var summary = webxdc.findChildContent("summary", "urn:xmpp:webxdc:0");
+        final var payload = webxdc.findChildContent("json", "urn:xmpp:json:0");
+        if (document != null || summary != null || payload != null) {
+            mXmppConnectionService.insertWebxdcUpdate(new WebxdcUpdate(
+                    conversation,
+                    remoteMsgId,
+                    webxdcSender,
+                    thread,
+                    body,
+                    document,
+                    summary,
+                    payload
+            ));
+        }
+        final var notifyJson = webxdc.findChildContent("notify", "urn:xmpp:webxdc:0");
+        if (notifyJson != null && !webxdcSender.equals(conversation.getAccount().getJid().asBareJid())) {
+            final String notifyText = resolveWebxdcNotify(notifyJson, conversation);
+            if (notifyText != null) {
+                mXmppConnectionService.getNotificationService().pushWebxdc(conversation, notifyText);
+            }
+        }
+        final var realtime = webxdc.findChildContent("data", "urn:xmpp:webxdc:0");
+        if (realtime != null) conversation.webxdcRealtimeData(thread, realtime);
+        mXmppConnectionService.updateConversationUi();
+    }
+
+    private String resolveWebxdcNotify(final String notifyJson, final Conversation conversation) {
+        try {
+            final org.json.JSONObject obj = new org.json.JSONObject(notifyJson);
+            final java.util.List<String> keys = new java.util.ArrayList<>();
+            final var bare = conversation.getAccount().getJid().asBareJid().toString();
+            keys.add("xmpp:" + android.net.Uri.encode(bare, "@/+"));
+            keys.add(bare);
+            if (conversation.getMode() == Conversation.MODE_MULTI) {
+                final var self = conversation.getMucOptions().getSelf();
+                if (self != null && self.getOccupantId() != null) keys.add(self.getOccupantId());
+            }
+            keys.add("*");
+            for (final String k : keys) {
+                final String t = obj.optString(k, null);
+                if (t != null && !t.isEmpty()) return t;
+            }
+        } catch (final Exception e) {
+            Log.w(Config.LOGTAG, "webxdc notify parse: " + e);
+        }
+        return null;
+    }
+
     private Invite extractInvite(final Element message) {
         final Element mucUser = message.findChild("x", Namespace.MUC_USER);
         if (mucUser != null) {
@@ -414,7 +794,13 @@ public class MessageParser extends AbstractParser
                             + from
                             + ", processing... ");
             final AxolotlService axolotlService = account.getAxolotlService();
-            axolotlService.registerDevices(from, deviceIds);
+            axolotlService.registerDevices(from, deviceIds, false);
+        } else if (AxolotlService.PEP_OMEMO2_DEVICE_LIST.equals(node)) {
+            final Element item = items.findChild("item");
+            final Set<Integer> deviceIds = IqParser.omemo2DeviceIds(item);
+            Log.d(Config.LOGTAG, AxolotlService.getLogprefix(account)
+                    + "Received OMEMO2 PEP device list " + deviceIds + " from " + from);
+            account.getAxolotlService().registerOmemo2Devices(from, deviceIds);
         } else if (Namespace.BOOKMARKS.equals(node) && account.getJid().asBareJid().equals(from)) {
             final var connection = account.getXmppConnection();
             if (connection.getFeatures().bookmarksConversion()) {
@@ -790,6 +1176,7 @@ public class MessageParser extends AbstractParser
         final var reactions = packet.getExtension(Reactions.class);
 
         final var axolotlEncrypted = packet.getOnlyExtension(Encrypted.class);
+        final Element omemo2Encrypted = packet.findChild("encrypted", Namespace.OMEMO2);
         int status;
         final Jid counterpart;
         final Jid to = packet.getTo();
@@ -942,38 +1329,13 @@ public class MessageParser extends AbstractParser
         final Element thread = packet.findChild("thread");
         if (webxdc != null && thread != null) {
             final Conversation conversation = mXmppConnectionService.findOrCreateConversation(account, counterpart.asBareJid(), conversationIsProbablyMuc, false, query, false);
-            Jid webxdcSender = counterpart.asBareJid();
-            if (conversation.getMode() == Conversation.MODE_MULTI) {
-                if(conversation.getMucOptions().nonanonymous()) {
-                    webxdcSender = conversation.getMucOptions().getTrueCounterpart(counterpart);
-                } else {
-                    webxdcSender = counterpart;
-                }
-            }
-            final var document = webxdc.findChildContent("document", "urn:xmpp:webxdc:0");
-            final var summary = webxdc.findChildContent("summary", "urn:xmpp:webxdc:0");
-            final var payload = webxdc.findChildContent("json", "urn:xmpp:json:0");
-            if (document != null || summary != null || payload != null) {
-                mXmppConnectionService.insertWebxdcUpdate(new WebxdcUpdate(
-                        conversation,
-                        remoteMsgId,
-                        counterpart,
-                        thread,
-                        body == null ? null : body.content,
-                        document,
-                        summary,
-                        payload
-                ));
-            }
-
-            final var realtime = webxdc.findChildContent("data", "urn:xmpp:webxdc:0");
-            if (realtime != null) conversation.webxdcRealtimeData(thread, realtime);
-
-            mXmppConnectionService.updateConversationUi();
+            processWebxdc(conversation, webxdc, thread, remoteMsgId, counterpart, body == null ? null : body.content);
         }
 
         // Basic visibility for voice requests
-        if (body == null && html == null && pgpEncrypted == null && axolotlEncrypted == null && !isMucStatusMessage) {
+        Jid voiceRequester = null;
+        Jid voiceRequesterRealJid = null;
+        if (body == null && html == null && pgpEncrypted == null && axolotlEncrypted == null && omemo2Encrypted == null && !isMucStatusMessage) {
             final Element formEl = packet.findChild("x", "jabber:x:data");
             if (formEl != null) {
                 final Data form = Data.parse(formEl);
@@ -981,30 +1343,47 @@ public class MessageParser extends AbstractParser
                 final String nick = form.getValue("muc#roomnick");
                 if ("http://jabber.org/protocol/muc#request".equals(form.getFormType()) && "participant".equals(role)) {
                     body = new LocalizedContent("" + nick + " " + mXmppConnectionService.getString(R.string.is_requesting_to_speak), "en", 1);
+                    // attribute the notification to the requesting occupant so moderators
+                    // can manage the requester directly from the message avatar
+                    if (nick != null && !nick.trim().isEmpty()) {
+                        try {
+                            voiceRequester = counterpart.asBareJid().withResource(nick);
+                        } catch (final IllegalArgumentException e) {
+                            Log.w(Config.LOGTAG, "voice request with unusable nick: " + nick);
+                        }
+                    }
+                    final String requesterJid = form.getValue("muc#jid");
+                    if (requesterJid != null) {
+                        try {
+                            voiceRequesterRealJid = Jid.of(requesterJid).asBareJid();
+                        } catch (final IllegalArgumentException e) {
+                            // ignore, nick attribution is enough
+                        }
+                    }
                 }
             }
         }
 
-        // Handle live location updates silently — do not store as messages
-        final Element liveLocUpdate = packet.findChild("live-location-update", Namespace.LIVE_LOCATION);
-        if (liveLocUpdate != null && status == Message.STATUS_RECEIVED && query == null) {
-            processLiveLocationUpdate(liveLocUpdate);
-            return;
-        }
-
-        final Element liveLocStop = packet.findChild("live-location-stop", Namespace.LIVE_LOCATION);
-        if (liveLocStop != null && status == Message.STATUS_RECEIVED && query == null) {
-            final String sessionId = liveLocStop.getAttribute("id");
-            if (sessionId != null) {
-                eu.siacs.conversations.utils.LiveLocationManager.getInstance().expireIncomingSession(sessionId);
-                mXmppConnectionService.updateConversationUi();
+        // Plaintext live-location handlers were removed. Live-location updates
+        // and stops are only accepted from inside a decrypted OMEMO2 SCE
+        // envelope (see parseOmemo2Chat). Accepting them from the outer
+        // (unauthenticated, server-readable) stanza would let any federated
+        // JID register/hijack incoming sessions on the recipient's map —
+        // bypassing the SCE metadata-encryption guarantee.
+        if (status == Message.STATUS_RECEIVED && query == null) {
+            if (packet.findChild("live-location-update", Namespace.LIVE_LOCATION) != null
+                    || packet.findChild("live-location-stop", Namespace.LIVE_LOCATION) != null) {
+                Log.w(Config.LOGTAG, account.getJid().asBareJid()
+                        + ": dropping plaintext live-location element from " + from
+                        + " (must arrive inside an OMEMO2 SCE envelope)");
+                return;
             }
-            return;
         }
 
         if (reactions == null && (body != null
                 || pgpEncrypted != null
                 || (axolotlEncrypted != null && axolotlEncrypted.hasChild("payload"))
+                || (omemo2Encrypted != null && omemo2Encrypted.hasChild("payload"))
                 || !attachments.isEmpty() || html != null || (packet.hasChild("subject") && packet.hasChild("thread")))
                 && !isMucStatusMessage) {
             final Conversation conversation =
@@ -1077,6 +1456,75 @@ public class MessageParser extends AbstractParser
                 }
             } else if (pgpEncrypted != null && Config.supportOpenPgp()) {
                 message = new Message(conversation, pgpEncrypted, Message.ENCRYPTION_PGP, status);
+            } else if (axolotlEncrypted != null && omemo2Encrypted != null) {
+                // Stanza-level downgrade defence: no legitimate sender produces
+                // both OMEMO2 and legacy containers on the same message. A
+                // malicious server can append one to force the recipient onto
+                // the weaker stack (or silently drop the OMEMO2 ciphertext via
+                // the legacy "not for this device" path). Reject the entire
+                // stanza rather than picking either branch.
+                Log.w(Config.LOGTAG, account.getJid().asBareJid()
+                        + ": rejecting stanza from " + from
+                        + " containing BOTH OMEMO2 and legacy <encrypted> elements"
+                        + " (likely downgrade attempt)");
+                return;
+            } else if (omemo2Encrypted != null && Config.supportOmemo()) {
+                Jid origin;
+                if (conversationMultiMode) {
+                    final Jid fallback = conversation.getMucOptions().getTrueCounterpart(counterpart);
+                    origin = getTrueCounterpart(query != null ? mucUserElement : null, fallback);
+                    if (origin == null) {
+                        Log.d(Config.LOGTAG, "OMEMO2 message in anonymous conference, no origin found");
+                        return;
+                    }
+                } else {
+                    origin = from;
+                }
+                final boolean liveMessage = query == null && !isTypeGroupChat && mucUserElement == null;
+                final boolean checkedForDuplicates = liveMessage
+                        || (serverMsgId != null && remoteMsgId != null
+                        && !conversation.possibleDuplicate(serverMsgId, remoteMsgId));
+                message = parseOmemo2Chat(omemo2Encrypted, origin, conversation, status,
+                        checkedForDuplicates, query != null, occupant, counterpart, remoteMsgId, packet,
+                        timestamp);
+                if (message == null) {
+                    // OMEMO2-wrapped metadata-only stanza (chat state, chat marker,
+                    // delivery receipt). parseOmemo2Chat() has re-injected the relevant
+                    // SCE child elements onto `packet`; run the metadata handlers now,
+                    // since the normal post-message processing below is skipped.
+                    extractChatState(conversation, isTypeGroupChat, packet);
+                    final var injectedReceived = packet.getExtension(
+                            im.conversations.android.xmpp.model.receipts.Received.class);
+                    if (injectedReceived != null) {
+                        processReceived(injectedReceived, packet, query, from);
+                    }
+                    final var injectedDisplayed = packet.getExtension(Displayed.class);
+                    if (injectedDisplayed != null) {
+                        processDisplayed(injectedDisplayed, packet, selfAddressed,
+                                counterpart, query, isTypeGroupChat, conversation,
+                                mucUserElement, from);
+                    }
+                    return;
+                }
+                if (conversationMultiMode) {
+                    message.setTrueCounterpart(origin);
+                }
+                // <replace> (correction) and <retract> (XEP-0424 deletion) come from the
+                // decrypted SCE content — expose them to the outer message-correction logic
+                // which reads replaceElement / replacementId. A non-"replace" element name
+                // makes that logic treat it as a retraction (see isRetraction below).
+                for (final Element p : message.getPayloads()) {
+                    if ("replace".equals(p.getName()) && "urn:xmpp:message-correct:0".equals(p.getNamespace())) {
+                        replaceElement = p;
+                        replacementId = p.getAttribute("id");
+                        break;
+                    }
+                    if ("retract".equals(p.getName()) && "urn:xmpp:message-retract:1".equals(p.getNamespace())) {
+                        replaceElement = p;
+                        replacementId = p.getAttribute("id");
+                        break;
+                    }
+                }
             } else if (axolotlEncrypted != null && Config.supportOmemo()) {
                 Jid origin;
                 Set<Jid> fallbacksBySourceId = Collections.emptySet();
@@ -1201,8 +1649,17 @@ public class MessageParser extends AbstractParser
             }
 
             if (html != null) message.addPayload(html);
-            message.setSubject(packet.findChildContent("subject"));
-            message.setCounterpart(counterpart);
+            // For OMEMO2 the subject arrives inside the encrypted SCE envelope and was
+            // set by parseOmemo2Chat; never read it from the outer stanza there — a
+            // malicious server could inject a plaintext <subject> (and a null here
+            // would clear the decrypted one).
+            if (omemo2Encrypted == null) {
+                message.setSubject(packet.findChildContent("subject"));
+            }
+            message.setCounterpart(voiceRequester != null ? voiceRequester : counterpart);
+            if (voiceRequester != null && voiceRequesterRealJid != null && conversationMultiMode) {
+                message.setTrueCounterpart(voiceRequesterRealJid);
+            }
             message.setRemoteMsgId(remoteMsgId);
             message.setServerMsgId(serverMsgId);
             message.setCarbon(isCarbon);
@@ -1488,7 +1945,9 @@ public class MessageParser extends AbstractParser
                                 .getPgpDecryptionService()
                                 .decrypt(message, notify);
             } else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL_NOT_FOR_THIS_DEVICE
-                    || message.getEncryption() == Message.ENCRYPTION_AXOLOTL_FAILED) {
+                    || message.getEncryption() == Message.ENCRYPTION_AXOLOTL_FAILED
+                    || message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2_NOT_FOR_THIS_DEVICE
+                    || message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED) {
                 notify = false;
             }
 
@@ -1529,7 +1988,16 @@ public class MessageParser extends AbstractParser
 
             // Register incoming live-location sessions
             if (status == Message.STATUS_RECEIVED && message.isGeoUri()) {
-                final eu.siacs.conversations.xml.Element liveLocEl = packet.findChild("live-location", Namespace.LIVE_LOCATION);
+                eu.siacs.conversations.xml.Element liveLocEl = packet.findChild("live-location", Namespace.LIVE_LOCATION);
+                if (liveLocEl == null) {
+                    // For OMEMO2, the element was inside the SCE payload and is now in message payloads
+                    for (final eu.siacs.conversations.xml.Element pl : message.getPayloads()) {
+                        if ("live-location".equals(pl.getName()) && Namespace.LIVE_LOCATION.equals(pl.getNamespace())) {
+                            liveLocEl = pl;
+                            break;
+                        }
+                    }
+                }
                 if (liveLocEl != null) {
                     final String sessionId = liveLocEl.getAttribute("id");
                     final String expiresAtStr = liveLocEl.getAttribute("expires");
@@ -1545,7 +2013,9 @@ public class MessageParser extends AbstractParser
                             }
                         } catch (Exception ignored) {}
                     }
-                    message.addPayload(liveLocEl);
+                    if (!message.getPayloads().contains(liveLocEl)) {
+                        message.addPayload(liveLocEl);
+                    }
                 }
             }
 
@@ -1557,12 +2027,14 @@ public class MessageParser extends AbstractParser
                     this.mXmppConnectionService.getHttpConnectionManager();
             if (message.trusted() && message.treatAsDownloadable() && manager.getAutoAcceptFileSize() > 0) {
                 if (message.getOob() != null && "cid".equalsIgnoreCase(message.getOob().getScheme())) {
-                    try {
-                        BobTransfer transfer = new BobTransfer.ForMessage(message, mXmppConnectionService);
-                        message.setTransferable(transfer);
-                        transfer.start();
-                    } catch (URISyntaxException e) {
-                        Log.d(Config.LOGTAG, "BobTransfer failed to parse URI");
+                    if (message.getEncryption() == Message.ENCRYPTION_NONE) {
+                        try {
+                            BobTransfer transfer = new BobTransfer.ForMessage(message, mXmppConnectionService);
+                            message.setTransferable(transfer);
+                            transfer.start();
+                        } catch (URISyntaxException e) {
+                            Log.d(Config.LOGTAG, "BobTransfer failed to parse URI");
+                        }
                     }
                 } else {
                     manager.createNewDownloadConnection(message);
@@ -2147,7 +2619,12 @@ public class MessageParser extends AbstractParser
                         reactionFrom = account.getJid().asBareJid();
                     }
                 } else {
-                    if (packet.fromAccount(account)) {
+                    final boolean fromOwnAccount = packet != null
+                            ? packet.fromAccount(account)
+                            : mucTrueCounterPart != null
+                                    && mucTrueCounterPart.asBareJid()
+                                            .equals(account.getJid().asBareJid());
+                    if (fromOwnAccount) {
                         isReceived = false;
                         reactionFrom = account.getJid().asBareJid();
                     } else {
@@ -2241,16 +2718,39 @@ public class MessageParser extends AbstractParser
                 receiptsNamespaces.add("urn:xmpp:receipts");
             }
             if (receiptsNamespaces.size() > 0) {
-                final var receipt =
-                        mXmppConnectionService
-                                .getMessageGenerator()
-                                .received(
-                                        account,
-                                        packet.getFrom(),
-                                        remoteMsgId,
-                                        receiptsNamespaces,
-                                        packet.getType());
-                mXmppConnectionService.sendMessagePacket(account, receipt);
+                // If this conversation is OMEMO2-encrypted, wrap the receipt in an SCE
+                // envelope so we don't reveal which messages we received/displayed.
+                final Conversation conv = mXmppConnectionService
+                        .find(account, packet.getFrom().asBareJid());
+                final boolean useOmemo2 = conv != null
+                        && conv.getNextEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2;
+                if (useOmemo2) {
+                    final boolean groupChat = packet.getType()
+                            == im.conversations.android.xmpp.model.stanza.Message.Type.GROUPCHAT;
+                    final var basePacket = new im.conversations.android.xmpp.model.stanza.Message();
+                    basePacket.setType(packet.getType());
+                    basePacket.setTo(groupChat ? packet.getFrom().asBareJid() : packet.getFrom());
+                    basePacket.setFrom(account.getJid());
+                    basePacket.addChild("store", "urn:xmpp:hints");
+                    final List<Element> contents = new ArrayList<>();
+                    for (final String ns : receiptsNamespaces) {
+                        final Element received = new Element("received", ns);
+                        received.setAttribute("id", remoteMsgId);
+                        contents.add(received);
+                    }
+                    account.getAxolotlService().sendOmemo2Packet(conv, basePacket, contents);
+                } else {
+                    final var receipt =
+                            mXmppConnectionService
+                                    .getMessageGenerator()
+                                    .received(
+                                            account,
+                                            packet.getFrom(),
+                                            remoteMsgId,
+                                            receiptsNamespaces,
+                                            packet.getType());
+                    mXmppConnectionService.sendMessagePacket(account, receipt);
+                }
             }
         } else if (query.isCatchup()) {
             if (request) {

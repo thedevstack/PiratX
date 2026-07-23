@@ -418,13 +418,11 @@ public class WebxdcPage implements ConversationPage {
 				Log.w(Config.LOGTAG, "WebxdcPage sendStatusUpdate invalid JSON: " + e);
 			}
 			String payload = null;
-			int encryption = Message.ENCRYPTION_NONE;
-			if (!params.has("payload") && !params.has("document") && !params.has("summary")) {
-				if (source.getConversation() instanceof Conversation) {
-					encryption = ((Conversation) source.getConversation()).getNextEncryption();
-				} else {
-					encryption = source.getEncryption();
-				}
+			int encryption;
+			if (source.getConversation() instanceof Conversation) {
+				encryption = ((Conversation) source.getConversation()).getNextEncryption();
+			} else {
+				encryption = source.getEncryption();
 			}
 			Message message = new Message(source.getConversation(), descr, encryption);
 			message.addPayload(new Element("store", "urn:xmpp:hints"));
@@ -439,6 +437,10 @@ public class WebxdcPage implements ConversationPage {
 			}
 			if (params.has("summary")) {
 				webxdc.addChild("summary").setContent(params.optString("summary", null));
+			}
+			final JSONObject notifyDict = params.optJSONObject("notify");
+			if (notifyDict != null && notifyDict.length() > 0) {
+				webxdc.addChild("notify", "urn:xmpp:webxdc:0").setContent(notifyDict.toString());
 			}
 			message.setBody(params.optString("info", null));
 			message.setThread(source.getThread());
@@ -522,7 +524,13 @@ public class WebxdcPage implements ConversationPage {
 		public void sendRealtime(byte[] data) {
 			if (source.getStatus() == Message.STATUS_DUMMY) return;
 
-			Message message = new Message(source.getConversation(), null, Message.ENCRYPTION_NONE);
+			final int encryption;
+			if (source.getConversation() instanceof Conversation) {
+				encryption = ((Conversation) source.getConversation()).getNextEncryption();
+			} else {
+				encryption = source.getEncryption();
+			}
+			Message message = new Message(source.getConversation(), null, encryption);
 			message.addPayload(new Element("no-store", "urn:xmpp:hints"));
 			Element webxdc = new Element("x", "urn:xmpp:webxdc:0");
 			message.addPayload(webxdc);

@@ -11,6 +11,7 @@ import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Comment;
 import eu.siacs.conversations.entities.Contact;
+import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Post;
 import eu.siacs.conversations.entities.Room;
 import eu.siacs.conversations.entities.Story;
@@ -34,25 +35,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import eu.siacs.conversations.Config;
-import eu.siacs.conversations.crypto.axolotl.AxolotlService;
-import eu.siacs.conversations.entities.Account;
-import eu.siacs.conversations.entities.Contact;
-import eu.siacs.conversations.entities.Conversation;
-import eu.siacs.conversations.entities.Room;
-import eu.siacs.conversations.services.XmppConnectionService;
-import eu.siacs.conversations.xml.Element;
-import eu.siacs.conversations.xml.Namespace;
-import eu.siacs.conversations.xmpp.Jid;
-import eu.siacs.conversations.xmpp.OnUpdateBlocklist;
-import eu.siacs.conversations.xmpp.forms.Data;
-import im.conversations.android.xmpp.model.stanza.Iq;
-
-import org.whispersystems.libsignal.IdentityKey;
-import org.whispersystems.libsignal.InvalidKeyException;
-import org.whispersystems.libsignal.ecc.Curve;
-import org.whispersystems.libsignal.ecc.ECPublicKey;
-import org.whispersystems.libsignal.state.PreKeyBundle;
+import org.signal.libsignal.protocol.IdentityKey;
+import org.signal.libsignal.protocol.InvalidKeyException;
+import org.signal.libsignal.protocol.ecc.ECPublicKey;
+import org.signal.libsignal.protocol.kem.KEMKeyPair;
+import org.signal.libsignal.protocol.kem.KEMKeyType;
+import org.signal.libsignal.protocol.kem.KEMPublicKey;
+import org.signal.libsignal.protocol.state.PreKeyBundle;
 
 public class IqParser extends AbstractParser implements Consumer<Iq> {
 
@@ -174,6 +163,19 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
         return AbstractParser.avatarData(items);
     }
 
+    /**
+     * Decode an OMEMO2 EC public key from either the spec-compliant 32-byte raw format or the
+     * legacy 33-byte libsignal-prefixed format (0x05 || 32 bytes).
+     */
+    private static ECPublicKey decodeOmemo2EcPublicKey(final byte[] bytes) throws InvalidKeyException {
+        if (bytes.length == 32) {
+            return ECPublicKey.fromPublicKeyBytes(bytes);
+        } else if (bytes.length == 33 && bytes[0] == 0x05) {
+            return new ECPublicKey(bytes);
+        }
+        throw new InvalidKeyException("bad key type <0x" + String.format("%02x", bytes.length > 0 ? bytes[0] : 0) + ">");
+    }
+
     public static Element getItem(final Iq packet) {
         final Element pubsub = packet.findChild("pubsub", Namespace.PUBSUB);
         if (pubsub == null) {
@@ -198,7 +200,9 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
                     }
                     try {
                         Integer id = Integer.valueOf(device.getAttribute("id"));
-                        deviceIds.add(id);
+                        if (id > 0) {
+                            deviceIds.add(id);
+                        }
                     } catch (NumberFormatException e) {
                         Log.e(
                                 Config.LOGTAG,
@@ -229,22 +233,17 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
     }
 
     private static ECPublicKey signedPreKeyPublic(final Element bundle) {
-        ECPublicKey publicKey = null;
         final String signedPreKeyPublic = bundle.findChildContent("signedPreKeyPublic");
         if (signedPreKeyPublic == null) {
             return null;
         }
         try {
-            publicKey = Curve.decodePoint(base64decode(signedPreKeyPublic), 0);
+            return new ECPublicKey(base64decode(signedPreKeyPublic));
         } catch (final IllegalArgumentException | InvalidKeyException e) {
-            Log.e(
-                    Config.LOGTAG,
-                    AxolotlService.LOGPREFIX
-                            + " : "
-                            + "Invalid signedPreKeyPublic in PEP: "
-                            + e.getMessage());
+            Log.e(Config.LOGTAG, AxolotlService.LOGPREFIX
+                    + " : Invalid signedPreKeyPublic in PEP: " + e.getMessage());
+            return null;
         }
-        return publicKey;
     }
 
     private static byte[] signedPreKeySignature(final Element bundle) {
@@ -278,6 +277,106 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
                             + e.getMessage());
             return null;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Legacy XEP-0384 v0.3 bundle parsers (old libsignal types). Wire format
+    // is identical to the post-PQ bundle; only the consuming library differs.
+    // -----------------------------------------------------------------------
+
+    public static org.whispersystems.libsignal.IdentityKey legacyIdentityKey(final Element bundle) {
+        final String b64 = bundle.findChildContent("identityKey");
+        if (b64 == null) return null;
+        try {
+            return new org.whispersystems.libsignal.IdentityKey(base64decode(b64), 0);
+        } catch (final IllegalArgumentException | org.whispersystems.libsignal.InvalidKeyException e) {
+            Log.w(Config.LOGTAG, AxolotlService.LOGPREFIX + " : invalid legacy identityKey: " + e);
+            return null;
+        }
+    }
+
+    public static org.whispersystems.libsignal.ecc.ECPublicKey legacySignedPreKeyPublic(final Element bundle) {
+        final String b64 = bundle.findChildContent("signedPreKeyPublic");
+        if (b64 == null) return null;
+        try {
+            return org.whispersystems.libsignal.ecc.Curve.decodePoint(base64decode(b64), 0);
+        } catch (final org.whispersystems.libsignal.InvalidKeyException e) {
+            Log.w(Config.LOGTAG, AxolotlService.LOGPREFIX + " : invalid legacy spk: " + e);
+            return null;
+        }
+    }
+
+    public static Integer legacySignedPreKeyId(final Element bundle) {
+        final Element spk = bundle.findChild("signedPreKeyPublic");
+        if (spk == null) return null;
+        final String id = spk.getAttribute("signedPreKeyId");
+        if (id == null) return null;
+        try {
+            return Integer.parseInt(id);
+        } catch (final NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static byte[] legacySignedPreKeySignature(final Element bundle) {
+        final String b64 = bundle.findChildContent("signedPreKeySignature");
+        if (b64 == null) return null;
+        try {
+            return base64decode(b64);
+        } catch (final IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Parse the legacy bundle stripped of its one-time prekeys. Returns a partial
+     * {@code PreKeyBundle} with {@code preKeyId = 0} (sentinel) — the caller
+     * picks a one-time prekey from {@link #legacyPreKeyPublics(Iq)} and assembles
+     * the final bundle before {@code SessionBuilder.process()}.
+     */
+    public static org.whispersystems.libsignal.state.PreKeyBundle legacyBundle(final Iq packet) {
+        final Element item = getItem(packet);
+        if (item == null) return null;
+        final Element bundle = item.findChild("bundle");
+        if (bundle == null) return null;
+        final org.whispersystems.libsignal.IdentityKey ik = legacyIdentityKey(bundle);
+        final org.whispersystems.libsignal.ecc.ECPublicKey spk = legacySignedPreKeyPublic(bundle);
+        final Integer spkId = legacySignedPreKeyId(bundle);
+        final byte[] spkSig = legacySignedPreKeySignature(bundle);
+        if (ik == null || spk == null || spkId == null || spkSig == null) return null;
+        // registrationId and deviceId are placeholders; deviceId comes from the
+        // outer fetch context, registration is unused by the protocol after
+        // session build.
+        return new org.whispersystems.libsignal.state.PreKeyBundle(
+                0, 1, 0, null, spkId, spk, spkSig, ik);
+    }
+
+    public static Map<Integer, org.whispersystems.libsignal.ecc.ECPublicKey>
+            legacyPreKeyPublics(final Iq packet) {
+        final Map<Integer, org.whispersystems.libsignal.ecc.ECPublicKey> out = new HashMap<>();
+        final Element item = getItem(packet);
+        if (item == null) return out;
+        final Element bundle = item.findChild("bundle");
+        if (bundle == null) return out;
+        final Element prekeys = bundle.findChild("prekeys");
+        if (prekeys == null) return out;
+        for (final Element pk : prekeys.getChildren()) {
+            if (!"preKeyPublic".equals(pk.getName())) continue;
+            final String content = pk.getContent();
+            final String idAttr = pk.getAttribute("preKeyId");
+            if (content == null || idAttr == null) continue;
+            try {
+                final int id = Integer.parseInt(idAttr);
+                final var ec = org.whispersystems.libsignal.ecc.Curve
+                        .decodePoint(base64decode(content), 0);
+                out.put(id, ec);
+            } catch (final IllegalArgumentException
+                           | org.whispersystems.libsignal.InvalidKeyException e) {
+                Log.w(Config.LOGTAG, AxolotlService.LOGPREFIX
+                        + " : skipping invalid legacy prekey: " + e);
+            }
+        }
+        return out;
     }
 
     public static Map<Integer, ECPublicKey> preKeyPublics(final Iq packet) {
@@ -323,7 +422,7 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
             Integer preKeyId = null;
             try {
                 preKeyId = Integer.valueOf(preKeyPublicElement.getAttribute("preKeyId"));
-                final ECPublicKey preKeyPublic = Curve.decodePoint(base64decode(preKey), 0);
+                final ECPublicKey preKeyPublic = new ECPublicKey(base64decode(preKey));
                 preKeyRecords.put(preKeyId, preKeyPublic);
             } catch (NumberFormatException e) {
                 Log.e(
@@ -404,28 +503,232 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
                 || signedPreKeySignature.length == 0) {
             return null;
         }
-        return new PreKeyBundle(
-                0,
-                0,
-                0,
-                null,
-                signedPreKeyId,
-                signedPreKeyPublic,
-                signedPreKeySignature,
-                identityKey);
+        try {
+            // libsignal 0.94.1: deviceId must be non-zero; preKeyId sentinel for "absent" is -1
+            // (not 0); KEM placeholder satisfies mandatory Kyber fields without a real key.
+            final KEMKeyPair kemPlaceholder = KEMKeyPair.generate(KEMKeyType.KYBER_1024);
+            return new PreKeyBundle(
+                    0,
+                    1,
+                    -1,
+                    null,
+                    signedPreKeyId,
+                    signedPreKeyPublic,
+                    signedPreKeySignature,
+                    identityKey,
+                    0,
+                    kemPlaceholder.getPublicKey(),
+                    new byte[0]);
+        } catch (final IllegalArgumentException e) {
+            Log.w(Config.LOGTAG, "IqParser.bundle: failed to build PreKeyBundle: " + e.getMessage());
+            return null;
+        }
     }
 
-    public static List<PreKeyBundle> preKeys(final Iq preKeys) {
-        List<PreKeyBundle> bundles = new ArrayList<>();
-        Map<Integer, ECPublicKey> preKeyPublics = preKeyPublics(preKeys);
-        if (preKeyPublics != null) {
-            for (Integer preKeyId : preKeyPublics.keySet()) {
-                ECPublicKey preKeyPublic = preKeyPublics.get(preKeyId);
-                bundles.add(new PreKeyBundle(0, 0, preKeyId, preKeyPublic, 0, null, null, null));
+    /** Parse an OMEMO2 device list item. */
+    public static Set<Integer> omemo2DeviceIds(final Element item) {
+        final Set<Integer> ids = new HashSet<>();
+        if (item == null) return ids;
+        final Element devices = item.findChild("devices", Namespace.OMEMO2);
+        if (devices == null) return ids;
+        for (final Element device : devices.getChildren()) {
+            if (!"device".equals(device.getName())) continue;
+            try {
+                final int id = Integer.parseInt(device.getAttribute("id"));
+                if (id > 0) ids.add(id);
+            } catch (final NumberFormatException e) {
+                Log.w(Config.LOGTAG, "OMEMO2: invalid device id: " + device);
             }
         }
+        return ids;
+    }
 
-        return bundles;
+    /** Parse an OMEMO2 bundle from a pubsub IQ result. */
+    public static PreKeyBundle omemo2Bundle(final Iq packet) {
+        final Element item = getItem(packet);
+        if (item == null) return null;
+        final Element bundle = item.findChild("bundle", Namespace.OMEMO2);
+        if (bundle == null) return null;
+        return omemo2BundleFromElement(bundle);
+    }
+
+    private static PreKeyBundle omemo2BundleFromElement(final Element bundle) {
+        // <spk id='N'>b64</spk>
+        final Element spkEl = bundle.findChild("spk");
+        if (spkEl == null) return null;
+        Integer spkId;
+        try {
+            spkId = Integer.valueOf(spkEl.getAttribute("id"));
+        } catch (final NumberFormatException e) {
+            return null;
+        }
+        final String spkContent = spkEl.getContent();
+        if (spkContent == null) return null;
+        ECPublicKey spk;
+        try {
+            spk = decodeOmemo2EcPublicKey(base64decode(spkContent));
+        } catch (final Exception e) {
+            Log.w(Config.LOGTAG, "OMEMO2: invalid spk: " + e.getMessage());
+            return null;
+        }
+        // <spks>b64</spks>
+        final String spksContent = bundle.findChildContent("spks");
+        if (spksContent == null) return null;
+        byte[] spks;
+        try {
+            spks = base64decode(spksContent);
+        } catch (final Exception e) {
+            return null;
+        }
+        // <ik>b64</ik>
+        final String ikContent = bundle.findChildContent("ik");
+        if (ikContent == null) return null;
+        IdentityKey ik;
+        try {
+            ik = new IdentityKey(decodeOmemo2EcPublicKey(base64decode(ikContent)));
+        } catch (final Exception e) {
+            Log.w(Config.LOGTAG, "OMEMO2: invalid ik: " + e.getMessage());
+            return null;
+        }
+        // <kem-spk id='N'>b64</kem-spk> and <kem-spks>b64</kem-spks> (PQXDH)
+        KEMPublicKey kemSpkPublic = null;
+        byte[] kemSpkSig = null;
+        final Element kemSpkEl = bundle.findChild("kem-spk");
+        final String kemSpksContent = bundle.findChildContent("kem-spks");
+        if (kemSpkEl != null && kemSpksContent != null) {
+            final String kemSpkContent = kemSpkEl.getContent();
+            if (kemSpkContent != null) {
+                try {
+                    kemSpkPublic = new KEMPublicKey(base64decode(kemSpkContent));
+                    kemSpkSig = base64decode(kemSpksContent);
+                } catch (final Exception e) {
+                    Log.w(Config.LOGTAG, "OMEMO2: invalid kem-spk: " + e.getMessage());
+                }
+            }
+        }
+        if (kemSpkPublic == null) {
+            final KEMKeyPair kemPlaceholder = KEMKeyPair.generate(KEMKeyType.KYBER_1024);
+            kemSpkPublic = kemPlaceholder.getPublicKey();
+            kemSpkSig = new byte[0];
+        }
+        Integer kemSpkId = 0;
+        if (kemSpkEl != null) {
+            try {
+                kemSpkId = Integer.valueOf(kemSpkEl.getAttribute("id"));
+            } catch (final NumberFormatException e) {
+                kemSpkId = 0;
+            }
+        }
+        try {
+            return new PreKeyBundle(0, 1, -1, null, spkId, spk, spks, ik, kemSpkId, kemSpkPublic, kemSpkSig);
+        } catch (final IllegalArgumentException e) {
+            Log.w(Config.LOGTAG, "IqParser.omemo2Bundle: failed to build PreKeyBundle: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** Parse OMEMO2 EC prekey public keys from a bundle IQ result. */
+    public static Map<Integer, ECPublicKey> omemo2PreKeyPublics(final Iq packet) {
+        final Map<Integer, ECPublicKey> result = new HashMap<>();
+        final Element item = getItem(packet);
+        if (item == null) return result;
+        final Element bundle = item.findChild("bundle", Namespace.OMEMO2);
+        if (bundle == null) return result;
+        final Element prekeys = bundle.findChild("prekeys");
+        if (prekeys == null) return result;
+        for (final Element pk : prekeys.getChildren()) {
+            if (!"pk".equals(pk.getName())) continue;
+            final String pkContent = pk.getContent();
+            if (pkContent == null) continue;
+            int pkId;
+            try {
+                pkId = Integer.parseInt(pk.getAttribute("id"));
+            } catch (final NumberFormatException e) {
+                continue;
+            }
+            try {
+                result.put(pkId, decodeOmemo2EcPublicKey(base64decode(pkContent)));
+            } catch (final Exception e) {
+                Log.w(Config.LOGTAG, "OMEMO2: invalid pk (id=" + pkId + "): " + e.getMessage());
+            }
+        }
+        return result;
+    }
+
+    /** Parse OMEMO2 one-time KEM prekeys from a bundle IQ result. */
+    public static List<KemBundleKey> omemo2KemPreKeys(final Iq packet) {
+        final List<KemBundleKey> keys = new ArrayList<>();
+        final Element item = getItem(packet);
+        if (item == null) return keys;
+        final Element bundle = item.findChild("bundle", Namespace.OMEMO2);
+        if (bundle == null) return keys;
+        final Element kemPrekeys = bundle.findChild("kem-prekeys");
+        if (kemPrekeys == null) return keys;
+        for (final Element kemPk : kemPrekeys.getChildren()) {
+            if (!"kem-pk".equals(kemPk.getName())) continue;
+            final String content = kemPk.getContent();
+            if (content == null) continue;
+            int id;
+            try {
+                id = Integer.parseInt(kemPk.getAttribute("id"));
+            } catch (final NumberFormatException e) {
+                continue;
+            }
+            final String sigAttr = kemPk.getAttribute("sig");
+            final byte[] sig = (sigAttr != null) ? base64decode(sigAttr) : new byte[0];
+            try {
+                final KEMPublicKey key = new KEMPublicKey(base64decode(content));
+                keys.add(new KemBundleKey(id, key, sig));
+            } catch (final Exception e) {
+                Log.w(Config.LOGTAG, "OMEMO2: invalid kem-pk (id=" + id + "): " + e.getMessage());
+            }
+        }
+        return keys;
+    }
+
+    public static final class KemBundleKey {
+        public final int id;
+        public final KEMPublicKey publicKey;
+        public final byte[] signature;
+
+        public KemBundleKey(final int id, final KEMPublicKey publicKey, final byte[] signature) {
+            this.id = id;
+            this.publicKey = publicKey;
+            this.signature = signature;
+        }
+    }
+
+    /** The monocles PQ-OMEMO2 hybrid identity carried in a bundle. */
+    public static final class PqIdentity {
+        public final byte[] identityKey;
+        public final byte[] signature;
+
+        public PqIdentity(final byte[] identityKey, final byte[] signature) {
+            this.identityKey = identityKey;
+            this.signature = signature;
+        }
+    }
+
+    /**
+     * Parse the post-quantum hybrid identity ({@code <pq-ik>} / {@code <pq-sig>})
+     * from an OMEMO2 bundle IQ result, or null if absent/malformed. A null result
+     * means the peer published no PQ identity; this build refuses such bundles
+     * (never downgrade) — enforcement is in {@code buildSessionFromOmemo2PEP}.
+     */
+    public static PqIdentity omemo2PqIdentity(final Iq packet) {
+        final Element item = getItem(packet);
+        if (item == null) return null;
+        final Element bundle = item.findChild("bundle", Namespace.OMEMO2);
+        if (bundle == null) return null;
+        final String pqIkContent = bundle.findChildContent("pq-ik");
+        final String pqSigContent = bundle.findChildContent("pq-sig");
+        if (pqIkContent == null || pqSigContent == null) return null;
+        try {
+            return new PqIdentity(base64decode(pqIkContent), base64decode(pqSigContent));
+        } catch (final Exception e) {
+            Log.w(Config.LOGTAG, "OMEMO2: invalid pq-ik/pq-sig: " + e.getMessage());
+            return null;
+        }
     }
 
     @Override

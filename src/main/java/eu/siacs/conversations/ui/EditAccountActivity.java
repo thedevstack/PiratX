@@ -99,7 +99,9 @@ import eu.siacs.conversations.xmpp.OnUpdateBlocklist;
 import eu.siacs.conversations.xmpp.XmppConnection;
 import eu.siacs.conversations.xmpp.XmppConnection.Features;
 import eu.siacs.conversations.xmpp.forms.Data;
+import android.view.LayoutInflater;
 import eu.siacs.conversations.xmpp.pep.Avatar;
+import java.util.Collection;
 
 import static eu.siacs.conversations.utils.PermissionUtils.allGranted;
 import static eu.siacs.conversations.utils.PermissionUtils.writeGranted;
@@ -988,11 +990,11 @@ public class EditAccountActivity extends OmemoActivity
 
     private void displayVerificationWarningDialog(final XmppUri xmppUri) {
         final MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
-        builder.setTitle(R.string.verify_omemo_keys);
+        builder.setTitle(R.string.verify_omemo2_keys);
         View view = getLayoutInflater().inflate(R.layout.dialog_verify_fingerprints, null);
         final CheckBox isTrustedSource = view.findViewById(R.id.trusted_source);
         TextView warning = view.findViewById(R.id.warning);
-        warning.setText(R.string.verifying_omemo_keys_trusted_source_account);
+        warning.setText(R.string.verifying_omemo2_keys_trusted_source_account);
         builder.setView(view);
         builder.setPositiveButton(
                 R.string.continue_btn,
@@ -1048,6 +1050,12 @@ public class EditAccountActivity extends OmemoActivity
 
         } else if (this.jidToEdit != null) {
             this.mAccount = xmppConnectionService.findAccountByJid(jidToEdit);
+            if (this.mAccount == null && Boolean.FALSE.equals(this.mForceRegister)) {
+                // handoff from MonoclesSignupActivity: prefill the freshly
+                // provisioned address so the user only enters their app password
+                this.binding.accountJid.getEditableText().clear();
+                this.binding.accountJid.getEditableText().append(this.jidToEdit.asBareJid().toString());
+            }
         }
 
         if (mAccount != null) {
@@ -1495,6 +1503,19 @@ public class EditAccountActivity extends OmemoActivity
             final String ownAxolotlFingerprint =
                     this.mAccount.getAxolotlService().getOwnFingerprint();
             if (ownAxolotlFingerprint != null && Config.supportOmemo()) {
+                // Show (and copy) the HYBRID fingerprint, committing to both the
+                // classical and the post-quantum (ML-DSA-87) identity key, so manual
+                // verification authenticates the post-quantum key too. Trust, the QR
+                // code and message-highlight matching stay keyed on the classical
+                // fingerprint (ownAxolotlFingerprint).
+                String ownDisplayedFingerprint;
+                try {
+                    ownDisplayedFingerprint =
+                            this.mAccount.getAxolotlService().getOwnHybridFingerprint();
+                } catch (final RuntimeException e) {
+                    ownDisplayedFingerprint = ownAxolotlFingerprint.substring(2);
+                }
+                final String ownFingerprintToCopy = ownDisplayedFingerprint;
                 this.binding.axolotlFingerprintBox.setVisibility(View.VISIBLE);
                 this.binding.axolotlFingerprintBox.setOnCreateContextMenuListener(
                         (menu, v, menuInfo) -> {
@@ -1502,6 +1523,7 @@ public class EditAccountActivity extends OmemoActivity
                             menu.findItem(R.id.verify_scan).setVisible(false);
                             menu.findItem(R.id.distrust_key).setVisible(false);
                             this.mSelectedFingerprint = ownAxolotlFingerprint;
+                            this.mSelectedFingerprintDisplay = ownFingerprintToCopy;
                         });
                 if (ownAxolotlFingerprint.equals(messageFingerprint)) {
                     this.binding.ownFingerprintDesc.setTextColor(
@@ -1509,18 +1531,18 @@ public class EditAccountActivity extends OmemoActivity
                                     binding.ownFingerprintDesc,
                                     com.google.android.material.R.attr.colorPrimaryVariant));
                     this.binding.ownFingerprintDesc.setText(
-                            R.string.omemo_fingerprint_selected_message);
+                            R.string.omemo2_fingerprint_selected_message);
                 } else {
                     this.binding.ownFingerprintDesc.setTextColor(
                             MaterialColors.getColor(
                                     binding.ownFingerprintDesc,
                                     com.google.android.material.R.attr.colorOnSurface));
-                    this.binding.ownFingerprintDesc.setText(R.string.omemo_fingerprint);
+                    this.binding.ownFingerprintDesc.setText(R.string.omemo2_fingerprint);
                 }
                 this.binding.axolotlFingerprint.setText(
-                        CryptoHelper.prettifyFingerprint(ownAxolotlFingerprint.substring(2)));
+                        CryptoHelper.prettifyFingerprint(ownDisplayedFingerprint));
                 this.binding.axolotlFingerprint.setOnLongClickListener(v -> {
-                    copyOmemoFingerprint(ownAxolotlFingerprint);
+                    copyOmemoFingerprint(ownFingerprintToCopy);
                     return true;
                 });
                 this.binding.showQrCodeButton.setVisibility(View.VISIBLE);
@@ -1531,8 +1553,20 @@ public class EditAccountActivity extends OmemoActivity
             boolean hasKeys = false;
             boolean showUnverifiedWarning = false;
             binding.otherDeviceKeys.removeAllViews();
-            for (final XmppAxolotlSession session :
-                    mAccount.getAxolotlService().findOwnSessions()) {
+            final Collection<XmppAxolotlSession> sessions = mAccount.getAxolotlService().findOwnSessions();
+            final List<AxolotlService.LegacySessionInfo> legacySessions = mAccount.getAxolotlService().findOwnLegacySessions();
+            final LayoutInflater inflater = getLayoutInflater();
+
+            if (!sessions.isEmpty() && !legacySessions.isEmpty()) {
+                View header = inflater.inflate(R.layout.simple_list_item, binding.otherDeviceKeys, false);
+                TextView tv = header.findViewById(android.R.id.text1);
+                tv.setText(R.string.encryption_choice_omemo2);
+                tv.setBackground(null);
+                tv.setPadding(tv.getPaddingLeft(), 0, tv.getPaddingRight(), 0);
+                binding.otherDeviceKeys.addView(header);
+            }
+
+            for (final XmppAxolotlSession session : sessions) {
                 final FingerprintStatus trust = session.getTrust();
                 if (!trust.isCompromised()) {
                     boolean highlight = session.getFingerprint().equals(messageFingerprint);
@@ -1541,6 +1575,27 @@ public class EditAccountActivity extends OmemoActivity
                 }
                 if (trust.isUnverified()) {
                     showUnverifiedWarning = true;
+                }
+            }
+
+            if (!legacySessions.isEmpty()) {
+                if (!sessions.isEmpty()) {
+                    View header = inflater.inflate(R.layout.simple_list_item, binding.otherDeviceKeys, false);
+                    TextView tv = header.findViewById(android.R.id.text1);
+                    tv.setText(R.string.encryption_choice_omemo_legacy);
+                    tv.setBackground(null);
+                    tv.setPadding(tv.getPaddingLeft(), 16, tv.getPaddingRight(), 0);
+                    binding.otherDeviceKeys.addView(header);
+                }
+                for (final AxolotlService.LegacySessionInfo legacySession : legacySessions) {
+                    if (!legacySession.status.isCompromised()) {
+                        boolean highlight = legacySession.fingerprint.equals(messageFingerprint);
+                        addFingerprintRow(binding.otherDeviceKeys, mAccount, legacySession.fingerprint, legacySession.status, highlight, true);
+                        hasKeys = true;
+                    }
+                    if (legacySession.status.isUnverified()) {
+                        showUnverifiedWarning = true;
+                    }
                 }
             }
             if (hasKeys

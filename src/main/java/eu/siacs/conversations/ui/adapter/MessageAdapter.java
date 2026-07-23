@@ -4,6 +4,7 @@ import static android.view.View.GONE;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -12,7 +13,6 @@ import android.graphics.drawable.Drawable;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.preference.PreferenceManager;
 import android.text.Editable;
@@ -21,6 +21,7 @@ import android.text.Spanned;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
+import android.text.TextUtils;
 import android.text.style.ImageSpan;
 import android.text.style.ClickableSpan;
 import android.text.format.DateUtils;
@@ -56,9 +57,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
 import androidx.core.util.Pair;
-import androidx.core.view.ViewCompat;
 import androidx.core.widget.ImageViewCompat;
-import androidx.customview.widget.ViewDragHelper;
 import androidx.databinding.DataBindingUtil;
 import androidx.media3.common.util.Log;
 import androidx.recyclerview.widget.RecyclerView;
@@ -89,7 +88,6 @@ import com.lelloman.identicon.view.GithubIdenticonView;
 
 import android.text.StaticLayout;
 import de.monocles.chat.ui.CollapsableTextView;
-import de.monocles.chat.ui.DraggableListView;
 import eu.siacs.conversations.entities.Story;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.AddReactionActivity;
@@ -168,10 +166,13 @@ import eu.siacs.conversations.xml.Element;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
-public class MessageAdapter extends ArrayAdapter<Message> implements DraggableListView.DraggableAdapter {
+public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageItemViewHolder> {
 
     public static final String DATE_SEPARATOR_BODY = "DATE_SEPARATOR";
+    private static final Executor THUMBNAIL_EXECUTOR = Executors.newSingleThreadExecutor();
     private static final int END = 0;
     private static final int START = 1;
     private static final int STATUS = 2;
@@ -179,6 +180,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
     private static final int RTP_SESSION = 4;
     private final XmppActivity activity;
     private final AudioPlayer audioPlayer;
+    private final List<Message> messages;
     private List<String> highlightedTerm = null;
     private final DisplayMetrics metrics;
     private ConversationFragment mConversationFragment = null;
@@ -203,107 +205,26 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
     private final float targetImageWidthSmallThreshold;
     private final float targetImageWidthLargeThreshold;
     private boolean allowRelativeTimestamps = true;
-    private MessageBoxSwipedListener messageBoxSwipedListener;
 
     private final Typeface notoRegular;
     private final Typeface notoBold;
     private final Typeface notoItalic;
 
-
-    private ViewDragHelper dragHelper = null;
-    private final ViewDragHelper.Callback dragCallback = new ViewDragHelper.Callback() {
-        private int horizontalOffset = 0;
-        private boolean swipedEnoughFirstTime = true;
-
-        @Override
-        public boolean tryCaptureView(@NonNull View child, int pointerId) {
-            return child.getTag(R.id.TAG_DRAGGABLE) != null;
+    /** Whether the row at {@code position} is a message bubble (and so can be swiped to reply). */
+    public boolean isSwipeableMessage(final int position) {
+        if (position < 0 || position >= messages.size()) {
+            return false;
         }
-
-        @Override
-        public void onViewCaptured(@NonNull View capturedChild, int activePointerId) {
-            horizontalOffset = 0;
-            swipedEnoughFirstTime = true;
-            super.onViewCaptured(capturedChild, activePointerId);
-        }
-
-        @Override
-        public void onViewReleased(@NonNull View releasedChild, float xvel, float yvel) {
-            if (dragHelper != null) {
-                dragHelper.settleCapturedViewAt(0, releasedChild.getTop());
-                ViewCompat.postOnAnimation(releasedChild, new SettleRunnable(releasedChild));
-                MessageItemViewHolder viewHolder = (MessageItemViewHolder) releasedChild.getTag();
-
-                // Check if the view was swiped far enough to the right
-                if (viewHolder != null && viewHolder.position >= 0 && viewHolder.position < getCount() && horizontalOffset > releasedChild.getWidth()/8) {
-                    Message m = getItem(viewHolder.position);
-                    if (messageBoxSwipedListener != null) {
-                        messageBoxSwipedListener.onMessageBoxReleasedAfterSwipe(m);
-                    }
-                }
-            }
-            horizontalOffset = 0;
-            swipedEnoughFirstTime = true;
-            super.onViewReleased(releasedChild, xvel, yvel);
-        }
-
-        @Override
-        public int clampViewPositionHorizontal(@NonNull View child, int left, int dx) {
-            // Allow dragging to the right, but not to the left
-            int fixedLeft = Math.max(left, 0);
-            horizontalOffset = fixedLeft;
-
-            // Trigger haptic feedback when swiped far enough to the right
-            if (horizontalOffset > child.getWidth()/8 && swipedEnoughFirstTime) {
-                swipedEnoughFirstTime = false;
-                messageBoxSwipedListener.onMessageBoxSwipedEnough();
-            }
-
-            // Set the maximum drag distance to the right
-            return Math.min(child.getWidth()/4, fixedLeft);
-        }
-
-
-        @Override
-        public int clampViewPositionVertical(@NonNull View child, int top, int dy) {
-            return child.getTop();
-        }
-
-        @Override
-        public int getViewHorizontalDragRange(@NonNull View child) {
-            return Math.max(Math.abs(child.getLeft()), 1);
-        }
-
-        private class SettleRunnable implements Runnable {
-            private View view;
-
-            public SettleRunnable(View view) {
-                this.view = view;
-            }
-
-            @Override
-            public void run() {
-                if (dragHelper != null && dragHelper.continueSettling(true)) {
-                    ViewCompat.postOnAnimation(view, this);
-                }
-            }
-        }
-    };
-
-    @Nullable
-    @Override
-    public ViewDragHelper.Callback getDragCallback() {
-        return dragCallback;
-    }
-
-    @Override
-    public void setViewDragHelper(@Nullable ViewDragHelper helper) {
-        this.dragHelper = helper;
+        final int type = getItemViewType(messages.get(position), bubbleDesign.alignStart);
+        return type == START || type == END;
     }
 
     public MessageAdapter(
             final XmppActivity activity, final List<Message> messages, final boolean forceNames) {
-        super(activity, 0, messages);
+        this.messages = messages;
+        // Must be assigned before constructing AudioPlayer below, which reaches back into this
+        // adapter via getContext() (now backed by this.activity rather than ArrayAdapter's super).
+        this.activity = activity;
         this.density = activity.getResources().getDisplayMetrics().density;
         this.imagePreviewWidthTarget = activity.getResources().getDimension(R.dimen.image_preview_width);
         this.bubbleRadiusDim = activity.getResources().getDimension(R.dimen.bubble_radius);
@@ -313,7 +234,6 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         this.targetImageWidthSmallThreshold = 110 * this.density;
         this.targetImageWidthLargeThreshold = 200 * this.density;
         this.audioPlayer = new AudioPlayer(this);
-        this.activity = activity;
         metrics = getContext().getResources().getDisplayMetrics();
         appSettings = new AppSettings(activity);
         updatePreferences();
@@ -327,6 +247,26 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
     public MessageAdapter(final XmppActivity activity, final List<Message> messages) {
         this(activity, messages, false);
+    }
+
+    @Override
+    public int getItemCount() {
+        return messages.size();
+    }
+
+    /** Kept for the handful of callers that pre-date the RecyclerView migration. */
+    public Message getItem(final int position) {
+        return messages.get(position);
+    }
+
+    /** Kept for the handful of callers that pre-date the RecyclerView migration. */
+    public int getCount() {
+        return messages.size();
+    }
+
+    /** Replaces {@code ArrayAdapter#getContext()} for the many internal callers. */
+    public Context getContext() {
+        return activity;
     }
 
     private static void resetClickListener(View... views) {
@@ -385,11 +325,6 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
     public void setOnInlineImageLongClicked(OnInlineImageLongClicked listener) {
         this.mOnInlineImageLongClickedListener = listener;
-    }
-
-    @Override
-    public int getViewTypeCount() {
-        return 5;
     }
 
     private static int getItemViewType(final Message message, final boolean alignStart) {
@@ -486,8 +421,9 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         if (message.getEncryption() == Message.ENCRYPTION_NONE) {
             viewHolder.indicatorSecurity().setVisibility(View.GONE);
         } else {
+            final boolean omemo2 = message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2;
             boolean verified = false;
-            if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL) {
+            if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL || omemo2) {
                 final FingerprintStatus fingerprintStatus =
                         message.getConversation()
                                 .getAccount()
@@ -497,8 +433,18 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                     verified = true;
                 }
             }
+            // Like legacy OMEMO: a shield means the sending fingerprint is verified,
+            // a lock means it is not. PQ OMEMO2 uses its own shield/lock variants so
+            // it stays visually distinct from legacy. (Own outgoing messages carry
+            // our own fingerprint, which is verified, so they show a shield; a carbon
+            // of a message sent from another of our devices carries that device's
+            // unverified fingerprint, so it shows a lock.)
             if (verified) {
-                viewHolder.indicatorSecurity().setImageResource(R.drawable.ic_verified_user_24dp);
+                viewHolder.indicatorSecurity().setImageResource(omemo2
+                        ? R.drawable.ic_shield_omemo2_verified_24dp
+                        : R.drawable.ic_verified_user_24dp);
+            } else if (omemo2) {
+                viewHolder.indicatorSecurity().setImageResource(R.drawable.ic_lock_omemo2_24dp);
             } else {
                 viewHolder.indicatorSecurity().setImageResource(R.drawable.ic_lock_24dp);
             }
@@ -537,9 +483,6 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         final String bodyLanguage = message.getBodyLanguage();
         final ImmutableList.Builder<String> timeInfoBuilder = new ImmutableList.Builder<>();
 
-        if (fileSize != null) {
-            timeInfoBuilder.add(fileSize);
-        }
         if (bodyLanguage != null) {
             timeInfoBuilder.add(bodyLanguage.toUpperCase(Locale.US));
         }
@@ -550,8 +493,11 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         } else {
             timeInfoBuilder.add(formattedTime);
         }
-        final var timeInfo = timeInfoBuilder.build();
-        viewHolder.time().setText(Joiner.on(" · ").join(timeInfo));
+        final String timeRow = Joiner.on(" · ").join(timeInfoBuilder.build());
+        // Put the file size on its own line above the time/details. Otherwise "1.2 MB · 12:34"
+        // (plus the encryption status) makes the footer — and therefore the whole bubble — wider
+        // than the media/caption above it.
+        viewHolder.time().setText(fileSize != null ? fileSize + "\n" + timeRow : timeRow);
     }
 
     public static @DrawableRes Integer getMessageStatusAsDrawable(
@@ -616,6 +562,9 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
             viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.username(), bubbleColor));
         }
+        viewHolder.messageBody().setEllipsize(null);
+        viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
+        viewHolder.showMore().setVisibility(View.GONE);
         viewHolder.messageBody().setText(text);
         viewHolder
                 .messageBody()
@@ -836,17 +785,30 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         final ViewGroup.LayoutParams layoutParams = viewHolder.messageBody().getLayoutParams();
         layoutParams.width = ViewGroup.LayoutParams.WRAP_CONTENT;
         viewHolder.messageBody().setLayoutParams(layoutParams);
+        // Reset any caption width cap left over from a recycled media bubble; media branches
+        // (audio/file) re-apply a cap so the caption wraps to the width of the media above it.
+        viewHolder.messageBody().setMaxWidth(Integer.MAX_VALUE);
         viewHolder.inReplyToQuote().setTextSize(
                 TypedValue.COMPLEX_UNIT_SP, appSettings.isLargeFont() ? 18 : 14);
         final ViewGroup.LayoutParams qlayoutParams = viewHolder.inReplyToQuote().getLayoutParams();
         qlayoutParams.width = ViewGroup.LayoutParams.WRAP_CONTENT;
         viewHolder.inReplyToQuote().setLayoutParams(qlayoutParams);
+        // Wrap the reply quote at a fixed width (the same screen-based reference the body uses),
+        // independent of the bubble's per-pass available width, so a multi-line quote always wraps
+        // the same way and the quote card stops shrinking/expanding between measure passes.
+        final int quoteMaxWidth = Math.max(
+                1, (int) (activity.getResources().getDisplayMetrics().widthPixels - (120 * density)));
+        viewHolder.inReplyTo().setMaxWidth(quoteMaxWidth);
+        viewHolder.inReplyToQuote().setMaxWidth(quoteMaxWidth);
 
         final var rawBody = message.getBody();
         if (Strings.isNullOrEmpty(rawBody)) {
             if (de.thedevstack.piratx.utils.PiratXMessageUtil.isRetracted(message)) {
                 viewHolder.messageBody().setText(de.thedevstack.piratx.utils.PiratXMessageUtil.createRetractionBody(message));
             } else {
+                viewHolder.messageBody().setEllipsize(null);
+                viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
+                viewHolder.showMore().setVisibility(GONE);
                 viewHolder.messageBody().setText("");
                 viewHolder.messageBody().setTextIsSelectable(false);
                 toggleWhisperInfo(viewHolder, message, bubbleColor);
@@ -980,12 +942,10 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         }
 
         viewHolder.messageBody().setAutoLinkMask(0);
-        body = de.thedevstack.piratx.utils.PiratXMessageUtil.adjustBodyIfNecessary(message, body);
-        viewHolder.messageBody().setText(body);
 
         if (activity.xmppConnectionService.getBooleanPreference("set_text_collapsable", R.bool.set_text_collapsable)) {
-            // We use a StaticLayout to measure the text with a safe maximum width.
-            final int maxWidth = (int) (metrics.widthPixels - (80 * density)); // Rough estimate of bubble overhead
+            final DisplayMetrics currentMetrics = activity.getResources().getDisplayMetrics();
+            final int maxWidth = Math.max(1, (int) (currentMetrics.widthPixels - (120 * density)));
             final StaticLayout staticLayout;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 staticLayout = StaticLayout.Builder.obtain(body, 0, body.length(), viewHolder.messageBody().getPaint(), maxWidth)
@@ -1002,37 +962,51 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
             final boolean isLong = staticLayout.getLineCount() > 10;
 
-            if (message.isExpanded()) {
+            if (!isLong) {
+                viewHolder.messageBody().setEllipsize(null);
                 viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
-                viewHolder.showMore().setText(R.string.show_less);
-                viewHolder.showMore().setVisibility(View.VISIBLE);
+                viewHolder.showMore().setVisibility(View.GONE);
+                viewHolder.showMore().setOnClickListener(null);
             } else {
-                viewHolder.messageBody().setMaxLines(10);
-                viewHolder.showMore().setText(R.string.show_more);
-                viewHolder.showMore().setVisibility(isLong ? View.VISIBLE : View.GONE);
-            }
-
-            viewHolder.showMore().setOnClickListener(v -> {
-                android.transition.TransitionSet set = new android.transition.TransitionSet();
-                set.addTransition(new android.transition.ChangeBounds());
-                set.addTransition(new android.transition.Fade());
-                set.setOrdering(android.transition.TransitionSet.ORDERING_TOGETHER);
-                set.setDuration(300);
-                android.transition.TransitionManager.beginDelayedTransition(viewHolder.messageBox(), set);
-
-                message.setExpanded(!message.isExpanded());
                 if (message.isExpanded()) {
+                    viewHolder.messageBody().setEllipsize(null);
                     viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
                     viewHolder.showMore().setText(R.string.show_less);
                 } else {
+                    viewHolder.messageBody().setEllipsize(TextUtils.TruncateAt.END);
                     viewHolder.messageBody().setMaxLines(10);
                     viewHolder.showMore().setText(R.string.show_more);
                 }
-            });
+                viewHolder.showMore().setVisibility(View.VISIBLE);
+
+                viewHolder.showMore().setOnClickListener(v -> {
+                    android.transition.TransitionSet set = new android.transition.TransitionSet();
+                    set.addTransition(new android.transition.ChangeBounds());
+                    set.addTransition(new android.transition.Fade());
+                    set.setOrdering(android.transition.TransitionSet.ORDERING_TOGETHER);
+                    set.setDuration(300);
+                    android.transition.TransitionManager.beginDelayedTransition(viewHolder.messageBox(), set);
+
+                    message.setExpanded(!message.isExpanded());
+                    if (message.isExpanded()) {
+                        viewHolder.messageBody().setEllipsize(null);
+                        viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
+                        viewHolder.showMore().setText(R.string.show_less);
+                    } else {
+                        viewHolder.messageBody().setEllipsize(TextUtils.TruncateAt.END);
+                        viewHolder.messageBody().setMaxLines(10);
+                        viewHolder.showMore().setText(R.string.show_more);
+                    }
+                });
+            }
         } else {
+            viewHolder.messageBody().setEllipsize(null);
             viewHolder.messageBody().setMaxLines(Integer.MAX_VALUE);
             viewHolder.showMore().setVisibility(GONE);
         }
+
+        body = de.thedevstack.piratx.utils.PiratXMessageUtil.adjustBodyIfNecessary(message, body);
+        viewHolder.messageBody().setText(body);
 
         if (body.length() <= 0) viewHolder.messageBody().setVisibility(GONE);
         BetterLinkMovementMethod method = getBetterLinkMovementMethod();
@@ -1092,6 +1066,8 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                     DownloadableFile f = activity.xmppConnectionService.getFileForCid(cid);
                     if (f == null || !f.canRead()) {
                         if (!message.trusted() && !message.getConversation().canInferPresence())
+                            continue;
+                        if (message.getEncryption() != Message.ENCRYPTION_NONE)
                             continue;
 
                         try {
@@ -1237,6 +1213,8 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         viewHolder.downloadButton().setIconResource(imageResource);
         viewHolder.downloadButton().setOnClickListener(v -> openDownloadable(message));
         viewHolder.downloadButton().setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
+        constrainCaptionWidth(
+                viewHolder, (int) activity.getResources().getDimension(R.dimen.image_preview_width));
     }
 
     private void displayURIMessage(
@@ -1321,10 +1299,13 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             viewHolder.messageBox().setBackgroundTintMode(PorterDuff.Mode.CLEAR);
             viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
             viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
-            viewHolder.inReplyToBox().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
-            viewHolder.inReplyToBox().setBackgroundTintList(bubbleToColorStateList(viewHolder.inReplyToBox(), bubbleColor));
-            viewHolder.inReplyToQuote().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_surface_container));
-            viewHolder.inReplyToQuote().setBackgroundTintList(bubbleToColorStateList(viewHolder.inReplyToQuote(), bubbleColor));
+            // Do not setBackground()/setBackgroundTintList() on the quote box: it is a
+            // MaterialCardView, which mishandles a custom background and ends up showing no fill on
+            // some replies. Leave it to its cardBackgroundColor (surfaceVariant) like text replies.
+            // Leave the quote text transparent so the quote card's own background (surfaceVariant)
+            // shows through. Tinting it with the bubble colour made the quote text read as the
+            // message-bubble background instead of the card.
+            viewHolder.inReplyToQuote().setBackground(null);
             if (viewHolder.username() != null) {
                 viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
                 viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
@@ -1392,6 +1373,24 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         AudioPlayer.ViewHolder.get(audioPlayer).setBubbleColor(bubbleColor);
         this.audioPlayer.init(audioPlayer, message);
         audioPlayer.setOnLongClickListener(v -> { viewHolder.messageBox().performLongClick(); return true; });
+        constrainCaptionWidth(
+                viewHolder, (int) activity.getResources().getDimension(R.dimen.audio_player_width));
+    }
+
+    /**
+     * Constrain a media caption so it wraps to roughly the width of the media above it instead of
+     * stretching the bubble wider than the image/audio/file. Images and videos already get their
+     * caption matched to the preview width in {@link #imagePreviewLayout}; this covers the
+     * audio-player and file-download rows whose caption would otherwise be {@code wrap_content}.
+     */
+    private void constrainCaptionWidth(
+            final BubbleMessageItemViewHolder viewHolder, final int maxWidthPx) {
+        if (maxWidthPx <= 0 || viewHolder.messageBody().getVisibility() == GONE) {
+            return;
+        }
+        // Keep a readable minimum so a long caption on small media doesn't wrap to a sliver.
+        final int floorPx = (int) (140 * this.density);
+        viewHolder.messageBody().setMaxWidth(Math.max(maxWidthPx, floorPx));
     }
 
     private void displayMediaPreviewMessage(
@@ -1406,10 +1405,13 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             viewHolder.messageBox().setBackgroundTintMode(PorterDuff.Mode.CLEAR);
             viewHolder.statusLine().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
             viewHolder.statusLine().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
-            viewHolder.inReplyToBox().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
-            viewHolder.inReplyToBox().setBackgroundTintList(bubbleToColorStateList(viewHolder.inReplyToBox(), bubbleColor));
-            viewHolder.inReplyToQuote().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_surface_container));
-            viewHolder.inReplyToQuote().setBackgroundTintList(bubbleToColorStateList(viewHolder.inReplyToQuote(), bubbleColor));
+            // Do not setBackground()/setBackgroundTintList() on the quote box: it is a
+            // MaterialCardView, which mishandles a custom background and ends up showing no fill on
+            // some replies. Leave it to its cardBackgroundColor (surfaceVariant) like text replies.
+            // Leave the quote text transparent so the quote card's own background (surfaceVariant)
+            // shows through. Tinting it with the bubble colour made the quote text read as the
+            // message-bubble background instead of the card.
+            viewHolder.inReplyToQuote().setBackground(null);
             if (viewHolder.username() != null) {
                 viewHolder.username().setBackground(ContextCompat.getDrawable(activity, R.drawable.background_message_bubble));
                 viewHolder.username().setBackgroundTintList(bubbleToColorStateList(viewHolder.statusLine(), bubbleColor));
@@ -1444,30 +1446,40 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             scaledH = (int) (h / ((double) w / this.imagePreviewWidthTarget));
         }
 
-        final var bodyWidth = Math.max(viewHolder.messageBody().getWidth(), viewHolder.downloadButton().getWidth() + (int)this.padding22dp); // Use pre-calculated padding22dp
-
-        // Use pre-calculated thresholds
-        float currentTargetImageWidth = this.targetImageWidthLargeThreshold;
-        if (!otherBelow) {
-            currentTargetImageWidth = this.targetImageWidthSmallThreshold;
+        // When a caption is shown under a narrow image, the caption gets capped to the image width
+        // (so the image stays borderless) — but for a very small image that makes the caption an
+        // unreadably narrow column. Scale such an image up to a minimum preview width so the image
+        // still fills the bubble AND the caption has room.
+        int imageW = scaledW;
+        int imageH = scaledH;
+        if (otherBelow && imageW > 0) {
+            final int minCaptionedWidth = (int) this.targetImageWidthLargeThreshold;
+            if (imageW < minCaptionedWidth) {
+                imageH = (int) ((long) imageH * minCaptionedWidth / imageW);
+                imageW = minCaptionedWidth;
+            }
         }
 
-        if (bodyWidth > 0 && bodyWidth < currentTargetImageWidth) {
-            currentTargetImageWidth = bodyWidth;
-        }
+        // Decide "small" purely from the (stable) scaled image width and the fixed thresholds.
+        // IMPORTANT: do NOT factor in the live messageBody/downloadButton measured width here.
+        // Those reflect the *previous* layout pass, and since the !small branch below then sets
+        // the body width from the image, reading them back created a feedback loop that made the
+        // image enlarge then shrink again on every rebind/refresh.
+        final float currentTargetImageWidth =
+                otherBelow ? this.targetImageWidthLargeThreshold : this.targetImageWidthSmallThreshold;
 
-        final boolean small = scaledW < currentTargetImageWidth;
+        final boolean small = imageW < currentTargetImageWidth;
 
         ViewGroup.LayoutParams currentParams = image.getLayoutParams();
         if (currentParams instanceof LinearLayout.LayoutParams linearParams) {
-            if (linearParams.width != scaledW || linearParams.height != scaledH) {
-                linearParams.width = scaledW;
-                linearParams.height = scaledH;
+            if (linearParams.width != imageW || linearParams.height != imageH) {
+                linearParams.width = imageW;
+                linearParams.height = imageH;
                 image.setLayoutParams(linearParams); // Only set if changed
             }
         } else {
             // Fallback or if it's a different type of LayoutParams initially
-            image.setLayoutParams(new LinearLayout.LayoutParams(scaledW, scaledH));
+            image.setLayoutParams(new LinearLayout.LayoutParams(imageW, imageH));
         }
 
 
@@ -1481,9 +1493,10 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         // --- End of Simplified Corner Rounding ---
 
 
-        // Adjust padding based on the 'small' flag or other criteria if needed.
-        // If you always want the same padding, you can set it unconditionally.
-        if (small) { // Or some other condition you define for padding
+        // Top inset only when something (a reply quote) sits above the image; otherwise the image
+        // is the top of the bubble and must be flush to it, or the inset shows the bubble
+        // background as a "border" above the image.
+        if (small && otherAbove) {
             image.setPadding(0, (int) this.padding8dp, 0, 0);
         } else {
             image.setPadding(0, 0, 0, 0);
@@ -1494,11 +1507,13 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         // can remain if it's still relevant to your layout when an image is present.
         // However, if the image corners are always fully rounded, the visual interaction
         // with these elements might change, so review if this is still needed as is.
-        if (!small) { // This condition might also need re-evaluation.
-            // For example, if you want these width adjustments to always happen
-            // when an image is present, regardless of 'small'.
+        // Match the caption width to the image whenever a caption is shown (otherBelow), not only
+        // for large images. Otherwise a narrow image (e.g. a portrait photo) with a wider caption
+        // lets the bubble grow to the caption width, leaving the centered image with background
+        // "borders" on the sides instead of filling the bubble.
+        if (!small || otherBelow) {
             final ViewGroup.LayoutParams bodyLayoutParams = viewHolder.messageBody().getLayoutParams();
-            int targetWidth = (int) (scaledW - this.padding22dp);
+            int targetWidth = (int) (imageW - this.padding22dp);
 
             if (bodyLayoutParams.width != targetWidth) {
                 bodyLayoutParams.width = targetWidth;
@@ -1576,100 +1591,90 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         }
     }
 
-    private MessageItemViewHolder getViewHolder(
-            final View view, final @NonNull ViewGroup parent, final int type) {
-        if (view != null && view.getTag() instanceof MessageItemViewHolder messageItemViewHolder) {
-            if (dragHelper != null && dragHelper.getCapturedView() == view) {
-                dragHelper.abort();
-            }
-            return messageItemViewHolder;
-        } else {
-            final MessageItemViewHolder viewHolder =
-                    switch (type) {
-                        case RTP_SESSION ->
-                                new RtpSessionMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_rtp_session,
-                                                parent,
-                                                false));
-                        case DATE_SEPARATOR ->
-                                new DateSeperatorMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_date_bubble,
-                                                parent,
-                                                false));
-                        case STATUS ->
-                                new StatusMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_status,
-                                                parent,
-                                                false));
-                        case END -> {
-                            final var holder = new EndBubbleMessageItemViewHolder(
+    @NonNull
+    @Override
+    public MessageItemViewHolder onCreateViewHolder(
+            final @NonNull ViewGroup parent, final int type) {
+        final MessageItemViewHolder viewHolder =
+                switch (type) {
+                    case RTP_SESSION ->
+                            new RtpSessionMessageItemViewHolder(
+                                    DataBindingUtil.inflate(
+                                            LayoutInflater.from(parent.getContext()),
+                                            R.layout.item_message_rtp_session,
+                                            parent,
+                                            false));
+                    case DATE_SEPARATOR ->
+                            new DateSeperatorMessageItemViewHolder(
+                                    DataBindingUtil.inflate(
+                                            LayoutInflater.from(parent.getContext()),
+                                            R.layout.item_message_date_bubble,
+                                            parent,
+                                            false));
+                    case STATUS ->
+                            new StatusMessageItemViewHolder(
+                                    DataBindingUtil.inflate(
+                                            LayoutInflater.from(parent.getContext()),
+                                            R.layout.item_message_status,
+                                            parent,
+                                            false));
+                    case END ->
+                            new EndBubbleMessageItemViewHolder(
                                     DataBindingUtil.inflate(
                                             LayoutInflater.from(parent.getContext()),
                                             R.layout.item_message_end,
                                             parent,
                                             false));
-                            holder.itemView.setTag(R.id.TAG_DRAGGABLE, true);
-                            yield holder;
-                        }
-                        case START -> {
-                            final var holder = new StartBubbleMessageItemViewHolder(
+                    case START ->
+                            new StartBubbleMessageItemViewHolder(
                                     DataBindingUtil.inflate(
                                             LayoutInflater.from(parent.getContext()),
                                             R.layout.item_message_start,
                                             parent,
                                             false));
-                            holder.itemView.setTag(R.id.TAG_DRAGGABLE, true);
-                            yield holder;
-                        }
-                        default -> {
-                            Log.e("MessageAdapter", "Unable to create ViewHolder for type: " + type);
-                            throw new AssertionError("Unable to create ViewHolder for type: " + type);
-                        }
-                    };
-            viewHolder.itemView.setTag(viewHolder);
-            return viewHolder;
+                    default -> {
+                        Log.e("MessageAdapter", "Unable to create ViewHolder for type: " + type);
+                        throw new AssertionError("Unable to create ViewHolder for type: " + type);
+                    }
+                };
+        return viewHolder;
+    }
+
+    @Override
+    public void onBindViewHolder(
+            final @NonNull MessageItemViewHolder viewHolder, final int position) {
+        final Message message = getItem(position);
+        if (message == null) {
+            return;
+        }
+        final int type = getItemViewType(message, bubbleDesign.alignStart);
+        viewHolder.position = position;
+
+        if (type == DATE_SEPARATOR
+                && viewHolder instanceof DateSeperatorMessageItemViewHolder messageItemViewHolder) {
+            render(message, messageItemViewHolder);
+        } else if (type == RTP_SESSION
+                && viewHolder instanceof RtpSessionMessageItemViewHolder messageItemViewHolder) {
+            render(message, messageItemViewHolder);
+        } else if (type == STATUS
+                && viewHolder instanceof StatusMessageItemViewHolder messageItemViewHolder) {
+            render(message, messageItemViewHolder);
+        } else if ((type == END || type == START)
+                && viewHolder instanceof BubbleMessageItemViewHolder messageItemViewHolder) {
+            render(position, message, messageItemViewHolder);
         }
     }
 
-
-    @NonNull
     @Override
-    public View getView(final int position, final View view, final @NonNull ViewGroup parent) {
-        final Message message = getItem(position);
-        final int type;
-        if (message != null) {
-            type = getItemViewType(message, bubbleDesign.alignStart);
-
-            final MessageItemViewHolder viewHolder = getViewHolder(view, parent, type);
-            viewHolder.position = position;
-
-            if (type == DATE_SEPARATOR
-                    && viewHolder instanceof DateSeperatorMessageItemViewHolder messageItemViewHolder) {
-                return render(message, messageItemViewHolder);
-            }
-
-            if (type == RTP_SESSION
-                    && viewHolder instanceof RtpSessionMessageItemViewHolder messageItemViewHolder) {
-                return render(message, messageItemViewHolder);
-            }
-
-            if (type == STATUS
-                    && viewHolder instanceof StatusMessageItemViewHolder messageItemViewHolder) {
-                return render(message, messageItemViewHolder);
-            }
-
-            if ((type == END || type == START)
-                    && viewHolder instanceof BubbleMessageItemViewHolder messageItemViewHolder) {
-                return render(position, message, messageItemViewHolder);
-            }
+    public void onViewRecycled(final @NonNull MessageItemViewHolder holder) {
+        super.onViewRecycled(holder);
+        // Clear any leftover swipe-to-reply translation when the bubble is actually recycled, so a
+        // reused view never appears "stuck" shifted. Doing this here (not in onBindViewHolder) means
+        // it never resets the translation of a bubble that is being actively swiped — which a
+        // mid-swipe rebind would otherwise do, making the bubble flicker back and forth.
+        if (holder instanceof BubbleMessageItemViewHolder bubble) {
+            bubble.messageBox().setTranslationX(0f);
         }
-        throw new AssertionError();
     }
 
     private View render(
@@ -1677,7 +1682,11 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             final Message message,
             final BubbleMessageItemViewHolder viewHolder) {
         viewHolder.storyPreview().setVisibility(View.GONE); //reset view state
-        final boolean omemoEncryption = message.getEncryption() == Message.ENCRYPTION_AXOLOTL;
+        // Both legacy AXOLOTL and AXOLOTL_OMEMO2 (PQ OMEMO2) carry per-device
+        // trust state — surface the "not verified yet" warning in both cases.
+        final boolean omemoEncryption =
+                message.getEncryption() == Message.ENCRYPTION_AXOLOTL
+                        || message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2;
         final boolean isInValidSession =
                 message.isValidInSession() && (!omemoEncryption || message.isTrusted());
         final Conversational conversation = message.getConversation();
@@ -1712,7 +1721,12 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         final BubbleColor bubbleColor;
         if (received) {
             if (isInValidSession) {
-                bubbleColor = colorfulBackground || black ? BubbleColor.SECONDARY : BubbleColor.SURFACE;
+                // Colourful: light secondary-container tint with neutral text. Black-theme keeps
+                // SECONDARY; otherwise the plain surface.
+                bubbleColor =
+                        colorfulBackground
+                                ? BubbleColor.RECEIVED_COLORFUL
+                                : (black ? BubbleColor.SECONDARY : BubbleColor.SURFACE);
             } else {
                 bubbleColor = BubbleColor.WARNING;
             }
@@ -1720,7 +1734,10 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
             if (!colorfulBackground && black) {
                 bubbleColor = BubbleColor.SECONDARY;
             } else {
-                bubbleColor = colorfulBackground ? BubbleColor.TERTIARY : BubbleColor.SURFACE_HIGH;
+                // Colourful: sent bubbles use the primary container (themed → follows custom &
+                // dynamic colours, light in light mode / dark in dark mode) with neutral black/white
+                // text. Distinct from the lighter received bubble.
+                bubbleColor = colorfulBackground ? BubbleColor.SENT_COLORFUL : BubbleColor.SURFACE_HIGH;
             }
         }
 
@@ -1896,14 +1913,16 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         } else if (message.getEncryption() == Message.ENCRYPTION_DECRYPTION_FAILED) {
             displayInfoMessage(
                     viewHolder, activity.getString(R.string.decryption_failed), bubbleColor);
-        } else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL_NOT_FOR_THIS_DEVICE) {
+        } else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL_NOT_FOR_THIS_DEVICE
+                || message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2_NOT_FOR_THIS_DEVICE) {
             displayInfoMessage(
                     viewHolder,
                     activity.getString(R.string.not_encrypted_for_this_device),
                     bubbleColor);
-        } else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL_FAILED) {
+        } else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL_FAILED
+                || message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED) {
             displayInfoMessage(
-                    viewHolder, activity.getString(R.string.omemo_decryption_failed), bubbleColor);
+                    viewHolder, activity.getString(R.string.omemo2_decryption_failed), bubbleColor);
         } else {
             if (message.wholeIsKnownURI() != null) {
                 displayURIMessage(viewHolder, message, bubbleColor);
@@ -1968,6 +1987,28 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                 viewHolder.commandsList().setOnItemClickListener(null);
             }
         }
+
+        final boolean leftSpine = viewHolder instanceof StartBubbleMessageItemViewHolder;
+        final int bubbleBackground;
+        if (mergeIntoTop && mergeIntoBottom) {
+            bubbleBackground =
+                    leftSpine
+                            ? R.drawable.message_bubble_received_group_middle
+                            : R.drawable.message_bubble_sent_group_middle;
+        } else if (mergeIntoBottom) {
+            bubbleBackground =
+                    leftSpine
+                            ? R.drawable.message_bubble_received_group_top
+                            : R.drawable.message_bubble_sent_group_top;
+        } else if (mergeIntoTop) {
+            bubbleBackground =
+                    leftSpine
+                            ? R.drawable.message_bubble_received_group_bottom
+                            : R.drawable.message_bubble_sent_group_bottom;
+        } else {
+            bubbleBackground = R.drawable.message_bubble_single;
+        }
+        viewHolder.messageBox().setBackgroundResource(bubbleBackground);
 
         setBackgroundTint(viewHolder.messageBox(), bubbleColor);
         setTextColor(viewHolder.messageBody(), bubbleColor);
@@ -2662,7 +2703,9 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
                     case SURFACE_HIGH -> com.google.android.material.R.attr
                             .colorSurfaceContainerHigh;
                     case PRIMARY -> com.google.android.material.R.attr.colorPrimaryContainer;
-                    case SECONDARY -> com.google.android.material.R.attr.colorSecondaryContainer;
+                    case SECONDARY, RECEIVED_COLORFUL ->
+                            com.google.android.material.R.attr.colorSecondaryContainer;
+                    case SENT_COLORFUL -> com.google.android.material.R.attr.colorPrimaryContainer;
                     case TERTIARY -> com.google.android.material.R.attr.colorTertiaryContainer;
                     case WARNING -> com.google.android.material.R.attr.colorErrorContainer;
                 };
@@ -2723,7 +2766,10 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
     private static @AttrRes int bubbleToOnSurface(final BubbleColor bubbleColor) {
         return switch (bubbleColor) {
-            case SURFACE, SURFACE_HIGH -> com.google.android.material.R.attr.colorOnSurface;
+            // Colourful bubbles deliberately use neutral onSurface (black/white) text rather than
+            // the container's coloured on-colour.
+            case SURFACE, SURFACE_HIGH, RECEIVED_COLORFUL, SENT_COLORFUL ->
+                    com.google.android.material.R.attr.colorOnSurface;
             case PRIMARY -> com.google.android.material.R.attr.colorOnPrimaryContainer;
             case SECONDARY -> com.google.android.material.R.attr.colorOnSecondaryContainer;
             case TERTIARY -> com.google.android.material.R.attr.colorOnTertiaryContainer;
@@ -2737,7 +2783,12 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         PRIMARY,
         SECONDARY,
         TERTIARY,
-        WARNING;
+        WARNING,
+        // "Colourful chat bubbles": a themed container background (so it follows custom themes and
+        // dynamic colours, and is light in light mode / dark in dark mode) paired with neutral
+        // black/white onSurface text instead of the role's coloured on-container text.
+        RECEIVED_COLORFUL, // secondary container
+        SENT_COLORFUL; // primary container
 
         private static final Collection<BubbleColor> SURFACES =
                 Arrays.asList(BubbleColor.SURFACE, BubbleColor.SURFACE_HIGH);
@@ -2761,7 +2812,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         }
     }
 
-    private abstract static class MessageItemViewHolder extends RecyclerView.ViewHolder {
+    abstract static class MessageItemViewHolder extends RecyclerView.ViewHolder {
 
         final View itemView;
         public int position;
@@ -3160,7 +3211,8 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
         public Thumbnailer(final Message message) {
             account = message.getConversation().getAccount();
-            canFetch = message.trusted() || message.getConversation().canInferPresence();
+            final boolean encrypted = message.getEncryption() != Message.ENCRYPTION_NONE;
+            canFetch = !encrypted && (message.trusted() || message.getConversation().canInferPresence());
             counterpart = message.getCounterpart();
         }
 
@@ -3185,7 +3237,7 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
 
                 Drawable d = activity.xmppConnectionService.getFileBackend().getThumbnail(f, activity.getResources(), (int) (metrics.density * 288), true);
                 if (d == null) {
-                    new ThumbnailTask().execute(f);
+                    warmThumbnailCache(f);
                 }
                 return d;
             } catch (final IOException e) {
@@ -3194,28 +3246,30 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
         }
     }
 
-    class ThumbnailTask extends AsyncTask<DownloadableFile, Void, Drawable[]> {
-        @Override
-        protected Drawable[] doInBackground(DownloadableFile... params) {
-            if (isCancelled()) return null;
-
-            Drawable[] d = new Drawable[params.length];
-            for (int i = 0; i < params.length; i++) {
-                try {
-                    d[i] = activity.xmppConnectionService.getFileBackend().getThumbnail(params[i], activity.getResources(), (int) (metrics.density * 288), false);
-                } catch (final IOException e) {
-                    d[i] = null;
-                }
-            }
-
-            return d;
-        }
-
-        @Override
-        protected void onPostExecute(final Drawable[] d) {
-            if (isCancelled()) return;
-            activity.xmppConnectionService.updateConversationUi();
-        }
+    /**
+     * Generate a thumbnail off the UI thread (warming the file-backend cache) and then refresh the
+     * conversation so the now-cached thumbnail is picked up. Replaces the deprecated
+     * {@code AsyncTask}-based {@code ThumbnailTask}.
+     */
+    private void warmThumbnailCache(final DownloadableFile file) {
+        THUMBNAIL_EXECUTOR.execute(
+                () -> {
+                    try {
+                        activity.xmppConnectionService
+                                .getFileBackend()
+                                .getThumbnail(
+                                        file,
+                                        activity.getResources(),
+                                        (int) (metrics.density * 288),
+                                        false);
+                    } catch (final IOException e) {
+                        // Thumbnail simply stays unavailable.
+                    }
+                    if (activity != null && activity.xmppConnectionService != null) {
+                        activity.runOnUiThread(
+                                () -> activity.xmppConnectionService.updateConversationUi());
+                    }
+                });
     }
 
     private Conversation wrap(Conversational conversational) {
@@ -3237,16 +3291,6 @@ public class MessageAdapter extends ArrayAdapter<Message> implements DraggableLi
     public interface OnDateSeparatorClickListener {
         void onDateSeparatorClick(long timestamp);
     }
-
-    public void setOnMessageBoxSwiped(MessageBoxSwipedListener listener) {
-        this.messageBoxSwipedListener = listener;
-    }
-
-    public interface MessageBoxSwipedListener {
-        void onMessageBoxReleasedAfterSwipe(Message message);
-        void onMessageBoxSwipedEnough();
-    }
-
 
     private OnMessageLongPressListener mOnMessageLongPressListener;
 
