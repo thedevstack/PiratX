@@ -31,15 +31,7 @@ def tags = grgit.tag.list().findAll { it.dateTime != null }.sort { it.dateTime }
 // ROOT INSERT
 
 configurations {
-    playstoreImplementation
     freeImplementation
-    conversationsFreeImplementation
-    monocleschatPlaystoreImplementation
-    conversationsPlaystoreImplementation
-    quicksyPlaystoreImplementation
-    quicksyPlaystoreImplementation
-    quicksyFreeImplementation
-    quicksyImplementation
     piratxImplementation
 }
 
@@ -56,10 +48,6 @@ dependencies {
 
     implementation 'androidx.viewpager:viewpager:1.1.0'
 
-    monocleschatPlaystoreImplementation("com.android.installreferrer:installreferrer:2.2")
-    monocleschatPlaystoreImplementation 'com.github.singpolyma:play-licensing:1c637ea03c'
-    conversationsPlaystoreImplementation("com.android.installreferrer:installreferrer:2.2")
-    quicksyPlaystoreImplementation 'com.google.android.gms:play-services-auth-api-phone:18.3.0'
     implementation 'com.github.open-keychain.open-keychain:openpgp-api:v5.7.1'
     implementation("com.github.CanHub:Android-Image-Cropper:4.5.0")
     implementation 'androidx.appcompat:appcompat:1.7.1'
@@ -77,6 +65,12 @@ dependencies {
     implementation 'org.bouncycastle:bcmail-jdk18on:1.84'
     implementation 'com.google.zxing:core:3.5.4'
     implementation 'me.leolin:ShortcutBadger:1.1.22@aar'
+    
+    implementation 'org.signal:libsignal-android:0.94.1'
+    // Legacy OMEMO v0.3 (XEP-0384 v0.3.x) support. Pure-Java, no native binary,
+    // F-Droid-friendly. Different package root (org.whispersystems.libsignal.*)
+    // from the new libsignal so the two stacks coexist; the legacy library is
+    // unmaintained and only invoked when the user opts in via settings.
     implementation 'org.whispersystems:signal-protocol-java:2.6.2'
     implementation "com.wefika:flowlayout:0.4.1"
 
