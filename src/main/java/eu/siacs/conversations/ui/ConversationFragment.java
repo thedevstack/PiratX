@@ -2057,7 +2057,7 @@ public class ConversationFragment extends XmppFragment
                         || nextEncryption == Message.ENCRYPTION_AXOLOTL_OMEMO2;
         if (captionCapable && mediaPreviewAdapter.getItemCount() == 1) {
             binding.textinputLayoutNew.setVisibility(VISIBLE);
-             */
+
             // Do not show text input for locations since its discarded anyways
             boolean isLocationAttachment = mediaPreviewAdapter.getAttachments().get(0).getType() == Attachment.Type.LOCATION;
             binding.textinputLayoutNew.setVisibility(isLocationAttachment ? GONE : VISIBLE);

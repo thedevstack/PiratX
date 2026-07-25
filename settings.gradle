@@ -17,8 +17,8 @@ rootProject.buildFileName = 'piratx.gradle'
 // Requires: Rust toolchain with Android cross-compilation targets.
 //   rustup target add aarch64-linux-android armv7-linux-androideabi \
 //                     x86_64-linux-android i686-linux-android
-includeBuild('deps/libsignal/java') {
-    dependencySubstitution {
-        substitute module('org.signal:libsignal-android') using project(':android')
-    }
-}
+//includeBuild('deps/libsignal/java') {
+//    dependencySubstitution {
+//        substitute module('org.signal:libsignal-android') using project(':android')
+//    }
+//}
