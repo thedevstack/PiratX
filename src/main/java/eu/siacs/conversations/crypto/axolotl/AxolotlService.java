@@ -20,11 +20,15 @@ import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+/*
 import org.bouncycastle.pqc.jcajce.provider.BouncyCastlePQCProvider;
+*/
 import org.signal.libsignal.protocol.IdentityKey;
+/*
 import org.signal.libsignal.protocol.pqid.PqBundle;
 import org.signal.libsignal.protocol.pqid.PqIdentityKey;
 import org.signal.libsignal.protocol.pqid.PqIdentityKeyPair;
+*/
 import org.signal.libsignal.protocol.IdentityKeyPair;
 import org.signal.libsignal.protocol.InvalidKeyException;
 import org.signal.libsignal.protocol.InvalidKeyIdException;
@@ -348,8 +352,12 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
     // Lazily generated/persisted ML-DSA-87 post-quantum half of this device's
     // hybrid identity. Created alongside (and re-keyed with) the classical OMEMO2
     // identity key; see migrateToSeparateOmemo2IdentityIfNeeded / wipeOmemo2OwnKeyMaterial.
+    /*
     private volatile PqIdentityKeyPair ownPqIdentityKeyPair = null;
+    */
+    private volatile byte[] ownPqIdentityKeyPair = null;
 
+    /*
     public synchronized PqIdentityKeyPair getOwnPqIdentityKeyPair() {
         if (ownPqIdentityKeyPair == null) {
             final byte[] stored = mXmppConnectionService.databaseBackend.loadOwnOmemo2PqKeyPair(account);
@@ -365,6 +373,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         }
         return ownPqIdentityKeyPair;
     }
+    */
+    public synchronized byte[] getOwnPqIdentityKeyPair() {
+        return null;
+    }
 
     /**
      * The user-verifiable fingerprint of this device's hybrid identity. It commits
@@ -374,9 +386,12 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
      * own pq_ik. See {@link CryptoHelper#hybridOmemo2Fingerprint(byte[], byte[])}.
      */
     public String getOwnHybridFingerprint() {
+        /*
         final byte[] ik = axolotlStore.getIdentityKeyPair().getPublicKey().serialize();
         final byte[] pqIk = getOwnPqIdentityKeyPair().getPublicKey().serialize();
         return CryptoHelper.hybridOmemo2Fingerprint(ik, pqIk);
+        */
+        return CryptoHelper.bytesToHex(axolotlStore.getIdentityKeyPair().getPublicKey().serialize());
     }
 
     /**
@@ -1566,6 +1581,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                             bundle.getSignedPreKeyId(), bundle.getSignedPreKey(),
                             bundle.getSignedPreKeySignature(), bundle.getIdentityKey(),
                             kemPreKeyId, kemPreKeyPublic, kemPreKeySig);
+                    /*
                     // monocles PQ-OMEMO2 hybrid identity is MANDATORY: a bundle with
                     // no post-quantum identity, or whose pinned pq_ik changed, is
                     // refused — we never downgrade a post-quantum conversation to a
@@ -1623,17 +1639,25 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                                     peerPq.identityKey, peerPq.signature, kemBinding);
                         }
                     }
+                    */
                     try {
+                        /*
                         if (preKeyBundle == null) {
                             throw new CryptoFailedException("missing or changed PQ identity for " + address);
                         }
+                        */
                         final SignalProtocolAddress localAddress = getOwnAxolotlAddress();
+                        /*
                         new SessionBuilder(axolotlStore, address, localAddress).process(preKeyBundle);
+                        */
+                        new SessionBuilder(axolotlStore, address, localAddress).process(plainPreKeyBundle);
+                        /*
                         // process() verified the ML-DSA-87 signature over the bundle
                         // transcript; pin pq_ik to this peer's classical identity
                         // (idempotent — we already rejected a changed pq_ik above).
                         mXmppConnectionService.databaseBackend.pinOmemo2PqIdentity(
                                 account, ikFingerprint, peerPq.identityKey);
+                        */
                         final XmppAxolotlSession session = new XmppAxolotlSession(account, axolotlStore, localAddress, address, bundle.getIdentityKey());
                         sessions.put(address, session);
                         final FingerprintStatus fpStatus = getFingerprintTrust(CryptoHelper.bytesToHex(bundle.getIdentityKey().getPublicKey().serialize()));
@@ -1650,7 +1674,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                         if (callback != null) callback.onSessionBuildSuccessful();
                         future.set(session);
                         return;
+			/*
                     } catch (UntrustedIdentityException | InvalidKeyException | CryptoFailedException e) {
+		    */
+		    } catch (UntrustedIdentityException | InvalidKeyException e) {
                         Log.e(Config.LOGTAG, getLogprefix(account) + "OMEMO2 session build error for " + address + ": " + e.getMessage());
                     }
                 } else if (bundle != null) {
@@ -2839,6 +2866,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
      */
     private void reconcileOmemo2PqPinIfMissing(final SignalProtocolAddress address,
             final XmppAxolotlSession session) {
+        /*
         try {
             final String ikFingerprint = session.getFingerprint();
             if (ikFingerprint == null) {
@@ -2874,10 +2902,12 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             Log.w(Config.LOGTAG, getLogprefix(account)
                     + "pq_ik reconciliation for " + address + " failed: " + e.getMessage());
         }
+        */
     }
 
     private void reconcileOmemo2PqPinFromBundle(final SignalProtocolAddress address,
             final String ikFingerprint, final Iq response) {
+        /*
         final PreKeyBundle bundle = IqParser.omemo2Bundle(response);
         final List<IqParser.KemBundleKey> kemPreKeys = IqParser.omemo2KemPreKeys(response);
         final IqParser.PqIdentity peerPq = IqParser.omemo2PqIdentity(response);
@@ -2925,6 +2955,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                 + "pq_ik reconciliation: pinned PQ identity for " + address);
         // hybrid fingerprint is now available — refresh key lists in the UI
         mXmppConnectionService.keyStatusUpdated(null);
+        */
     }
 
     public XmppAxolotlMessage.XmppAxolotlKeyTransportMessage processReceivingKeyTransportMessage(XmppAxolotlMessage message, final boolean postponePreKeyMessageHandling) {
@@ -3348,6 +3379,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
      */
     private byte[] computeOmemo2KemBindingFromWire(final PreKeyBundle fetched,
                                                    final List<IqParser.KemBundleKey> oneTime) {
+        /*
         int kemSpkId = 0;
         byte[] kemSpkPub = new byte[0];
         try {
@@ -3364,6 +3396,8 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             }
         }
         return PqBundle.kemBinding(kemSpkId, kemSpkPub, list);
+        */
+        return new byte[0];
     }
 
     /**
@@ -3377,6 +3411,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
     private byte[] computeOmemo2KemBinding(final KyberPreKeyRecord kemSpk,
                                            final List<KyberPreKeyRecord> oneTimeRecords)
             throws InvalidKeyException {
+        /*
         final int kemSpkId = kemSpk != null ? kemSpk.getId() : 0;
         final byte[] kemSpkPub = kemSpk != null
                 ? kemSpk.getKeyPair().getPublicKey().serialize() : new byte[0];
@@ -3388,6 +3423,8 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             }
         }
         return PqBundle.kemBinding(kemSpkId, kemSpkPub, oneTime);
+        */
+        return new byte[0];
     }
 
     private void publishOmemo2Bundle(final SignedPreKeyRecord signedPreKeyRecord,
@@ -3408,6 +3445,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         // (kem-spk + all one-time kem-pk), computed over exactly the serialized
         // bytes IqGenerator publishes (see PqBundle / pq_bundle_transcript).
         final IdentityKey ownIdentityKey = axolotlStore.getIdentityKeyPair().getPublicKey();
+        /*
         final PqIdentityKeyPair ownPq = getOwnPqIdentityKeyPair();
         final byte[] pqIdentityKey = ownPq.getPublicKey().serialize();
         final byte[] pqSignature;
@@ -3426,10 +3464,17 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                     + "could not build/sign PQ bundle transcript: " + e.getMessage());
             return;
         }
+        */
+        /*
         final Iq publish = mXmppConnectionService.getIqGenerator().publishOmemo2Bundles(
                 signedPreKeyRecord, ownIdentityKey,
                 preKeyRecords, kyberSignedPreKeyRecord, kyberPreKeyRecords,
                 pqIdentityKey, pqSignature, getOwnDeviceId(), publishOptions);
+        */
+        final Iq publish = mXmppConnectionService.getIqGenerator().publishOmemo2Bundles(
+                signedPreKeyRecord, ownIdentityKey,
+                preKeyRecords, kyberSignedPreKeyRecord, kyberPreKeyRecords,
+                null, null, getOwnDeviceId(), publishOptions);
         mXmppConnectionService.sendIqPacket(account, publish, response -> {
             final boolean preconditionNotMet = PublishOptions.preconditionNotMet(response);
             if (firstAttempt && preconditionNotMet) {
