@@ -672,11 +672,19 @@ public class MessageParser extends AbstractParser
         Jid webxdcSender = sender.asBareJid();
         if (conversation.getMode() == Conversation.MODE_MULTI) {
             if (conversation.getMucOptions().nonanonymous()) {
-                webxdcSender = conversation.getMucOptions().getTrueCounterpart(sender);
+                // `sender` is an occupant JID (room@server/nick) on the plaintext path but
+                // the already-resolved real JID on the OMEMO2 path. getTrueCounterpart()
+                // only understands the former and returns null for everything else — and a
+                // null sender crashes in WebxdcUpdate.getContentValues(). Resolve when we
+                // can, otherwise keep what we were handed.
+                final Jid trueCounterpart =
+                        conversation.getMucOptions().getTrueCounterpart(sender);
+                webxdcSender = trueCounterpart != null ? trueCounterpart : sender;
             } else {
                 webxdcSender = sender;
             }
         }
+        if (webxdcSender == null) return;
         final var document = webxdc.findChildContent("document", "urn:xmpp:webxdc:0");
         final var summary = webxdc.findChildContent("summary", "urn:xmpp:webxdc:0");
         final var payload = webxdc.findChildContent("json", "urn:xmpp:json:0");
@@ -1501,9 +1509,27 @@ public class MessageParser extends AbstractParser
                 final boolean checkedForDuplicates = liveMessage
                         || (serverMsgId != null && remoteMsgId != null
                         && !conversation.possibleDuplicate(serverMsgId, remoteMsgId));
+                // Reference for the SCE <time> affix (replay detection). It must be
+                // the sending time as WE can establish it, never a stamp the sender
+                // asserted about their own stanza: `timestamp` honours any <delay/>
+                // on the stanza, so a peer replaying an old ciphertext could attach a
+                // matching <delay/> and walk the check back with it.
+                //
+                // MAM results and carbons are wrapped by our own server, and groupchat
+                // history is replayed by the room with a <delay/> that carries the
+                // room's own JID (indistinguishable from one an occupant forged, and
+                // required to read a backlog older than the window) — those keep the
+                // stanza timestamp. Everything else is a live 1:1 stanza: honour only
+                // delays from an intermediary (offline storage stamps the server's
+                // JID) and otherwise fall back to the receive time.
+                final Long sceReference =
+                        (query != null || isCarbon || isTypeGroupChat)
+                                ? timestamp
+                                : AbstractParser.parseTimestampIgnoringSenderDelay(
+                                        packet, System.currentTimeMillis(), packet.getFrom());
                 message = parseOmemo2Chat(omemo2Encrypted, origin, conversation, status,
                         checkedForDuplicates, query != null, occupant, counterpart, remoteMsgId, packet,
-                        timestamp);
+                        sceReference);
                 if (message == null) {
                     // OMEMO2-wrapped metadata-only stanza (chat state, chat marker,
                     // delivery receipt). parseOmemo2Chat() has re-injected the relevant

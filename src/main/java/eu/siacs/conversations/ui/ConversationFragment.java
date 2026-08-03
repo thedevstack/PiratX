@@ -1694,6 +1694,27 @@ public class ConversationFragment extends XmppFragment
                         .isEmpty();
     }
 
+    /**
+     * True when opening the trust screen could not possibly help: we are not
+     * connected and this stack knows no keys at all for the targets, so nothing
+     * can be fetched and there is nothing to decide. The screen would show a
+     * permanent "Fetching keys…" (a request written to an unbound stream is
+     * dropped) or the generic error card, and would come back on every single
+     * send attempt. Reporting the real reason once is more honest.
+     */
+    private boolean cannotFetchKeysNow(
+            final AxolotlService axolotlService, final List<Jid> targets, final int encryption) {
+        if (conversation.getAccount().isOnlineAndConnected()) {
+            return false;
+        }
+        for (final Jid jid : targets) {
+            if (!axolotlService.getFingerprintsForStack(jid, encryption).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     protected boolean trustOmemo2KeysIfNeeded(int requestCode) {
         final AxolotlService axolotlService = conversation.getAccount().getAxolotlService();
         if (axolotlService == null) return false;
@@ -1712,7 +1733,8 @@ public class ConversationFragment extends XmppFragment
                 isSingleDeviceNoteToSelf(axolotlService, Message.ENCRYPTION_AXOLOTL_OMEMO2);
         final boolean hasNoTrustedKeys = !singleDeviceNoteToSelf
                 && anyTargetHasNoTrustedKeys(axolotlService, targets, Message.ENCRYPTION_AXOLOTL_OMEMO2);
-        final boolean downloadInProgress = axolotlService.hasPendingKeyFetches(targets);
+        final boolean downloadInProgress =
+                axolotlService.hasPendingKeyFetches(targets, Message.ENCRYPTION_AXOLOTL_OMEMO2);
         // 1:1 only: sending would fail anyway, so a toast is honest. In a group chat the
         // trust screen opens instead, where the user can explicitly choose to send without
         // the keyless member (instead of silently excluding them).
@@ -1721,9 +1743,17 @@ public class ConversationFragment extends XmppFragment
                 && !hasUndecidedOwn
                 && !hasUndecidedContacts
                 && conversation.getMode() == Conversation.MODE_SINGLE
-                && (axolotlService.hasErrorFetchingDeviceList(targets)
-                    || axolotlService.fetchMapHasErrors(targets))) {
+                && (axolotlService.hasErrorFetchingDeviceList(targets, Message.ENCRYPTION_AXOLOTL_OMEMO2)
+                    || axolotlService.fetchMapHasErrors(targets, Message.ENCRYPTION_AXOLOTL_OMEMO2))) {
             Toast.makeText(activity, R.string.no_pq_omemo2_keys_for_contact, Toast.LENGTH_LONG).show();
+            return false;
+        }
+        if (!singleDeviceNoteToSelf
+                && !hasUndecidedOwn
+                && !hasUndecidedContacts
+                && conversation.getMode() == Conversation.MODE_SINGLE
+                && cannotFetchKeysNow(axolotlService, targets, Message.ENCRYPTION_AXOLOTL_OMEMO2)) {
+            Toast.makeText(activity, R.string.omemo_keys_unavailable_offline, Toast.LENGTH_LONG).show();
             return false;
         }
         axolotlService.createOmemo2SessionsIfNeeded(conversation);
@@ -1764,7 +1794,8 @@ public class ConversationFragment extends XmppFragment
                 isSingleDeviceNoteToSelf(axolotlService, Message.ENCRYPTION_AXOLOTL);
         boolean hasNoTrustedKeys = !singleDeviceNoteToSelf
                 && anyTargetHasNoTrustedKeys(axolotlService, targets, Message.ENCRYPTION_AXOLOTL);
-        boolean downloadInProgress = axolotlService.hasPendingKeyFetches(targets);
+        boolean downloadInProgress =
+                axolotlService.hasPendingKeyFetches(targets, Message.ENCRYPTION_AXOLOTL);
         // 1:1 only: sending would fail anyway, so a toast is honest. In a group chat the
         // trust screen opens instead, where the user can explicitly choose to send without
         // the keyless member (instead of silently excluding them).
@@ -1773,9 +1804,17 @@ public class ConversationFragment extends XmppFragment
                 && !hasUndecidedOwn
                 && !hasUndecidedContacts
                 && conversation.getMode() == Conversation.MODE_SINGLE
-                && (axolotlService.hasErrorFetchingDeviceList(targets)
-                    || axolotlService.fetchMapHasErrors(targets))) {
+                && (axolotlService.hasErrorFetchingDeviceList(targets, Message.ENCRYPTION_AXOLOTL)
+                    || axolotlService.fetchMapHasErrors(targets, Message.ENCRYPTION_AXOLOTL))) {
             Toast.makeText(activity, R.string.no_omemo_keys_for_contact, Toast.LENGTH_LONG).show();
+            return false;
+        }
+        if (!singleDeviceNoteToSelf
+                && !hasUndecidedOwn
+                && !hasUndecidedContacts
+                && conversation.getMode() == Conversation.MODE_SINGLE
+                && cannotFetchKeysNow(axolotlService, targets, Message.ENCRYPTION_AXOLOTL)) {
+            Toast.makeText(activity, R.string.omemo_keys_unavailable_offline, Toast.LENGTH_LONG).show();
             return false;
         }
         if (hasUndecidedOwn
