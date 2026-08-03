@@ -32,4 +32,5 @@
     <string-array name="support_site">
         <item>https://jabber.thedevstack.de</item>
     </string-array>
+    <bool name="legacy_omemo_enabled">true</bool>
 </resources>
