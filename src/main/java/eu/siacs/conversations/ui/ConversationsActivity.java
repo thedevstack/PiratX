@@ -129,6 +129,7 @@ import eu.siacs.conversations.ui.util.ActivityResult;
 import eu.siacs.conversations.ui.util.AvatarWorkerTask;
 import eu.siacs.conversations.ui.util.ConversationMenuConfigurator;
 import eu.siacs.conversations.ui.util.MenuDoubleTabUtil;
+import eu.siacs.conversations.ui.util.OmemoDefaultStackNotice;
 import eu.siacs.conversations.ui.util.PendingItem;
 import eu.siacs.conversations.ui.util.ToolbarUtils;
 import eu.siacs.conversations.ui.util.SendButtonTool;
@@ -833,37 +834,12 @@ public class ConversationsActivity extends XmppActivity
     }
 
     /**
-     * One-time notice shown after updating to (or first installing) the
-     * post-quantum build. PQ OMEMO2 is the default and legacy OMEMO is off, so
-     * contacts on other/older XMPP apps can't read OMEMO2 messages. Offer to turn
-     * legacy OMEMO on (publishing the legacy bundle immediately) for a smooth
-     * rollout, while keeping post-quantum as the default for capable peers.
+     * One-time choice of which OMEMO stack chats use by default. Shared with
+     * StartConversationActivity — see {@link OmemoDefaultStackNotice}, which
+     * explains why the overview cannot be the only screen that asks.
      */
     private boolean offerPostQuantumOmemoNoticeIfNeeded() {
-        if (getPreferences().getBoolean("pq_omemo2_notice_shown", false)) {
-            return false;
-        }
-        final MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
-        builder.setTitle(R.string.pq_omemo2_notice_title);
-        builder.setMessage(getString(R.string.pq_omemo2_notice_message, getString(R.string.app_name)));
-        builder.setPositiveButton(R.string.enable_legacy_omemo, (dialog, which) -> {
-            getPreferences().edit().putBoolean("legacy_omemo_enabled", true).apply();
-            if (xmppConnectionService != null) {
-                for (final Account account : xmppConnectionService.getAccounts()) {
-                    final var axolotlService = account.getAxolotlService();
-                    if (axolotlService != null) {
-                        axolotlService.publishLegacyBundleNow();
-                    }
-                }
-            }
-        });
-        builder.setNegativeButton(R.string.use_post_quantum_only, null);
-        builder.setOnDismissListener(dialog ->
-                getPreferences().edit().putBoolean("pq_omemo2_notice_shown", true).apply());
-        final AlertDialog dialog = builder.create();
-        dialog.setCanceledOnTouchOutside(false);
-        dialog.show();
-        return true;
+        return OmemoDefaultStackNotice.showIfNeeded(this);
     }
 
     private String getBatteryOptimizationPreferenceKey() {
