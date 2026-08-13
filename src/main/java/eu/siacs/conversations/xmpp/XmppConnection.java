@@ -1560,7 +1560,17 @@ public class XmppConnection implements Runnable {
             }
             throw e;
         }
-        SSLSockets.setSecurity(sslSocket, isRequireTlsV13());
+        try {
+            SSLSockets.setSecurity(sslSocket, isRequireTlsV13());
+        } catch (final IllegalArgumentException e) {
+            FileBackend.close(sslSocket);
+            Log.d(
+                    Config.LOGTAG,
+                    account.getJid().asBareJid()
+                            + ": could not set security requirements on socket",
+                    e);
+            throw new StateChangingException(Account.State.TLS_ERROR);
+        }
         SSLSockets.setHostname(sslSocket, IDN.toASCII(account.getServer()));
         SSLSockets.setApplicationProtocol(sslSocket, "xmpp-client");
         final XmppDomainVerifier xmppDomainVerifier = new XmppDomainVerifier();
@@ -2342,7 +2352,10 @@ public class XmppConnection implements Runnable {
                         boolean advancedStreamFeaturesLoaded;
                         synchronized (XmppConnection.this.disco) {
                             ServiceDiscoveryResult result = new ServiceDiscoveryResult(packet);
-                            if (jid.equals(account.getDomain())) {
+                            // A null ver means the disco#info could not be hashed unambiguously.
+                            // The result stays usable for this session but must not enter the
+                            // hash-keyed cache that is shared with other entities.
+                            if (jid.equals(account.getDomain()) && result.getVer() != null) {
                                 mXmppConnectionService.databaseBackend.insertDiscoveryResult(
                                         result);
                             }

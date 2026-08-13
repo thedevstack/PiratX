@@ -2009,8 +2009,9 @@ public class XmppConnectionService extends Service {
         }
         final Conversation conversation =
                 findOrCreateConversation(account, Config.BUG_REPORTS, false, true);
-        final Message report = new Message(conversation, message, Message.ENCRYPTION_NONE);
-        report.setStatus(Message.STATUS_RECEIVED);
+        final Message report =
+                new Message(
+                        conversation, message, Message.ENCRYPTION_NONE, Message.STATUS_RECEIVED);
         conversation.add(report);
         databaseBackend.createMessage(report);
         updateConversationUi();
@@ -8505,7 +8506,10 @@ public class XmppConnectionService extends Service {
                         if (response.getType() == Iq.Type.RESULT) {
                             final ServiceDiscoveryResult discoveryResult =
                                     new ServiceDiscoveryResult(response);
-                            if (presence == null || presence.getVer() == null || presence.getVer().equals(discoveryResult.getVer())) {
+                            // A null ver means the disco#info could not be hashed unambiguously,
+                            // so there is no safe key to cache it under.
+                            if (discoveryResult.getVer() != null
+                                    && (presence == null || presence.getVer() == null || presence.getVer().equals(discoveryResult.getVer()))) {
                                 databaseBackend.insertDiscoveryResult(discoveryResult);
                                 injectServiceDiscoveryResult(
                                         account.getRoster(),

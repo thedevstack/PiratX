@@ -77,7 +77,11 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
         }
         final Element identity = query.findChild("identity");
         Data data = Data.parse(x);
-        String address = packet.getFrom().toString();
+        final Jid roomAddress = packet.getFrom();
+        if (roomAddress == null) {
+            return null;
+        }
+        String address = roomAddress.toString();
         String name = identity == null ? null : identity.getAttribute("name");
         String roomName = data.getValue("muc#roomconfig_roomname");
         String description = data.getValue("muc#roominfo_description");
@@ -789,10 +793,34 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
         return false;
     }
 
+    private boolean isFromConference(final Iq packet) {
+        final Jid from = packet.getFrom();
+        return from != null && mXmppConnectionService.isMuc(account, from);
+    }
+
+    private static boolean revealsClientIdentity(final Iq packet) {
+        return packet.hasChild("query", "http://jabber.org/protocol/disco#info")
+                || packet.hasChild("query", "jabber:iq:version")
+                || packet.hasChild("time", "urn:xmpp:time");
+    }
+
     @Override
     public void accept(final Iq packet) {
         final boolean isGet = packet.getType() == Iq.Type.GET;
+        final boolean isRequest = isGet || packet.getType() == Iq.Type.SET;
         if (packet.getType() == Iq.Type.ERROR || packet.getType() == Iq.Type.TIMEOUT) {
+            return;
+        }
+        // Same rule as in PresenceParser: an unparsable 'from' cannot be compared against
+        // conversations or roster entries, and we could not address a reply to it either.
+        final Jid sender = packet.getFrom();
+        if (sender != null && !Jid.Invalid.isValid(sender)) {
+            Log.d(
+                    Config.LOGTAG,
+                    account.getJid().asBareJid()
+                            + ": ignoring iq with unparsable from '"
+                            + sender
+                            + "'");
             return;
         }
         if (packet.hasChild("query", Namespace.ROSTER) && packet.fromServer(account)) {
@@ -929,6 +957,12 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
                 || packet.hasChild("data", "http://jabber.org/protocol/ibb")
                 || packet.hasChild("close", "http://jabber.org/protocol/ibb")) {
             mXmppConnectionService.getJingleConnectionManager().deliverIbbPacket(account, packet);
+        } else if (isRequest && isFromConference(packet) && revealsClientIdentity(packet)) {
+            final Iq response = packet.generateResponse(Iq.Type.ERROR);
+            final Element error = response.addChild("error");
+            error.setAttribute("type", "cancel");
+            error.addChild("service-unavailable", "urn:ietf:params:xml:ns:xmpp-stanzas");
+            mXmppConnectionService.sendIqPacket(account, response, null);
         } else if (packet.hasChild("query", "http://jabber.org/protocol/disco#info")) {
             final Iq response =
                     mXmppConnectionService.getIqGenerator().discoResponse(account, packet);
