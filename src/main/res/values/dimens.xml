@@ -63,7 +63,32 @@
 
 
     <dimen name="avatar_corners_radius">8dp</dimen>
-    <dimen name="nav_bar_height">81dp</dimen>
+
+    <!-- Floating top and bottom bars. Both are inset islands the content scrolls
+         underneath, they share one radius, and the bottom bar carries more
+         elevation because it is the one that overlaps content. -->
+    <dimen name="floating_bar_margin">10dp</dimen>
+
+    <dimen name="floating_bar_margin_bottom">10dp</dimen>
+    <dimen name="floating_bar_margin_horizontal">40dp</dimen>
+    <!-- the status bar already supplies the space above the toolbar -->
+    <dimen name="floating_bar_margin_top">6dp</dimen>
+    <!-- half of floating_toolbar_height: the toolbar reads as a capsule -->
+    <dimen name="floating_bar_corner">24dp</dimen>
+    <dimen name="floating_toolbar_height">48dp</dimen>
+    <dimen name="floating_nav_bar_height">60dp</dimen>
+    <!-- Material's own 12dp/16dp assume an 80dp bar. With the 32dp active indicator and a
+         label between them, that overflows a slim bar and the labels get clipped. -->
+    <dimen name="floating_nav_item_padding">6dp</dimen>
+    <dimen name="floating_nav_item_padding_top">10dp</dimen>
+    <dimen name="floating_nav_item_padding_bottom">-2dp</dimen>
+    <dimen name="floating_toolbar_elevation">3dp</dimen>
+    <dimen name="floating_nav_elevation">8dp</dimen>
+    <!-- The command tab strip, a floating segmented control -->
+    <dimen name="floating_tab_strip_height">36dp</dimen>
+    <dimen name="floating_tab_strip_padding">3dp</dimen>
+    <dimen name="floating_tab_indicator_corner">15dp</dimen>
+
     <dimen name="muc_avatar_actionbar">24dp</dimen>
     <dimen name="avatar_big">640dp</dimen>
 

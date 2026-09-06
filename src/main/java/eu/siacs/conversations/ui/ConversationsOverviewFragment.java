@@ -69,6 +69,7 @@ import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.adapter.ConversationAdapter;
 import eu.siacs.conversations.ui.interfaces.OnConversationArchived;
 import eu.siacs.conversations.ui.interfaces.OnConversationSelected;
+import eu.siacs.conversations.ui.util.FloatingBars;
 import eu.siacs.conversations.ui.util.MenuDoubleTabUtil;
 import eu.siacs.conversations.ui.util.PendingActionHelper;
 import eu.siacs.conversations.ui.util.PendingItem;
@@ -352,6 +353,12 @@ public class ConversationsOverviewFragment extends XmppFragment {
 		this.binding.list.addOnScrollListener(ExtendedFabSizeChanger.of(binding.fab));
 		if (activity.getPreferences().getBoolean("swipe_to_archive", true)) this.touchHelper = new ItemTouchHelper(this.callback);
 		if (activity.getPreferences().getBoolean("swipe_to_archive", true)) this.touchHelper.attachToRecyclerView(this.binding.list);
+		final View topBar = FloatingBars.topBarOf(getActivity());
+		final View bottomBar = FloatingBars.bottomBarOf(getActivity());
+		FloatingBars.inset(this.binding.list, topBar, bottomBar);
+		FloatingBars.dropBelowTopBar(this.binding.overviewSnackbar, topBar);
+		FloatingBars.liftAboveBottomBar(this.binding.fab, bottomBar);
+		FloatingBars.liftAboveBottomBar(this.binding.fabStartConversation, bottomBar);
 		return binding.getRoot();
 	}
 
@@ -477,7 +484,9 @@ public class ConversationsOverviewFragment extends XmppFragment {
 		int position = layoutManager.findFirstVisibleItemPosition();
 		final View view = this.binding.list.getChildAt(0);
 		if (view != null) {
-			return new ScrollState(position, view.getTop());
+			// scrollToPositionWithOffset() measures from inside the padding, so the offset has
+			// to be stored that way too or the floating bar's inset gets counted twice.
+			return new ScrollState(position, view.getTop() - this.binding.list.getPaddingTop());
 		} else {
 			return new ScrollState(position, 0);
 		}

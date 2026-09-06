@@ -11,22 +11,55 @@
         android:layout_height="match_parent"
         android:fitsSystemWindows="true">
 
+    <!-- Content runs the full height; the bars below float on top of it and the
+         fragments pad themselves clear of the bars via FloatingBars. -->
     <LinearLayout
+        android:id="@+id/main_layout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:layout_above="@id/bottom_navigation" >
+        android:baselineAligned="false">
+
+        <FrameLayout
+            android:id="@+id/main_fragment"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1000" />
+
+        <FrameLayout
+            android:id="@+id/secondary_fragment"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1618" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/top_bar_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:orientation="vertical">
 
         <com.google.android.material.appbar.AppBarLayout
+            android:id="@+id/app_bar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_height="wrap_content"
+            android:background="@android:color/transparent"
+            android:stateListAnimator="@null"
+            app:elevation="0dp"
+            app:liftOnScroll="false">
 
             <com.google.android.material.appbar.MaterialToolbar
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/floating_bar_margin"
+                android:layout_marginTop="@dimen/floating_bar_margin_top"
+                android:layout_marginEnd="@dimen/floating_bar_margin"
+                android:layout_marginBottom="@dimen/floating_bar_margin"
+                android:background="@drawable/bg_floating_bar"
+                android:elevation="@dimen/floating_toolbar_elevation"
                 app:subtitleTextAppearance="@style/TextAppearance.Material3.LabelMedium"
-                android:minHeight="?attr/actionBarSize" >
+                android:minHeight="@dimen/floating_toolbar_height" >
 
                 <eu.siacs.conversations.ui.widget.AvatarView
                     android:id="@+id/toolbar_avatar"
@@ -62,35 +95,30 @@
 
         </com.google.android.material.appbar.AppBarLayout>
 
-        <include layout="@layout/view_audio_miniplayer" />
-
-        <LinearLayout
-            android:id="@+id/main_layout"
+        <include
+            layout="@layout/view_audio_miniplayer"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:baselineAligned="false">
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/floating_bar_margin"
+            android:layout_marginEnd="@dimen/floating_bar_margin"
+            android:layout_marginBottom="@dimen/floating_bar_margin" />
 
-            <FrameLayout
-                android:id="@+id/main_fragment"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1000" />
-
-            <FrameLayout
-                android:id="@+id/secondary_fragment"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1618" />
-        </LinearLayout>
     </LinearLayout>
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottom_navigation"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/nav_bar_height"
+        android:layout_height="@dimen/floating_nav_bar_height"
         android:layout_alignParentBottom="true"
-        android:background="?colorSurfaceContainerLowest"
+        android:layout_marginBottom="@dimen/floating_bar_margin_bottom"
+        android:layout_marginHorizontal="@dimen/floating_bar_margin_horizontal"
+        android:background="@drawable/bg_floating_bar"
+        android:elevation="@dimen/floating_nav_elevation"
         app:labelVisibilityMode="labeled"
+        app:itemPaddingTop="@dimen/floating_nav_item_padding_top"
+        app:itemPaddingBottom="@dimen/floating_nav_item_padding_bottom"
+        app:itemTextAppearanceActive="@style/TextAppearance.App.NavigationBarLabel"
+        app:itemTextAppearanceInactive="@style/TextAppearance.App.NavigationBarLabel"
         app:menu="@menu/bottom_navigation_menu_chat"
         android:visibility="gone" />
 

@@ -152,6 +152,7 @@ import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.entities.Bookmark;
 import eu.siacs.conversations.entities.Edit;
 import eu.siacs.conversations.medialib.activities.EditActivity;
+import eu.siacs.conversations.ui.util.FloatingBars;
 import eu.siacs.conversations.ui.util.QuoteHelper;
 import eu.siacs.conversations.ui.util.SoftKeyboardUtils;
 import eu.siacs.conversations.ui.util.TrustKeys;
@@ -2156,6 +2157,13 @@ public class ConversationFragment extends XmppFragment
         this.binding =
                 DataBindingUtil.inflate(inflater, R.layout.fragment_conversation, container, false);
         binding.getRoot().setOnClickListener(null); // TODO why the fuck did we do this?
+
+        // The wallpaper keeps running under the floating bars; the chat itself starts below
+        // them. On a tablet the bottom bar stays up next to an open chat, hence both.
+        FloatingBars.inset(
+                binding.chatContent,
+                FloatingBars.topBarOf(getActivity()),
+                FloatingBars.bottomBarOf(getActivity()));
 
         binding.pinnedMessageContainer.setOnLongClickListener(v -> {
             if (conversation != null) {

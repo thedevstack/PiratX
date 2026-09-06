@@ -70,4 +70,10 @@
         <item name="fontFamily">@font/noto_sans</item>
     </style>
 
+    <!-- The floating bottom bar is slimmer than a standard navigation bar, so its labels
+         step down a size to sit comfortably under the icons. -->
+    <style name="TextAppearance.App.NavigationBarLabel" parent="TextAppearance.App.LabelSmall">
+        <item name="android:textSize">10sp</item>
+    </style>
+
 </resources>

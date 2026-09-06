@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.view.View;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.elevation.SurfaceColors;
 
 public final class Activities {
@@ -36,6 +37,22 @@ public final class Activities {
             }
         } else if (isLightMode) {
             view.setSystemUiVisibility(flags | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        }
+    }
+
+    /**
+     * For screens with a floating bottom bar. Identical to {@link
+     * #setStatusAndNavigationBarColors(Activity, View)} except that the system navigation bar is
+     * painted in the page background, so it reads as page rather than as a shelf underneath the
+     * floating bar.
+     */
+    public static void setStatusAndNavigationBarColorsFloating(
+            final Activity activity, final View view) {
+        setStatusAndNavigationBarColors(activity, view);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            activity.getWindow()
+                    .setNavigationBarColor(
+                            MaterialColors.getColor(view, android.R.attr.colorBackground));
         }
     }
 

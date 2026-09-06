@@ -5,7 +5,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="?attr/colorSurfaceContainerHigh"
+    android:background="@drawable/bg_floating_bar"
+    android:elevation="@dimen/floating_toolbar_elevation"
     android:clickable="true"
     android:focusable="true"
     android:visibility="gone">
@@ -70,12 +71,17 @@
 
     </LinearLayout>
 
+    <!-- Held inside the rounded corners of the floating bar rather than clipped by them,
+         which needs no API 31 outline clipping. -->
     <com.google.android.material.progressindicator.LinearProgressIndicator
         android:id="@+id/miniplayer_progress"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="6dp"
         app:trackThickness="2dp"
-        app:trackCornerRadius="0dp"
+        app:trackCornerRadius="1dp"
         android:max="100"
         android:progress="0" />
 

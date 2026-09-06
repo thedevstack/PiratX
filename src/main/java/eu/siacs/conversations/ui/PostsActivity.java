@@ -4,7 +4,6 @@ import static android.view.View.VISIBLE;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
@@ -31,6 +30,7 @@ import eu.siacs.conversations.databinding.ActivityPostsBinding;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Post;
+import eu.siacs.conversations.ui.util.FloatingBars;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.adapter.FollowSuggestionAdapter;
 import eu.siacs.conversations.ui.adapter.PostsAdapter;
@@ -72,11 +72,13 @@ public class PostsActivity extends XmppActivity implements XmppConnectionService
         super.onCreate(savedInstanceState);
         mSuggestionsVisible = getPreferences(MODE_PRIVATE).getBoolean("suggestions_visible", true);
         binding = DataBindingUtil.setContentView(this, R.layout.activity_posts);
-        Activities.setStatusAndNavigationBarColors(this, binding.getRoot());
+        Activities.setStatusAndNavigationBarColorsFloating(this, binding.getRoot());
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
 
         binding.postsList.setLayoutManager(new LinearLayoutManager(this));
+        FloatingBars.inset(binding.postsList, binding.topBarContainer, binding.bottomNavigation);
+        FloatingBars.liftAboveBottomBar(binding.fabCreatePost, binding.bottomNavigation);
         postsAdapter = new PostsAdapter(this, postList, postResultLauncher, this);
         binding.postsList.setAdapter(postsAdapter);
 
@@ -94,7 +96,6 @@ public class PostsActivity extends XmppActivity implements XmppConnectionService
         binding.toggleSuggestionsButton.setOnClickListener(v -> toggleSuggestionsVisibility());
 
         BottomNavigationView bottomNavigationView=findViewById(R.id.bottom_navigation);
-        bottomNavigationView.setBackgroundColor(Color.TRANSPARENT);
         bottomNavigationView.setOnItemSelectedListener(item -> {
 
             final int navId = item.getItemId();

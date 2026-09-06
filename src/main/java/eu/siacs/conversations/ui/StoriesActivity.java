@@ -8,7 +8,6 @@ import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Bundle;
@@ -50,6 +49,7 @@ import eu.siacs.conversations.entities.Story;
 import eu.siacs.conversations.medialib.activities.EditActivity;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.adapter.StoryAdapter;
+import eu.siacs.conversations.ui.util.FloatingBars;
 import eu.siacs.conversations.ui.util.PendingItem;
 
 public class StoriesActivity extends XmppActivity implements XmppConnectionService.OnStoriesUpdate {
@@ -68,17 +68,18 @@ public class StoriesActivity extends XmppActivity implements XmppConnectionServi
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = DataBindingUtil.setContentView(this, R.layout.activity_stories);
-        Activities.setStatusAndNavigationBarColors(this, findViewById(android.R.id.content));
+        Activities.setStatusAndNavigationBarColorsFloating(this, findViewById(android.R.id.content));
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
         binding.fabAddStory.setOnClickListener(v -> selectAccountToPublishStory());
         storyAdapter = new StoryAdapter(this, stories);
         binding.storiesList.setLayoutManager(new LinearLayoutManager(this));
         binding.storiesList.setAdapter(storyAdapter);
+        FloatingBars.inset(binding.storiesList, binding.appBar, binding.bottomNavigation);
+        FloatingBars.liftAboveBottomBar(binding.fabAddStory, binding.bottomNavigation);
 
         // Bottom Navigation Setup
         BottomNavigationView bottomNavigationView = findViewById(R.id.bottom_navigation);
-        bottomNavigationView.setBackgroundColor(Color.TRANSPARENT);
         bottomNavigationView.setOnItemSelectedListener(item -> {
             final int navId = item.getItemId();
             if (navId == R.id.chats) {

@@ -44,7 +44,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -1175,7 +1174,7 @@ public class ConversationsActivity extends XmppActivity
         ConversationMenuConfigurator.reloadFeatures(this);
         OmemoSetting.load(this);
         this.binding = DataBindingUtil.setContentView(this, R.layout.activity_conversations);
-        Activities.setStatusAndNavigationBarColors(this, binding.getRoot());
+        Activities.setStatusAndNavigationBarColorsFloating(this, binding.getRoot());
         final View miniPlayerRoot = binding.getRoot().findViewById(R.id.audio_miniplayer);
         if (miniPlayerRoot != null) {
             this.audioMiniPlayer =
@@ -1213,7 +1212,6 @@ public class ConversationsActivity extends XmppActivity
         }
 
         BottomNavigationView bottomNavigationView = findViewById(R.id.bottom_navigation);
-        bottomNavigationView.setBackgroundColor(Color.TRANSPARENT);
         bottomNavigationView.setOnItemSelectedListener(item -> {
 
             final int navId = item.getItemId();

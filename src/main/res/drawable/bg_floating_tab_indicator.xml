@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The selected command tab, marked the same way the bottom bar marks its active
+     destination: a filled pill rather than an underline, which has no square ends to
+     collide with the rounded strip it sits in. TabLayout tints this with tabIndicatorColor. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <solid android:color="@android:color/white" />
+
+    <corners android:radius="@dimen/floating_tab_indicator_corner" />
+
+</shape>
