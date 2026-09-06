@@ -129,14 +129,20 @@ public final class FloatingBars {
         // changing the padding under a list that is resting against an edge would leave the row
         // at that edge stranded behind a bar. Send it back to the edge it was resting on: the
         // end first, because a chat rests at the newest message and grows from the bottom.
-        final boolean restingAtStart = !view.canScrollVertically(-1);
-        final boolean restingAtEnd = !view.canScrollVertically(1);
+        //
+        // Only once it has laid something out, though. A list with no children yet reports that
+        // it cannot scroll either way, which is not the same as resting against an edge -- acting
+        // on that would scroll a restored list away from wherever the user left it.
+        final RecyclerView list = view instanceof RecyclerView ? (RecyclerView) view : null;
+        final boolean settled = list != null && list.getChildCount() > 0;
+        final boolean restingAtStart = settled && !view.canScrollVertically(-1);
+        final boolean restingAtEnd = settled && !view.canScrollVertically(1);
         view.setPadding(view.getPaddingLeft(), top, view.getPaddingRight(), bottom);
-        if (!(view instanceof RecyclerView)) {
+        if (restingAtStart && restingAtEnd) {
+            // it does not scroll at all, so nothing of it can end up behind a bar
             return;
         }
-        final var list = (RecyclerView) view;
-        final var adapter = list.getAdapter();
+        final var adapter = list == null ? null : list.getAdapter();
         if (restingAtEnd && adapter != null && adapter.getItemCount() > 0) {
             list.scrollToPosition(adapter.getItemCount() - 1);
         } else if (restingAtStart) {
