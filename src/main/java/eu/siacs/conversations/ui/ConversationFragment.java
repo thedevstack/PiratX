@@ -2158,12 +2158,31 @@ public class ConversationFragment extends XmppFragment
                 DataBindingUtil.inflate(inflater, R.layout.fragment_conversation, container, false);
         binding.getRoot().setOnClickListener(null); // TODO why the fuck did we do this?
 
-        // The wallpaper keeps running under the floating bars; the chat itself starts below
-        // them. On a tablet the bottom bar stays up next to an open chat, hence both.
+        final View topBar = FloatingBars.topBarOf(getActivity());
+        final View bottomBar = FloatingBars.bottomBarOf(getActivity());
+        // Only the bottom: a tablet keeps the navigation bar up beside an open chat, and the
+        // composer has to stay clear of it. The top is deliberately left open so the wallpaper
+        // and the messages both run up behind the toolbar.
+        FloatingBars.inset(binding.chatContent, null, bottomBar);
+        // What floats at the top of a chat, in the order it stacks up.
+        final View[] above = {
+            topBar,
+            binding.tabLayout,
+            binding.mucSubject,
+            binding.tuneSubject,
+            binding.ephemeralHint,
+            binding.pinnedMessageContainer
+        };
+        // ...and at the bottom, where the composer is already a translucent island.
+        final View[] below = {binding.snackbar, binding.inputArea};
+        FloatingBars.dropBelowTopBar(binding.chatTopAnchor, topBar);
+        FloatingBars.dropBelowTopBar(binding.topBarAnchor, topBar, binding.tabLayout);
+        FloatingBars.inset(binding.messagesView, above, below);
+        FloatingBars.liftAboveBottomBar(binding.scrollToBottomButton, binding.snackbar, binding.inputArea);
+        // The composer lives on the chat page and swipes away with it, so a command page is only
+        // held clear of what is above it.
         FloatingBars.inset(
-                binding.chatContent,
-                FloatingBars.topBarOf(getActivity()),
-                FloatingBars.bottomBarOf(getActivity()));
+                binding.commandsPage, new View[] {topBar, binding.tabLayout}, new View[0]);
 
         binding.pinnedMessageContainer.setOnLongClickListener(v -> {
             if (conversation != null) {

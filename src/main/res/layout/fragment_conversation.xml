@@ -24,6 +24,16 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
+        <!-- Hangs the tab strip below the floating toolbar with a layout rule rather than a
+             margin set in code, so that the strip's own height is the only thing the insets
+             below have to add up. -->
+        <View
+            android:id="@+id/chat_top_anchor"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_alignParentTop="true"
+            android:visibility="invisible" />
+
         <!-- A floating segmented control rather than an underlined strip, so it belongs to the
              same family as the toolbar above it and the bottom bar. -->
         <com.google.android.material.tabs.TabLayout
@@ -31,6 +41,7 @@
             android:id="@+id/tab_layout"
             android:layout_width="match_parent"
             android:layout_height="@dimen/floating_tab_strip_height"
+            android:layout_below="@id/chat_top_anchor"
             android:layout_marginStart="@dimen/floating_bar_margin"
             android:layout_marginEnd="@dimen/floating_bar_margin"
             android:layout_marginBottom="@dimen/floating_bar_margin"
@@ -45,9 +56,11 @@
             app:tabSelectedTextColor="?attr/colorOnSecondaryContainer"
             app:tabTextColor="?attr/colorOnSurfaceVariant" />
 
+        <!-- Full bleed rather than below the tab strip, so the messages can run under the
+             floating bars. That also puts the pages in the same coordinate space as the bars,
+             which is what lets the insets below simply add up what floats at each edge. -->
         <de.monocles.chat.ui.LockedViewPager
             android:id="@+id/conversation_view_pager"
-            android:layout_below="@id/tab_layout"
             android:layout_width="fill_parent"
             android:layout_height="fill_parent">
 
@@ -55,10 +68,20 @@
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent">
 
+                <!-- Where the cards below hang from. Invisible rather than gone so that
+                     RelativeLayout still walks the chain to it when every card is hidden. -->
+                <View
+                    android:id="@+id/top_bar_anchor"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_alignParentTop="true"
+                    android:visibility="invisible" />
+
                 <LinearLayout
                     android:id="@+id/muc_subject"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_below="@+id/top_bar_anchor"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:layout_marginStart="@dimen/floating_bar_margin"
@@ -266,15 +289,19 @@
 
                 </LinearLayout>
 
+                <!-- Runs the whole height. The cards above and the composer below float over it,
+                     and ConversationFragment pads it by exactly what they occupy, so bubbles pass
+                     behind them instead of stopping at them. -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/messages_view"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_above="@+id/snackbar"
+                    android:layout_alignParentTop="true"
+                    android:layout_alignParentBottom="true"
                     android:layout_alignParentStart="true"
                     android:clipToPadding="false"
+                    android:scrollbarStyle="outsideOverlay"
                     android:scrollbars="vertical"
-                    android:layout_below="@+id/pinned_message_container"
                     tools:listitem="@layout/item_message_end" />
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -949,6 +976,7 @@
             </RelativeLayout>
 
             <RelativeLayout
+                android:id="@+id/commands_page"
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent">
 

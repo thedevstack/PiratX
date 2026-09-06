@@ -11,14 +11,16 @@ import androidx.recyclerview.widget.RecyclerView;
 import eu.siacs.conversations.R;
 
 /**
- * The floating top and bottom bars sit on top of the content instead of taking space away from it.
- * These helpers keep the content usable underneath them: a scrolling view is padded so its first
- * and last items can be reached, and anchored views such as a floating action button are lifted
- * clear of the bottom bar.
+ * The floating bars sit on top of the content instead of taking space away from it. These helpers
+ * keep the content usable underneath them: a scrolling view is padded so its first and last items
+ * can still be reached, and anchored views such as a floating action button are held clear of
+ * whatever floats at that edge.
  *
- * <p>Everything is measured from the bars themselves rather than from a fixed dimension, so it
- * follows a bar being hidden, a taller toolbar at large font sizes, rotation and multi window
- * without any further bookkeeping.
+ * <p>An edge can have a stack of things floating at it — the toolbar, then a tab strip, then a
+ * pinned message; or a snackbar above the composer — so the calls take as many bars as the edge
+ * has and add up what they occupy. Everything is measured from the bars themselves rather than
+ * from fixed dimensions, so it follows a bar being hidden, a taller toolbar at large font sizes,
+ * the keyboard opening, rotation and multi window without any further bookkeeping.
  */
 public final class FloatingBars {
 
@@ -44,10 +46,16 @@ public final class FloatingBars {
 
     /**
      * Pads {@code content} so it scrolls underneath the bars rather than stopping at them. Pass
-     * null for a bar the screen does not have.
+     * null for an edge that has nothing floating at it.
      */
     public static void inset(
             final View content, @Nullable final View topBar, @Nullable final View bottomBar) {
+        inset(content, new View[] {topBar}, new View[] {bottomBar});
+    }
+
+    /** As above, for an edge with more than one thing stacked at it. */
+    public static void inset(
+            final View content, final View[] topBars, final View[] bottomBars) {
         if (content == null) {
             return;
         }
@@ -59,20 +67,20 @@ public final class FloatingBars {
                 content,
                 () ->
                         setPaddingIfChanged(
-                                content, occupiedHeight(topBar), occupiedHeight(bottomBar)));
+                                content, occupiedHeight(topBars), occupiedHeight(bottomBars)));
     }
 
-    /** Keeps {@code view} the same distance above the bottom bar as it had above the screen edge. */
-    public static void liftAboveBottomBar(final View view, @Nullable final View bottomBar) {
-        offset(view, bottomBar, false);
+    /** Keeps {@code view} the same distance above the bottom bars as it had above the edge. */
+    public static void liftAboveBottomBar(final View view, final View... bottomBars) {
+        offset(view, bottomBars, false);
     }
 
-    /** Keeps {@code view} the same distance below the top bar as it had below the screen edge. */
-    public static void dropBelowTopBar(final View view, @Nullable final View topBar) {
-        offset(view, topBar, true);
+    /** Keeps {@code view} the same distance below the top bars as it had below the edge. */
+    public static void dropBelowTopBar(final View view, final View... topBars) {
+        offset(view, topBars, true);
     }
 
-    private static void offset(final View view, @Nullable final View bar, final boolean fromTop) {
+    private static void offset(final View view, final View[] bars, final boolean fromTop) {
         if (view == null || !(view.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)) {
             return;
         }
@@ -82,7 +90,7 @@ public final class FloatingBars {
                 view,
                 () -> {
                     final var params = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
-                    final int margin = baseMargin + occupiedHeight(bar);
+                    final int margin = baseMargin + occupiedHeight(bars);
                     if (fromTop && params.topMargin != margin) {
                         params.topMargin = margin;
                         view.setLayoutParams(params);
@@ -93,17 +101,24 @@ public final class FloatingBars {
                 });
     }
 
-    /** The space a bar takes up at the edge of the screen, margins included. Zero when hidden. */
-    private static int occupiedHeight(@Nullable final View bar) {
-        if (bar == null || bar.getVisibility() == View.GONE) {
-            return 0;
+    /**
+     * The space a stack of bars takes up at one edge, margins included. Bars that are hidden take
+     * up nothing, which is what makes a bar appearing or disappearing self-correcting.
+     */
+    private static int occupiedHeight(final View... bars) {
+        int total = 0;
+        for (final View bar : bars) {
+            if (bar == null || bar.getVisibility() == View.GONE) {
+                continue;
+            }
+            total += bar.getHeight();
+            final var params = bar.getLayoutParams();
+            if (params instanceof ViewGroup.MarginLayoutParams) {
+                final var margins = (ViewGroup.MarginLayoutParams) params;
+                total += margins.topMargin + margins.bottomMargin;
+            }
         }
-        final var params = bar.getLayoutParams();
-        if (params instanceof ViewGroup.MarginLayoutParams) {
-            final var margins = (ViewGroup.MarginLayoutParams) params;
-            return bar.getHeight() + margins.topMargin + margins.bottomMargin;
-        }
-        return bar.getHeight();
+        return total;
     }
 
     private static void setPaddingIfChanged(final View view, final int top, final int bottom) {
@@ -111,12 +126,21 @@ public final class FloatingBars {
             return;
         }
         // A list anchors its layout on where its children already are, not on the padding, so
-        // growing the top padding underneath a list that is resting at the top would leave the
-        // first row sitting behind the bar. Send it back to the top in that case.
-        final boolean restingAtTop = !view.canScrollVertically(-1);
+        // changing the padding under a list that is resting against an edge would leave the row
+        // at that edge stranded behind a bar. Send it back to the edge it was resting on: the
+        // end first, because a chat rests at the newest message and grows from the bottom.
+        final boolean restingAtStart = !view.canScrollVertically(-1);
+        final boolean restingAtEnd = !view.canScrollVertically(1);
         view.setPadding(view.getPaddingLeft(), top, view.getPaddingRight(), bottom);
-        if (restingAtTop && view instanceof RecyclerView) {
-            ((RecyclerView) view).scrollToPosition(0);
+        if (!(view instanceof RecyclerView)) {
+            return;
+        }
+        final var list = (RecyclerView) view;
+        final var adapter = list.getAdapter();
+        if (restingAtEnd && adapter != null && adapter.getItemCount() > 0) {
+            list.scrollToPosition(adapter.getItemCount() - 1);
+        } else if (restingAtStart) {
+            list.scrollToPosition(0);
         }
     }
 
