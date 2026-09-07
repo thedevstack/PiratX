@@ -69,7 +69,7 @@
          elevation because it is the one that overlaps content. -->
     <dimen name="floating_bar_margin">10dp</dimen>
 
-    <dimen name="floating_bar_margin_bottom">10dp</dimen>
+    <dimen name="floating_bar_margin_bottom">5dp</dimen>
     <dimen name="floating_bar_margin_horizontal">50dp</dimen>
     <!-- the status bar already supplies the space above the toolbar -->
     <dimen name="floating_bar_margin_top">6dp</dimen>
@@ -80,8 +80,9 @@
     <!-- Material's own 12dp/16dp assume an 80dp bar. With the 32dp active indicator and a
          label between them, that overflows a slim bar and the labels get clipped. -->
     <dimen name="floating_nav_item_padding">6dp</dimen>
-    <dimen name="floating_nav_item_padding_top">10dp</dimen>
+    <dimen name="floating_nav_item_padding_top">16dp</dimen>
     <dimen name="floating_nav_item_padding_bottom">-2dp</dimen>
+    <dimen name="floating_nav_label_padding">-2dp</dimen>
     <dimen name="floating_toolbar_elevation">3dp</dimen>
     <dimen name="floating_nav_elevation">8dp</dimen>
     <!-- The command tab strip, a floating segmented control -->
