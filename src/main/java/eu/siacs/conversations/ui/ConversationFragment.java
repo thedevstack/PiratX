@@ -1200,6 +1200,43 @@ public class ConversationFragment extends XmppFragment
         }
     }
 
+    /**
+     * Takes the newest message back out from under the composer when it has ended up below it.
+     *
+     * <p>Content cannot be scrolled past the end of a list, so the last message hanging below the
+     * padded bottom edge is never a position the reader put it in: it is left over from a layout
+     * where that edge sat lower than it does now. Nothing else undoes it. {@code
+     * LinearLayoutManager.fixLayoutEndGap} closes a gap at the end of every layout but returns
+     * early on an overhang ("nothing to fix"), and {@code scrollToPosition} re-aligns a row only
+     * while it is still clipped by the edge, so once a later layout has scrolled the overhang out
+     * of sight it stays there for as long as the chat is open.
+     *
+     * <p>Deliberately not a re-pin: it acts on the geometry alone, never on the list changing, so
+     * it cannot move a chat the reader is scrolled back in — a reader away from the bottom has no
+     * row at that position laid out at all.
+     */
+    private void settleAtBottom() {
+        if (binding == null || messagesLayoutManager == null || messageListAdapter == null) {
+            return;
+        }
+        final int last = messageListAdapter.getItemCount() - 1;
+        if (last < 0) {
+            return;
+        }
+        final View lastChild = messagesLayoutManager.findViewByPosition(last);
+        if (lastChild == null) {
+            return;
+        }
+        final int overhang =
+                lastChild.getBottom()
+                        - (binding.messagesView.getHeight()
+                                - binding.messagesView.getPaddingBottom());
+        if (overhang > 0) {
+            // exactly what the list has left to scroll, so this lands flush and settles
+            binding.messagesView.scrollBy(0, overhang);
+        }
+    }
+
     private void toggleScrollDownButton() {
         if (conversation == null) {
             return;
@@ -2260,6 +2297,11 @@ public class ConversationFragment extends XmppFragment
         // Avoid the default cross-fade item animator fighting the neighbor-merge re-render.
         binding.messagesView.setItemAnimator(null);
         binding.messagesView.addOnScrollListener(mOnScrollListener);
+        // Fires after the list has been laid out, which is the only point where an overhang past
+        // the bottom edge can be measured. Scrolling alone never lays the list out again, so this
+        // costs nothing on the scroll path.
+        binding.messagesView.addOnLayoutChangeListener(
+                (v, l, t, r, b, ol, ot, or, ob) -> settleAtBottom());
         mediaPreviewAdapter = new MediaPreviewAdapter(this);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) activity, this.messageList);

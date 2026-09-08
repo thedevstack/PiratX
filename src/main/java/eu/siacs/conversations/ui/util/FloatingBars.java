@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import eu.siacs.conversations.R;
@@ -127,27 +128,76 @@ public final class FloatingBars {
         }
         // A list anchors its layout on where its children already are, not on the padding, so
         // changing the padding under a list that is resting against an edge would leave the row
-        // at that edge stranded behind a bar. Send it back to the edge it was resting on: the
-        // end first, because a chat rests at the newest message and grows from the bottom.
-        //
-        // Only once it has laid something out, though. A list with no children yet reports that
-        // it cannot scroll either way, which is not the same as resting against an edge, and
-        // acting on that would scroll a restored list away from wherever the reader left it.
+        // at that edge stranded behind a bar. LinearLayoutManager only ever closes a gap at an
+        // edge, never an overhang past one, so growing the padding under a settled list is not
+        // something it corrects on its own. Send the list back to the edge it was resting on.
         final RecyclerView list = view instanceof RecyclerView ? (RecyclerView) view : null;
-        final boolean settled = list != null && list.getChildCount() > 0;
-        final boolean restingAtStart = settled && !view.canScrollVertically(-1);
-        final boolean restingAtEnd = settled && !view.canScrollVertically(1);
+        final boolean restingAtStart = restingAtEdge(list, true);
+        final boolean restingAtEnd = restingAtEdge(list, false);
         view.setPadding(view.getPaddingLeft(), top, view.getPaddingRight(), bottom);
-        if (restingAtStart && restingAtEnd) {
-            // it does not scroll at all, so nothing of it can end up behind a bar
+        if (!restingAtStart && !restingAtEnd) {
             return;
         }
-        final var adapter = list == null ? null : list.getAdapter();
-        if (restingAtEnd && adapter != null && adapter.getItemCount() > 0) {
+        // A list that fits in one screen rests against both edges at once, so the tie goes to the
+        // edge it stacks from: that is the one it holds its content against.
+        final var adapter = list.getAdapter();
+        if (adapter == null || adapter.getItemCount() == 0) {
+            return;
+        }
+        if (restingAtEnd && (!restingAtStart || stacksFromEnd(list))) {
             list.scrollToPosition(adapter.getItemCount() - 1);
         } else if (restingAtStart) {
             list.scrollToPosition(0);
         }
+    }
+
+    /**
+     * Whether {@code list} is resting against one of its padded edges, measured from where the row
+     * at that edge actually sits.
+     *
+     * <p>{@code canScrollVertically} would be the obvious question to ask instead, but it is
+     * answered from the scrollbar estimate, which extrapolates the whole list from the average
+     * height of the rows on screen. That is close enough to size a scrollbar and nowhere near
+     * exact in a chat, where one row is a line of text and the next is a full width image, so it
+     * reports a list that is against the bottom as still scrollable often enough to strand the
+     * newest message behind the composer.
+     *
+     * <p>A list with nothing laid out yet is resting against neither edge: it has no row at an edge
+     * to be measured, and treating it as settled would scroll a restored list away from wherever
+     * the reader left it.
+     */
+    private static boolean restingAtEdge(@Nullable final RecyclerView list, final boolean start) {
+        if (list == null || list.getChildCount() == 0) {
+            return false;
+        }
+        final var adapter = list.getAdapter();
+        if (adapter == null || adapter.getItemCount() == 0) {
+            return false;
+        }
+        final View row = childAtPosition(list, start ? 0 : adapter.getItemCount() - 1);
+        if (row == null) {
+            return false;
+        }
+        return start
+                ? row.getTop() >= list.getPaddingTop()
+                : row.getBottom() <= list.getHeight() - list.getPaddingBottom();
+    }
+
+    @Nullable
+    private static View childAtPosition(final RecyclerView list, final int position) {
+        for (int i = 0; i < list.getChildCount(); ++i) {
+            final View child = list.getChildAt(i);
+            if (list.getChildAdapterPosition(child) == position) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private static boolean stacksFromEnd(final RecyclerView list) {
+        final var manager = list.getLayoutManager();
+        return manager instanceof LinearLayoutManager
+                && ((LinearLayoutManager) manager).getStackFromEnd();
     }
 
     /**
