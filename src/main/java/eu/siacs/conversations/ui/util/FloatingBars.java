@@ -63,12 +63,11 @@ public final class FloatingBars {
             // so a scrolling child is drawn in the padding instead of stopping at it
             ((ViewGroup) content).setClipToPadding(false);
         }
-        final Runnable apply =
+        watch(
+                content,
                 () ->
                         setPaddingIfChanged(
-                                content, occupiedHeight(topBars), occupiedHeight(bottomBars));
-        watchBars(apply, topBars, bottomBars);
-        watch(content, apply);
+                                content, occupiedHeight(topBars), occupiedHeight(bottomBars)));
     }
 
     /** Keeps {@code view} the same distance above the bottom bars as it had above the edge. */
@@ -99,27 +98,7 @@ public final class FloatingBars {
                         view.setLayoutParams(params);
                     }
                 };
-        watchBars(apply, bars);
         watch(view, apply);
-    }
-
-    /**
-     * Follows the bars themselves. This is what keeps content from visibly jumping: a layout change
-     * listener runs inside the layout pass, and anything that asks for layout from there is
-     * re-measured in the same frame, so the first frame drawn already has the right insets. The
-     * tree observer below only catches what this cannot — a bar being hidden stops it being laid
-     * out at all.
-     */
-    private static void watchBars(final Runnable apply, final View[]... barGroups) {
-        for (final View[] bars : barGroups) {
-            for (final View bar : bars) {
-                if (bar == null) {
-                    continue;
-                }
-                bar.addOnLayoutChangeListener(
-                        (v, l, t, r, b, oldL, oldT, oldR, oldB) -> apply.run());
-            }
-        }
     }
 
     /**
@@ -152,8 +131,8 @@ public final class FloatingBars {
         // end first, because a chat rests at the newest message and grows from the bottom.
         //
         // Only once it has laid something out, though. A list with no children yet reports that
-        // it cannot scroll either way, which is not the same as resting against an edge -- acting
-        // on that would scroll a restored list away from wherever the user left it.
+        // it cannot scroll either way, which is not the same as resting against an edge, and
+        // acting on that would scroll a restored list away from wherever the reader left it.
         final RecyclerView list = view instanceof RecyclerView ? (RecyclerView) view : null;
         final boolean settled = list != null && list.getChildCount() > 0;
         final boolean restingAtStart = settled && !view.canScrollVertically(-1);

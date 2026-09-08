@@ -295,10 +295,6 @@ public class ConversationFragment extends XmppFragment
     // Set when a message we just sent should scroll the list to the bottom. Consumed by refresh()
     // once the new message is actually in messageList, so the scroll can't race the async refresh.
     private boolean scrollToBottomOnNextRefresh = false;
-    /** Whether the reader is parked on the newest message; see {@link #keepPinnedToBottom}. */
-    private boolean stuckToBottom = true;
-    /** Set by a layout pass, meaning the pin is worth re-checking on the next draw. */
-    private boolean pinPending = false;
     private boolean isSwiping = false;
     private long pendingLiveLocationDuration = 0;
 
@@ -2258,23 +2254,12 @@ public class ConversationFragment extends XmppFragment
         binding.takePictureButton.setOnClickListener(this.mtakePictureButtonListener);
         binding.scrollToBottomButton.setOnClickListener(this.mScrollButtonListener);
         binding.cancelCorrection.setOnClickListener(this.mCancelCorrectionListener);
-        messagesLayoutManager =
-                new LinearLayoutManager(activity) {
-                    @Override
-                    public void onLayoutCompleted(final RecyclerView.State state) {
-                        super.onLayoutCompleted(state);
-                        // A layout pass is the only thing that can change how tall the newest
-                        // message is, so it is the only thing worth re-checking the pin for.
-                        // Scrolling does not lay out, which keeps the pin off the scroll path.
-                        pinPending = true;
-                    }
-                };
+        messagesLayoutManager = new LinearLayoutManager(activity);
         messagesLayoutManager.setStackFromEnd(true);
         binding.messagesView.setLayoutManager(messagesLayoutManager);
         // Avoid the default cross-fade item animator fighting the neighbor-merge re-render.
         binding.messagesView.setItemAnimator(null);
         binding.messagesView.addOnScrollListener(mOnScrollListener);
-        keepPinnedToBottom(binding.messagesView);
         mediaPreviewAdapter = new MediaPreviewAdapter(this);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) activity, this.messageList);
@@ -5277,7 +5262,9 @@ public class ConversationFragment extends XmppFragment
         if (commandAdapter != null && conversation != originalConversation) {
             commandAdapter.clear();
             conversation.setupViewPager(binding.conversationViewPager, binding.tabLayout, activity.xmppConnectionService.isOnboarding(), originalConversation);
-            refreshCommands(false);
+            // Delayed: advertising the commands namespace does not mean the entity has any, so
+            // showing the tab strip before the query answers makes it appear and then vanish.
+            refreshCommands(true);
         }
         if (commandAdapter == null && conversation != null) {
             conversation.setupViewPager(binding.conversationViewPager, binding.tabLayout, activity.xmppConnectionService.isOnboarding(), null);
@@ -5288,7 +5275,7 @@ public class ConversationFragment extends XmppFragment
 
                 commandAdapter.getItem(position).start(activity, ConversationFragment.this.conversation);
             });
-            refreshCommands(false);
+            refreshCommands(true);
         }
         binding.commandsNote.setVisibility(activity.xmppConnectionService.isOnboarding() ? View.VISIBLE : View.GONE);
         previousClickedReply = null;
@@ -5386,100 +5373,8 @@ public class ConversationFragment extends XmppFragment
                     }
                 };
         scroll.run();
-        if (jumpToBottom) {
-            // keepPinnedToBottom() takes it from here, however late the last item settles
-            stuckToBottom = true;
-        } else {
-            this.binding.messagesView.post(scroll);
-        }
+        this.binding.messagesView.post(scroll);
         this.binding.messagesView.post(this::fireReadEvent);
-    }
-
-    /**
-     * Keeps the newest message on the bottom edge as it settles. Its height is not final when it
-     * is first laid out and does not stop changing on any schedule we can wait out: a reaction row
-     * appears, a "read up to here" marker is added, a reaction's avatar arrives and re-measures the
-     * chip. Each of those leaves the message overhanging the composer, and correcting it afterwards
-     * is seen as a jump.
-     *
-     * <p>So the correction runs before every draw instead, and closes the overhang within the frame
-     * being drawn. It stands down completely once the reader scrolls away from the newest message,
-     * so it can never pull them back to the bottom while they are reading.
-     */
-    private void keepPinnedToBottom(final RecyclerView list) {
-        list.addOnScrollListener(
-                new RecyclerView.OnScrollListener() {
-                    @Override
-                    public void onScrollStateChanged(
-                            @NonNull final RecyclerView view, final int state) {
-                        if (state == RecyclerView.SCROLL_STATE_IDLE) {
-                            stuckToBottom = !view.canScrollVertically(1);
-                        }
-                    }
-
-                    @Override
-                    public void onScrolled(
-                            @NonNull final RecyclerView view, final int dx, final int dy) {
-                        if (view.getScrollState() == RecyclerView.SCROLL_STATE_DRAGGING) {
-                            // the reader is moving it themselves, so let them
-                            stuckToBottom = false;
-                        }
-                    }
-                });
-        list.getViewTreeObserver()
-                .addOnPreDrawListener(
-                        () -> {
-                            // One field read per frame unless a layout pass has just armed this,
-                            // so scrolling carries none of the cost below.
-                            if (pinPending) {
-                                pinPending = false;
-                                if (stuckToBottom
-                                        && list.getScrollState()
-                                                == RecyclerView.SCROLL_STATE_IDLE) {
-                                    pinToBottom();
-                                }
-                            }
-                            // never withhold the frame: the correction above has already happened,
-                            // so the frame about to be drawn is the corrected one
-                            return true;
-                        });
-    }
-
-    /**
-     * Moves the last message back onto the bottom edge if it has grown past it. Uses scrollBy(),
-     * which shifts the children then and there, where scrollToPosition() would only schedule a
-     * layout and leave the old position to be drawn first.
-     *
-     * @return whether it had to move anything
-     */
-    private boolean pinToBottom() {
-        if (this.binding == null || messageListAdapter == null) {
-            return false;
-        }
-        final RecyclerView list = this.binding.messagesView;
-        final int childCount = list.getChildCount();
-        final var layoutManager = list.getLayoutManager();
-        if (childCount == 0 || layoutManager == null) {
-            return false;
-        }
-        final View lastChild = list.getChildAt(childCount - 1);
-        if (list.getChildAdapterPosition(lastChild) != messageListAdapter.getItemCount() - 1) {
-            // not sitting at the newest message after all, so leave the position alone
-            return false;
-        }
-        int bottom = layoutManager.getDecoratedBottom(lastChild);
-        final var params = lastChild.getLayoutParams();
-        if (params instanceof ViewGroup.MarginLayoutParams) {
-            bottom += ((ViewGroup.MarginLayoutParams) params).bottomMargin;
-        }
-        // Only ever close an overhang. A gap below the last message means the conversation is
-        // shorter than the screen, where stackFromEnd already has it right.
-        final int overhang = bottom - (list.getHeight() - list.getPaddingBottom());
-        if (overhang <= 0) {
-            return false;
-        }
-        list.scrollBy(0, overhang);
-        return true;
     }
 
     private boolean scrolledToBottom() {
