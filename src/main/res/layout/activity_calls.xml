@@ -35,6 +35,7 @@
                 android:background="@drawable/bg_floating_bar"
                 android:elevation="@dimen/floating_toolbar_elevation"
                 android:minHeight="@dimen/floating_toolbar_height"
+                app:buttonGravity="center_vertical"
                 app:title="@string/calls" />
 
         </com.google.android.material.appbar.AppBarLayout>

@@ -48,7 +48,8 @@
             android:layout_marginBottom="@dimen/floating_bar_margin"
             android:background="@drawable/bg_floating_bar"
             android:elevation="@dimen/floating_toolbar_elevation"
-            android:minHeight="@dimen/floating_toolbar_height" />
+            android:minHeight="@dimen/floating_toolbar_height"
+            app:buttonGravity="center_vertical" />
 
     </com.google.android.material.appbar.AppBarLayout>
 

@@ -59,12 +59,14 @@
                 android:background="@drawable/bg_floating_bar"
                 android:elevation="@dimen/floating_toolbar_elevation"
                 app:subtitleTextAppearance="@style/TextAppearance.Material3.LabelMedium"
-                android:minHeight="@dimen/floating_toolbar_height" >
+                android:minHeight="@dimen/floating_toolbar_height"
+                app:buttonGravity="center_vertical" >
 
                 <eu.siacs.conversations.ui.widget.AvatarView
                     android:id="@+id/toolbar_avatar"
                     android:layout_width="38dp"
                     android:layout_height="38dp"
+                    android:layout_gravity="center_vertical"
                     android:layout_marginEnd="8dp"
                     android:scaleType="centerCrop"
                     android:visibility="gone"/>
@@ -72,6 +74,7 @@
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
                     android:orientation="vertical">
 
                     <TextView
