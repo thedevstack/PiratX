@@ -72,7 +72,10 @@ public class PostsActivity extends XmppActivity implements XmppConnectionService
         super.onCreate(savedInstanceState);
         mSuggestionsVisible = getPreferences(MODE_PRIVATE).getBoolean("suggestions_visible", true);
         binding = DataBindingUtil.setContentView(this, R.layout.activity_posts);
-        Activities.setStatusAndNavigationBarColorsFloating(this, binding.getRoot());
+        Activities.setSystemBarsTransparent(this, binding.getRoot());
+        FloatingBars.behindSystemBars(this);
+        FloatingBars.belowStatusBar(binding.topBarContainer);
+        FloatingBars.aboveNavigationBar(binding.bottomNavigation);
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
 

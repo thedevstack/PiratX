@@ -3,9 +3,10 @@ package eu.siacs.conversations.ui;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.Configuration;
+import android.graphics.Color;
 import android.os.Build;
 import android.view.View;
-import com.google.android.material.color.MaterialColors;
+import androidx.core.view.WindowCompat;
 import com.google.android.material.elevation.SurfaceColors;
 
 public final class Activities {
@@ -41,19 +42,24 @@ public final class Activities {
     }
 
     /**
-     * For screens with a floating bottom bar. Identical to {@link
-     * #setStatusAndNavigationBarColors(Activity, View)} except that the system navigation bar is
-     * painted in the page background, so it reads as page rather than as a shelf underneath the
-     * floating bar.
+     * For a screen that draws its own content all the way to the edges of the display. Paints both
+     * system bars transparent so the page shows through them, and keeps the same light or dark
+     * icons the opaque variants pick.
+     *
+     * <p>The system paints a scrim of its own behind a transparent navigation bar unless it is told
+     * not to, which would put back the very band this removes.
      */
-    public static void setStatusAndNavigationBarColorsFloating(
-            final Activity activity, final View view) {
-        setStatusAndNavigationBarColors(activity, view);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            activity.getWindow()
-                    .setNavigationBarColor(
-                            MaterialColors.getColor(view, android.R.attr.colorBackground));
+    public static void setSystemBarsTransparent(final Activity activity, final View view) {
+        final var window = activity.getWindow();
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.setNavigationBarContrastEnforced(false);
         }
+        final var isLightMode = isLightMode(activity);
+        final var controller = WindowCompat.getInsetsController(window, view);
+        controller.setAppearanceLightStatusBars(isLightMode);
+        controller.setAppearanceLightNavigationBars(isLightMode);
     }
 
     private static boolean isLightMode(final Context context) {

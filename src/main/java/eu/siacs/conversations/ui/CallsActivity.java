@@ -16,6 +16,7 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivityCallsBinding;
+import eu.siacs.conversations.ui.util.FloatingBars;
 
 public class CallsActivity extends XmppActivity {
 
@@ -26,7 +27,10 @@ public class CallsActivity extends XmppActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = DataBindingUtil.setContentView(this, R.layout.activity_calls);
-        Activities.setStatusAndNavigationBarColorsFloating(this, findViewById(android.R.id.content));
+        Activities.setSystemBarsTransparent(this, findViewById(android.R.id.content));
+        FloatingBars.behindSystemBars(this);
+        FloatingBars.belowStatusBar(binding.appBar);
+        FloatingBars.aboveNavigationBar(binding.bottomNavigation);
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
 

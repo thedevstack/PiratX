@@ -9,7 +9,7 @@
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:fitsSystemWindows="true">
+        android:fitsSystemWindows="false">
 
     <!-- Content runs the full height; the bars below float on top of it and the
          fragments pad themselves clear of the bars via FloatingBars. -->

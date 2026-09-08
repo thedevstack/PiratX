@@ -1,11 +1,15 @@
 package eu.siacs.conversations.ui.util;
 
 import android.app.Activity;
+import android.content.ContextWrapper;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 
 import androidx.annotation.Nullable;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -69,6 +73,141 @@ public final class FloatingBars {
                 () ->
                         setPaddingIfChanged(
                                 content, occupiedHeight(topBars), occupiedHeight(bottomBars)));
+    }
+
+    /**
+     * Lets the window's content run behind the system bars, so a chat wallpaper and the messages
+     * on it reach the top and bottom edges of the display instead of stopping at a band of window
+     * background. The floating bars are held clear of the system bars one by one instead, by {@link
+     * #belowStatusBar(View)} and {@link #aboveNavigationBar(View)}.
+     *
+     * <p>The content keeps only the part of the keyboard that stands above the navigation bar. The
+     * rest of that inset is the navigation bar itself, which the composer already holds itself
+     * clear of, and which the messages are meant to pass behind — so the composer still rides up
+     * with the keyboard exactly as it did when the window was inset as a whole.
+     *
+     * <p>Stable insets throughout: they report a bar's size whether or not it is showing at that
+     * moment, which is both what keeps the reading measured against the keyboard alone, and what
+     * makes the sizes readable on older releases, where a window laid out fullscreen reports no
+     * system window inset at the top at all.
+     */
+    public static void behindSystemBars(final Activity activity) {
+        final View content = activity == null ? null : activity.findViewById(android.R.id.content);
+        if (content == null) {
+            return;
+        }
+        WindowCompat.setDecorFitsSystemWindows(activity.getWindow(), false);
+        ViewCompat.setOnApplyWindowInsetsListener(
+                content,
+                (v, insets) -> {
+                    final int keyboard =
+                            Math.max(
+                                    0,
+                                    insets.getSystemWindowInsets().bottom
+                                            - insets.getStableInsets().bottom);
+                    if (v.getPaddingBottom() != keyboard) {
+                        v.setPadding(
+                                v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), keyboard);
+                    }
+                    // handed on rather than consumed: every bar below reads them for itself
+                    return insets;
+                });
+        ViewCompat.requestApplyInsets(content);
+    }
+
+    /** Holds a floating top bar clear of the status bar the content now runs behind. */
+    public static void belowStatusBar(final View topBar) {
+        if (topBar == null) {
+            return;
+        }
+        final int basePadding = topBar.getPaddingTop();
+        onInsets(
+                topBar,
+                (v, insets) -> {
+                    final int top = basePadding + insets.getStableInsets().top;
+                    if (v.getPaddingTop() != top) {
+                        v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight(), v.getPaddingBottom());
+                    }
+                });
+    }
+
+    /**
+     * Holds a floating bottom bar clear of the navigation bar the content now runs behind. Applied
+     * as a margin so that {@link #inset} and {@link #liftAboveBottomBar} count it as part of what
+     * the bar occupies, the same way they count the margin it floats on.
+     */
+    public static void aboveNavigationBar(final View view) {
+        if (view == null || !(view.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)) {
+            return;
+        }
+        final int baseMargin =
+                ((ViewGroup.MarginLayoutParams) view.getLayoutParams()).bottomMargin;
+        onInsets(
+                view,
+                (v, insets) -> {
+                    final var params = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+                    final int margin = baseMargin + insets.getStableInsets().bottom;
+                    if (params.bottomMargin != margin) {
+                        params.bottomMargin = margin;
+                        v.setLayoutParams(params);
+                    }
+                });
+    }
+
+    private interface OnInsets {
+        void apply(View view, WindowInsetsCompat insets);
+    }
+
+    /**
+     * Sizes a bar against the window insets, now and whenever they change.
+     *
+     * <p>Now matters as much as the listener does. A view is dispatched insets once it is attached,
+     * which for anything inflated later — a chat's composer, say — is after it has already been
+     * laid out and drawn once at the wrong height. So the window is asked for its insets directly,
+     * through the activity's decor rather than through {@code view}, which has none of its own
+     * until it is attached. A request on attach covers the case where the window itself has not
+     * been measured yet and there is nothing to read.
+     */
+    private static void onInsets(final View view, final OnInsets apply) {
+        final var current = windowInsets(view);
+        if (current != null) {
+            apply.apply(view, current);
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(
+                view,
+                (v, insets) -> {
+                    apply.apply(v, insets);
+                    // handed on rather than consumed: every other bar reads them for itself
+                    return insets;
+                });
+        view.addOnAttachStateChangeListener(
+                new View.OnAttachStateChangeListener() {
+                    @Override
+                    public void onViewAttachedToWindow(final View v) {
+                        ViewCompat.requestApplyInsets(v);
+                    }
+
+                    @Override
+                    public void onViewDetachedFromWindow(final View v) {}
+                });
+        ViewCompat.requestApplyInsets(view);
+    }
+
+    @Nullable
+    private static WindowInsetsCompat windowInsets(final View view) {
+        final var own = ViewCompat.getRootWindowInsets(view);
+        if (own != null) {
+            return own;
+        }
+        var context = view.getContext();
+        while (context instanceof ContextWrapper) {
+            if (context instanceof Activity) {
+                return ViewCompat.getRootWindowInsets(
+                        ((Activity) context).getWindow().getDecorView());
+            }
+            context = ((ContextWrapper) context).getBaseContext();
+        }
+        return null;
     }
 
     /** Keeps {@code view} the same distance above the bottom bars as it had above the edge. */

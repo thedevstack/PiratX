@@ -140,6 +140,7 @@ import eu.siacs.conversations.utils.ThemeHelper;
 import eu.siacs.conversations.utils.XmppUri;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.OnUpdateBlocklist;
+import eu.siacs.conversations.ui.util.FloatingBars;
 import me.drakeet.support.toast.ToastCompat;
 import java.util.Arrays;
 import java.util.List;
@@ -1174,7 +1175,10 @@ public class ConversationsActivity extends XmppActivity
         ConversationMenuConfigurator.reloadFeatures(this);
         OmemoSetting.load(this);
         this.binding = DataBindingUtil.setContentView(this, R.layout.activity_conversations);
-        Activities.setStatusAndNavigationBarColorsFloating(this, binding.getRoot());
+        Activities.setSystemBarsTransparent(this, binding.getRoot());
+        FloatingBars.behindSystemBars(this);
+        FloatingBars.belowStatusBar(binding.topBarContainer);
+        FloatingBars.aboveNavigationBar(binding.bottomNavigation);
         final View miniPlayerRoot = binding.getRoot().findViewById(R.id.audio_miniplayer);
         if (miniPlayerRoot != null) {
             this.audioMiniPlayer =

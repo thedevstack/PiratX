@@ -6,7 +6,7 @@
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:fitsSystemWindows="true" >
+        android:fitsSystemWindows="false" >
 
         <!-- The feed runs the full height; everything anchored to the top lives in
              top_bar_container and floats above it, and PostsActivity pads the feed

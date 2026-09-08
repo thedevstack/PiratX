@@ -2214,7 +2214,11 @@ public class ConversationFragment extends XmppFragment
             binding.ephemeralHint,
             binding.pinnedMessageContainer
         };
-        // ...and at the bottom, where the composer is already a translucent island.
+        // ...and at the bottom, where the composer is already a translucent island. It is the
+        // lowest thing in a chat, so it is the one that holds itself clear of the navigation bar
+        // the wallpaper and the messages now run behind; the snackbar rides on top of it and the
+        // insets below count that margin as part of what the composer occupies.
+        FloatingBars.aboveNavigationBar(binding.inputArea);
         final View[] below = {binding.snackbar, binding.inputArea};
         FloatingBars.dropBelowTopBar(binding.chatTopAnchor, topBar);
         FloatingBars.dropBelowTopBar(binding.topBarAnchor, topBar, binding.tabLayout);

@@ -68,7 +68,10 @@ public class StoriesActivity extends XmppActivity implements XmppConnectionServi
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = DataBindingUtil.setContentView(this, R.layout.activity_stories);
-        Activities.setStatusAndNavigationBarColorsFloating(this, findViewById(android.R.id.content));
+        Activities.setSystemBarsTransparent(this, findViewById(android.R.id.content));
+        FloatingBars.behindSystemBars(this);
+        FloatingBars.belowStatusBar(binding.appBar);
+        FloatingBars.aboveNavigationBar(binding.bottomNavigation);
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
         binding.fabAddStory.setOnClickListener(v -> selectAccountToPublishStory());
