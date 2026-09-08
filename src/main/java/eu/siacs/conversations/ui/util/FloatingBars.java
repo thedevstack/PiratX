@@ -63,11 +63,12 @@ public final class FloatingBars {
             // so a scrolling child is drawn in the padding instead of stopping at it
             ((ViewGroup) content).setClipToPadding(false);
         }
-        watch(
-                content,
+        final Runnable apply =
                 () ->
                         setPaddingIfChanged(
-                                content, occupiedHeight(topBars), occupiedHeight(bottomBars)));
+                                content, occupiedHeight(topBars), occupiedHeight(bottomBars));
+        watchBars(apply, topBars, bottomBars);
+        watch(content, apply);
     }
 
     /** Keeps {@code view} the same distance above the bottom bars as it had above the edge. */
@@ -86,8 +87,7 @@ public final class FloatingBars {
         }
         final var initial = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
         final int baseMargin = fromTop ? initial.topMargin : initial.bottomMargin;
-        watch(
-                view,
+        final Runnable apply =
                 () -> {
                     final var params = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
                     final int margin = baseMargin + occupiedHeight(bars);
@@ -98,7 +98,28 @@ public final class FloatingBars {
                         params.bottomMargin = margin;
                         view.setLayoutParams(params);
                     }
-                });
+                };
+        watchBars(apply, bars);
+        watch(view, apply);
+    }
+
+    /**
+     * Follows the bars themselves. This is what keeps content from visibly jumping: a layout change
+     * listener runs inside the layout pass, and anything that asks for layout from there is
+     * re-measured in the same frame, so the first frame drawn already has the right insets. The
+     * tree observer below only catches what this cannot — a bar being hidden stops it being laid
+     * out at all.
+     */
+    private static void watchBars(final Runnable apply, final View[]... barGroups) {
+        for (final View[] bars : barGroups) {
+            for (final View bar : bars) {
+                if (bar == null) {
+                    continue;
+                }
+                bar.addOnLayoutChangeListener(
+                        (v, l, t, r, b, oldL, oldT, oldR, oldB) -> apply.run());
+            }
+        }
     }
 
     /**
