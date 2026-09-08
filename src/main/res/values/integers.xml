@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <integer name="update_track_longer_than_secs">120</integer>
+    <!-- How far content is faded where it passes under a floating bar, as a percentage. Short of
+         100 on purpose: it should read as receding behind the bar, not as being cut off.
+         0 turns the fade off entirely, costing nothing on the scroll path. -->
+    <integer name="edge_fade_strength">78</integer>
 </resources>

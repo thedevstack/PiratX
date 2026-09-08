@@ -85,6 +85,8 @@
     <dimen name="floating_nav_label_padding">-2dp</dimen>
     <dimen name="floating_toolbar_elevation">3dp</dimen>
     <dimen name="floating_nav_elevation">8dp</dimen>
+    <!-- How far content ramps out before it disappears under a floating bar -->
+    <dimen name="edge_fade_length">40dp</dimen>
     <!-- The command tab strip, a floating segmented control -->
     <dimen name="floating_tab_strip_height">36dp</dimen>
     <dimen name="floating_tab_strip_padding">3dp</dimen>

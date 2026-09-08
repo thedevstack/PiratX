@@ -56,9 +56,9 @@
             app:tabSelectedTextColor="?attr/colorOnSecondaryContainer"
             app:tabTextColor="?attr/colorOnSurfaceVariant" />
 
-        <!-- Full bleed rather than below the tab strip, so the messages can run under the
-             floating bars. That also puts the pages in the same coordinate space as the bars,
-             which is what lets the insets below simply add up what floats at each edge. -->
+        <!-- Full bleed rather than below the tab strip, which puts the pages in the same
+             coordinate space as the bars; that is what lets the insets below simply add up what
+             floats at each edge. -->
         <de.monocles.chat.ui.LockedViewPager
             android:id="@+id/conversation_view_pager"
             android:layout_width="fill_parent"
@@ -292,7 +292,7 @@
                 <!-- Runs the whole height. The cards above and the composer below float over it,
                      and ConversationFragment pads it by exactly what they occupy, so bubbles pass
                      behind them instead of stopping at them. -->
-                <androidx.recyclerview.widget.RecyclerView
+                <eu.siacs.conversations.ui.widget.FadingEdgeRecyclerView
                     android:id="@+id/messages_view"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
@@ -300,7 +300,6 @@
                     android:layout_alignParentBottom="true"
                     android:layout_alignParentStart="true"
                     android:clipToPadding="false"
-                    android:scrollbarStyle="outsideOverlay"
                     android:scrollbars="vertical"
                     tools:listitem="@layout/item_message_end" />
 
@@ -348,8 +347,7 @@
                     android:layout_marginRight="8dp"
                     android:layout_marginStart="8dp"
                     android:layout_marginLeft="8dp"
-                    android:background="@drawable/background_message_bubble"
-                    android:alpha="0.88"
+                    android:background="@drawable/bg_composer"
                     android:animateLayoutChanges="true" >
 
                     <ListView
