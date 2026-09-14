@@ -543,13 +543,23 @@ public class ConversationFragment extends XmppFragment
     }
 
 
+    /**
+     * Whether the list is being held against the bottom edge, which is what {@link
+     * #settleAtBottom()} enforces. Handed over to the reader the moment they touch the list and
+     * taken back when they let it come to rest at the bottom again.
+     */
+    private boolean holdAtBottom = true;
+
     private final RecyclerView.OnScrollListener mOnScrollListener =
             new RecyclerView.OnScrollListener() {
 
                 @Override
                 public void onScrollStateChanged(
                         @NonNull final RecyclerView recyclerView, final int newState) {
-                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                        holdAtBottom = false;
+                    } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        holdAtBottom = recyclerScrolledToBottom();
                         fireReadEvent();
                         // Recompute the (O(n)) unread-count badge only when the scroll settles,
                         // never per frame — onScrolled fires every frame and would jank the scroll.
@@ -1211,12 +1221,16 @@ public class ConversationFragment extends XmppFragment
      * while it is still clipped by the edge, so once a later layout has scrolled the overhang out
      * of sight it stays there for as long as the chat is open.
      *
-     * <p>Deliberately not a re-pin: it acts on the geometry alone, never on the list changing, so
-     * it cannot move a chat the reader is scrolled back in — a reader away from the bottom has no
-     * row at that position laid out at all.
+     * <p>Only runs while the list is meant to be sitting at the bottom ({@link #holdAtBottom}).
+     * Scrolling up by less than the height of the newest message leaves that message attached and
+     * hanging below the padded edge, which is indistinguishable from the overhang this corrects —
+     * so the reader's intent has to say which it is, the geometry cannot.
      */
     private void settleAtBottom() {
-        if (binding == null || messagesLayoutManager == null || messageListAdapter == null) {
+        if (!holdAtBottom
+                || binding == null
+                || messagesLayoutManager == null
+                || messageListAdapter == null) {
             return;
         }
         final int last = messageListAdapter.getItemCount() - 1;
@@ -1340,6 +1354,9 @@ public class ConversationFragment extends XmppFragment
             if (messagesLayoutManager != null) {
                 messagesLayoutManager.scrollToPositionWithOffset(
                         scrollPosition.position, scrollPosition.offset);
+                // getScrollPosition() only returns a state for a reader who was away from the
+                // bottom, so restoring one is never a return to the bottom.
+                this.holdAtBottom = false;
             }
             toggleScrollDownButton();
         }
@@ -2780,6 +2797,7 @@ public class ConversationFragment extends XmppFragment
             return;
         }
         messagesLayoutManager.scrollToPosition(index);
+        this.holdAtBottom = false;
         binding.messagesView.post(() -> {
             if (messagesLayoutManager == null) {
                 return;
@@ -2956,6 +2974,8 @@ public class ConversationFragment extends XmppFragment
             Runnable performRunnable = () -> {
                 if (messagesLayoutManager != null) {
                     messagesLayoutManager.scrollToPositionWithOffset(pos, effectiveOffset);
+                    // a jump to a particular message: the reader is no longer at the bottom
+                    ConversationFragment.this.holdAtBottom = false;
                 }
             };
 
@@ -5222,6 +5242,8 @@ public class ConversationFragment extends XmppFragment
         }
         final Conversation originalConversation = this.conversation;
         this.conversation = conversation;
+        // a chat opens at its newest message unless something below moves the list off it
+        this.holdAtBottom = true;
         // once we set the conversation all is good and it will automatically do the right thing in
         // onStart()
         if (this.activity == null || this.binding == null) {
@@ -5406,6 +5428,9 @@ public class ConversationFragment extends XmppFragment
         if (this.binding == null || messagesLayoutManager == null || pos < 0) {
             return;
         }
+        // A jump to the bottom is the one place the list is put there rather than left there, so
+        // it is also where the hold is taken back from a reader who had scrolled away.
+        this.holdAtBottom = jumpToBottom;
         final Runnable scroll =
                 () -> {
                     if (messagesLayoutManager == null) {
@@ -5896,6 +5921,7 @@ public class ConversationFragment extends XmppFragment
                         final int last = messageListAdapter.getItemCount() - 1;
                         if (last >= 0) {
                             messagesLayoutManager.scrollToPosition(last);
+                            this.holdAtBottom = true;
                         }
                     }
                 }
