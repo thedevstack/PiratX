@@ -87,6 +87,12 @@
     <dimen name="floating_nav_elevation">8dp</dimen>
     <!-- How far content ramps out before it disappears under a floating bar -->
     <dimen name="edge_fade_length">40dp</dimen>
+    <!-- Every button in the composer occupies this square, and so does the text field on a single
+         line, so that buttons anchored to the bottom of the field read as centred on it until the
+         text grows past one line and takes the field's bottom edge down with it. -->
+    <dimen name="composer_button_size">40dp</dimen>
+    <!-- Trims the drawable back to its old 36dp inside the larger square above -->
+    <dimen name="composer_button_inset">2dp</dimen>
     <!-- The command tab strip, a floating segmented control -->
     <dimen name="floating_tab_strip_height">36dp</dimen>
     <dimen name="floating_tab_strip_padding">3dp</dimen>

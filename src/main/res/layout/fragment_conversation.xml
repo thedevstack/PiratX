@@ -587,7 +587,7 @@
                                 android:layout_alignBottom="@+id/textinput_layout_new"
                                 android:layout_marginEnd="3dp"
                                 android:layout_marginStart="8dp"
-                                android:layout_marginBottom="5dp"
+                                android:layout_marginBottom="7dp"
                                 android:visibility="visible"
                                 android:background="@drawable/thread_hint">
 
@@ -669,7 +669,8 @@
                                     android:imeOptions="flagNoExtractUi|actionSend"
                                     android:inputType="textShortMessage|textMultiLine|textCapSentences"
                                     android:maxLines="6"
-                                    android:minHeight="32dp"
+                                    android:gravity="center_vertical"
+                                    android:minHeight="@dimen/composer_button_size"
                                     android:minLines="1"
                                     android:paddingStart="4dp"
                                     android:paddingLeft="4dp"
@@ -687,8 +688,9 @@
 
                             <ImageButton
                                 android:id="@+id/takePictureButton"
-                                android:layout_width="36dp"
-                                android:layout_height="36dp"
+                                android:layout_width="@dimen/composer_button_size"
+                                android:layout_height="@dimen/composer_button_size"
+                                android:padding="@dimen/composer_button_inset"
                                 android:layout_marginEnd="3dp"
                                 android:layout_toStartOf="@+id/recordVoiceButton"
                                 android:layout_toLeftOf="@+id/recordVoiceButton"
@@ -700,8 +702,9 @@
 
                             <ImageButton
                                 android:id="@+id/recordVoiceButton"
-                                android:layout_width="36dp"
-                                android:layout_height="36dp"
+                                android:layout_width="@dimen/composer_button_size"
+                                android:layout_height="@dimen/composer_button_size"
+                                android:padding="@dimen/composer_button_inset"
                                 android:layout_marginEnd="3dp"
                                 android:layout_toStartOf="@+id/textSendButton"
                                 android:layout_toLeftOf="@+id/textSendButton"
