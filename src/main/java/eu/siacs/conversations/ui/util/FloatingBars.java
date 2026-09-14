@@ -2,9 +2,11 @@ package eu.siacs.conversations.ui.util;
 
 import android.app.Activity;
 import android.content.ContextWrapper;
+import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
@@ -124,7 +126,7 @@ public final class FloatingBars {
         onInsets(
                 topBar,
                 (v, insets) -> {
-                    final int top = basePadding + insets.getStableInsets().top;
+                    final int top = basePadding + statusBarInset(v, insets);
                     if (v.getPaddingTop() != top) {
                         v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight(), v.getPaddingBottom());
                     }
@@ -193,17 +195,75 @@ public final class FloatingBars {
         ViewCompat.requestApplyInsets(view);
     }
 
+    /**
+     * How far down the status bar reaches into the window.
+     *
+     * <p>Takes the largest of everything the insets have to say rather than one reading of them.
+     * From Android 11 on there is only one answer and the rest are the same number; below it the
+     * window is laid out fullscreen the old way, through {@code SYSTEM_UI_FLAG_LAYOUT_*}, where the
+     * system window inset at the top is deliberately zero and only the stable inset still carries
+     * the size — a split that not every older device gets right.
+     *
+     * <p>So when an older device reports nothing at all, the height is read from the platform
+     * instead, which is where the status bar itself gets it. Only where a status bar is certain to
+     * be there: a window that has asked for a fullscreen one has genuinely hidden it, and in
+     * multi window only one half of the screen has it, with no way here to tell which half this
+     * is — both keep the zero the insets gave.
+     */
+    private static int statusBarInset(final View view, final WindowInsetsCompat insets) {
+        int top =
+                Math.max(
+                        Math.max(
+                                insets.getStableInsets().top,
+                                insets.getSystemWindowInsets().top),
+                        insets.getInsets(WindowInsetsCompat.Type.statusBars()).top);
+        final var cutout = insets.getDisplayCutout();
+        if (cutout != null) {
+            top = Math.max(top, cutout.getSafeInsetTop());
+        }
+        if (top > 0 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return top;
+        }
+        return platformStatusBarHeight(view);
+    }
+
+    private static int platformStatusBarHeight(final View view) {
+        final var activity = activityOf(view);
+        if (activity == null) {
+            return 0;
+        }
+        final var window = activity.getWindow();
+        if (window != null
+                && (window.getAttributes().flags & WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                        != 0) {
+            return 0;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && activity.isInMultiWindowMode()) {
+            return 0;
+        }
+        final var resources = view.getResources();
+        final int id = resources.getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? resources.getDimensionPixelSize(id) : 0;
+    }
+
     @Nullable
     private static WindowInsetsCompat windowInsets(final View view) {
         final var own = ViewCompat.getRootWindowInsets(view);
         if (own != null) {
             return own;
         }
+        final var activity = activityOf(view);
+        return activity == null
+                ? null
+                : ViewCompat.getRootWindowInsets(activity.getWindow().getDecorView());
+    }
+
+    @Nullable
+    private static Activity activityOf(final View view) {
         var context = view.getContext();
         while (context instanceof ContextWrapper) {
             if (context instanceof Activity) {
-                return ViewCompat.getRootWindowInsets(
-                        ((Activity) context).getWindow().getDecorView());
+                return (Activity) context;
             }
             context = ((ContextWrapper) context).getBaseContext();
         }
