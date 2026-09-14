@@ -74,6 +74,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 import android.view.animation.CycleInterpolator;
@@ -6757,13 +6758,16 @@ public class ConversationFragment extends XmppFragment
         } else {
             fingerprint = message.getFingerprint();
         }
-        final PopupMenu popupMenu = new PopupMenu(activity, v);
+        final FixedPopupAnchor anchor =
+                new FixedPopupAnchor(binding.conversationsFragment, v);
+        final PopupMenu popupMenu = new PopupMenu(activity, anchor.view());
         final Contact contact = message.getContact();
         if (message.getStatus() <= Message.STATUS_RECEIVED
                 && (contact == null || !contact.isSelf())) {
             if (message.getConversation().getMode() == Conversation.MODE_MULTI) {
                 final Jid cp = message.getCounterpart();
                 if (cp == null || cp.isBareJid()) {
+                    anchor.detach();
                     return;
                 }
                 final Jid tcp = message.getTrueCounterpart();
@@ -6780,7 +6784,10 @@ public class ConversationFragment extends XmppFragment
                         userByRealJid != null
                                 ? userByRealJid
                                 : (userByOccupantId != null ? userByOccupantId : conversation.getMucOptions().findUserByFullJid(cp));
-                if (user == null) return;
+                if (user == null) {
+                    anchor.detach();
+                    return;
+                }
                 popupMenu.inflate(R.menu.muc_details_context);
                 final Menu menu = popupMenu.getMenu();
                 MucDetailsContextMenuHelper.configureMucDetailsContextMenu(
@@ -6837,7 +6844,51 @@ public class ConversationFragment extends XmppFragment
                         return true;
                     });
         }
+        popupMenu.setOnDismissListener(menu -> anchor.detach());
         popupMenu.show();
+    }
+
+    /**
+     * A PopupWindow re-aligns to its anchor on every scroll and layout pass of the window. The
+     * avatar lives in the message list, which keeps shifting under an open menu (read markers,
+     * presence, typing, avatar loads), so a menu anchored to it wanders and flips between above
+     * and below. This stand-in sits over the avatar in the fragment root, outside the list, and
+     * stays put for as long as the menu is shown.
+     */
+    private static final class FixedPopupAnchor {
+        private final View view;
+
+        FixedPopupAnchor(final ViewGroup root, final View target) {
+            final int[] rootPos = new int[2];
+            final int[] targetPos = new int[2];
+            root.getLocationInWindow(rootPos);
+            target.getLocationInWindow(targetPos);
+            final int left = targetPos[0] - rootPos[0];
+            final int top = targetPos[1] - rootPos[1];
+            final int width = target.getWidth();
+            final int height = target.getHeight();
+            view = new View(root.getContext());
+            view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            final RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(width, height);
+            lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+            lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+            lp.leftMargin = left - root.getPaddingLeft();
+            lp.topMargin = top - root.getPaddingTop();
+            root.addView(view, lp);
+            // the popup measures its anchor right away, before the next layout pass gets to it
+            view.layout(left, top, left + width, top + height);
+        }
+
+        View view() {
+            return view;
+        }
+
+        void detach() {
+            final ViewParent parent = view.getParent();
+            if (parent instanceof ViewGroup) {
+                ((ViewGroup) parent).removeView(view);
+            }
+        }
     }
 
     @Override
