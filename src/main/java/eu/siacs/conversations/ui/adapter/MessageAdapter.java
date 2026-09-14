@@ -427,16 +427,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
                 // Trust is per (JID, fingerprint): the identities table is shared by both
                 // stacks and by every contact, so the shield has to be read for the device
                 // that actually sent THIS message.
-                final Jid fingerprintOwner = message.getFingerprintOwner();
-                final FingerprintStatus fingerprintStatus =
-                        fingerprintOwner == null
-                                ? null
-                                : message.getConversation()
-                                        .getAccount()
-                                        .getAxolotlService()
-                                        .getFingerprintTrust(
-                                                fingerprintOwner.toString(),
-                                                message.getFingerprint());
+                final FingerprintStatus fingerprintStatus = message.getFingerprintStatus();
                 if (fingerprintStatus != null && fingerprintStatus.isVerified()) {
                     verified = true;
                 }

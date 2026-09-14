@@ -126,6 +126,15 @@ public class LegacySignalProtocolStore implements SignalProtocolStore {
     public boolean isTrustedIdentity(final SignalProtocolAddress address,
                                      final IdentityKey identityKey,
                                      final IdentityKeyStore.Direction direction) {
+        // No remote device may present one of OUR identity keys (either stack) —
+        // see SQLiteAxolotlStore#isTrustedIdentity. Checked before the TOFU
+        // accept below, so it also covers first contact.
+        if (primary.isOwnIdentityKey(identityKey.getPublicKey().serialize())) {
+            Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account)
+                    + "rejecting legacy " + direction + " for " + address
+                    + ": remote device presents our own identity key");
+            return false;
+        }
         // Pin the identity key for this (jid, deviceId) once observed in a
         // legacy session. A changed IK on a subsequent message is rejected —
         // libsignal raises UntrustedIdentityException and the message is not

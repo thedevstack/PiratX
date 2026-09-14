@@ -5,6 +5,7 @@ import android.util.LruCache;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -108,7 +109,11 @@ public class SQLiteAxolotlStore implements SignalProtocolStore {
             new LruCache<String, FingerprintStatus>(NUM_TRUSTS_TO_CACHE) {
                 @Override
                 protected FingerprintStatus create(final String key) {
-                    final int split = key.indexOf('\0');
+                    // LAST NUL, not first: the name can itself contain one (the own
+                    // OMEMO2 sentinel, DatabaseBackend#omemo2OwnIdentityKeyName), while a
+                    // hex fingerprint never does. Splitting on the first NUL looked the
+                    // own OMEMO2 key up under the bare JID and always missed.
+                    final int split = key.lastIndexOf('\0');
                     if (split < 0) {
                         return null;
                     }
@@ -303,8 +308,38 @@ public class SQLiteAxolotlStore implements SignalProtocolStore {
         }
     }
 
+    /**
+     * Whether {@code serializedPublicKey} is one of this account's OWN identity keys — the
+     * OMEMO2 key or the legacy key, whichever stack is asking. Never loads or generates a
+     * legacy key that does not exist yet.
+     */
+    public boolean isOwnIdentityKey(final byte[] serializedPublicKey) {
+        if (Arrays.equals(getIdentityKeyPair().getPublicKey().serialize(), serializedPublicKey)) {
+            return true;
+        }
+        final IdentityKeyPair legacy =
+                mXmppConnectionService.databaseBackend.loadOwnIdentityKeyPair(account);
+        return legacy != null
+                && Arrays.equals(legacy.getPublicKey().serialize(), serializedPublicKey);
+    }
+
+    /**
+     * Application trust lives in {@code identities}, not here, with one hard rule: no remote
+     * device may present one of OUR identity keys. Our own device never has a session with
+     * itself, so a peer doing so is either a clone of our identity or someone holding our
+     * private key — and our own identity rows are stored VERIFIED, so its messages would
+     * otherwise render with the verified shield. libsignal consults this before accepting a
+     * prekey message or bundle (so no prekey is consumed and no session stored) and on every
+     * encrypt/decrypt. Mirrored in {@code LegacySignalProtocolStore#isTrustedIdentity}.
+     */
     @Override
     public boolean isTrustedIdentity(SignalProtocolAddress address, IdentityKey identityKey, IdentityKeyStore.Direction direction) {
+        if (isOwnIdentityKey(identityKey.getPublicKey().serialize())) {
+            Log.w(Config.LOGTAG, AxolotlService.getLogprefix(account)
+                    + "rejecting OMEMO2 " + direction + " for " + address
+                    + ": remote device presents our own identity key");
+            return false;
+        }
         return true;
     }
 

@@ -3397,7 +3397,9 @@ public class XmppConnectionService extends Service {
                     }
                     break;
                 case Message.ENCRYPTION_AXOLOTL:
-                    message.setFingerprint(account.getAxolotlService().getOwnFingerprint());
+                    // The legacy stack has its own identity key; getOwnFingerprint() is the
+                    // OMEMO2 one, which has no trust row under our JID (lock instead of shield).
+                    message.setFingerprint(account.getAxolotlService().getOwnLegacyFingerprint());
                     if (message.needsUploading()) {
                         if (account.httpUploadAvailable(
                                 fileBackend.getFile(message, false).getSize())
@@ -3483,7 +3485,7 @@ public class XmppConnectionService extends Service {
                     }
                     break;
                 case Message.ENCRYPTION_AXOLOTL:
-                    message.setFingerprint(account.getAxolotlService().getOwnFingerprint());
+                    message.setFingerprint(account.getAxolotlService().getOwnLegacyFingerprint());
                     break;
                 case Message.ENCRYPTION_AXOLOTL_OMEMO2:
                     message.setFingerprint(account.getAxolotlService().getOwnFingerprint());

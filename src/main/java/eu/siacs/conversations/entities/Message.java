@@ -59,6 +59,7 @@ import io.ipfs.cid.Cid;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.crypto.axolotl.FingerprintStatus;
+import eu.siacs.conversations.persistance.DatabaseBackend;
 import eu.siacs.conversations.http.URL;
 import eu.siacs.conversations.services.AvatarService;
 import eu.siacs.conversations.ui.text.FixedURLSpan;
@@ -2221,13 +2222,35 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
                 : counterpart.asBareJid();
     }
 
-    public boolean isTrusted() {
+    /**
+     * The stored trust of the key that sent this message, or {@code null} when it has no
+     * fingerprint. Trust is read for (owner JID, fingerprint), with one exception: this
+     * device's own OMEMO2 identity row is not stored under the bare JID but under
+     * {@link DatabaseBackend#omemo2OwnIdentityKeyName}, so a lookup under the bare JID never
+     * finds it and our own OMEMO2 messages would show as unverified. Only a message we sent
+     * can carry our own OMEMO2 key (a received one gets its fingerprint from the decrypting
+     * session, which can't be built on our identity without our private key). Legacy
+     * messages sent before the legacy send path stored the legacy key also carry it.
+     */
+    @Nullable
+    public FingerprintStatus getFingerprintStatus() {
         final AxolotlService axolotlService = conversation.getAccount().getAxolotlService();
         final Jid owner = getFingerprintOwner();
-        final FingerprintStatus s =
-                axolotlService != null && owner != null
-                        ? axolotlService.getFingerprintTrust(owner.toString(), axolotlFingerprint)
-                        : null;
+        if (axolotlService == null || owner == null) {
+            return null;
+        }
+        if (status != STATUS_RECEIVED
+                && !isCarbon()
+                && axolotlFingerprint.equals(axolotlService.getOwnFingerprint())) {
+            return axolotlService.getFingerprintTrust(
+                    DatabaseBackend.omemo2OwnIdentityKeyName(conversation.getAccount()),
+                    axolotlFingerprint);
+        }
+        return axolotlService.getFingerprintTrust(owner.toString(), axolotlFingerprint);
+    }
+
+    public boolean isTrusted() {
+        final FingerprintStatus s = getFingerprintStatus();
         return s != null && s.isTrusted();
     }
 
