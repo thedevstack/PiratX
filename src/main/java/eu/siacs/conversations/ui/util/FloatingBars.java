@@ -78,6 +78,51 @@ public final class FloatingBars {
     }
 
     /**
+     * Holds every page of {@code pager} below the top bars, apart from {@code except}, including the
+     * pages it only adds later on — a command session or a WebXDC app is inflated whenever it is
+     * opened, long after any single page could have been wired up.
+     *
+     * <p>At the bottom they are held clear of the navigation bar the content runs behind, by the
+     * same stable inset {@link #aboveNavigationBar} gives the composer, so whatever sits at the
+     * foot of a page — the action buttons of a command or an app — lands where the composer does,
+     * keyboard up or down.
+     *
+     * <p>Padded as it is added, before its first layout, so a new page never draws a frame behind
+     * the bars first. The pager's own listener slot is taken for that; nothing else sets one. The
+     * insets are read from the window on every pass rather than listened for, which would take the
+     * pager's inset listener away from it.
+     */
+    public static void insetPages(
+            final ViewGroup pager, final View[] topBars, @Nullable final View except) {
+        if (pager == null) {
+            return;
+        }
+        final Runnable apply =
+                () -> {
+                    final int top = occupiedHeight(topBars);
+                    final var insets = windowInsets(pager);
+                    final int bottom = insets == null ? 0 : insets.getStableInsets().bottom;
+                    for (int i = 0; i < pager.getChildCount(); i++) {
+                        final View page = pager.getChildAt(i);
+                        if (page != except) {
+                            setPaddingIfChanged(page, top, bottom);
+                        }
+                    }
+                };
+        pager.setOnHierarchyChangeListener(
+                new ViewGroup.OnHierarchyChangeListener() {
+                    @Override
+                    public void onChildViewAdded(final View parent, final View child) {
+                        apply.run();
+                    }
+
+                    @Override
+                    public void onChildViewRemoved(final View parent, final View child) {}
+                });
+        watch(pager, apply);
+    }
+
+    /**
      * Lets the window's content run behind the system bars, so a chat wallpaper and the messages
      * on it reach the top and bottom edges of the display instead of stopping at a band of window
      * background. The floating bars are held clear of the system bars one by one instead, by {@link

@@ -2242,10 +2242,14 @@ public class ConversationFragment extends XmppFragment
         FloatingBars.dropBelowTopBar(binding.topBarAnchor, topBar, binding.tabLayout);
         FloatingBars.inset(binding.messagesView, above, below);
         FloatingBars.liftAboveBottomBar(binding.scrollToBottomButton, binding.snackbar, binding.inputArea);
-        // The composer lives on the chat page and swipes away with it, so a command page is only
-        // held clear of what is above it.
-        FloatingBars.inset(
-                binding.commandsPage, new View[] {topBar, binding.tabLayout}, new View[0]);
+        // Every page but the chat itself, which runs up behind the bars and pads its own list: the
+        // commands list, and each command session or WebXDC app opened beside it. The composer
+        // lives on the chat page and swipes away with it, so below these there is only the
+        // navigation bar to clear.
+        FloatingBars.insetPages(
+                binding.conversationViewPager,
+                new View[] {topBar, binding.tabLayout},
+                (View) binding.topBarAnchor.getParent());
 
         binding.pinnedMessageContainer.setOnLongClickListener(v -> {
             if (conversation != null) {

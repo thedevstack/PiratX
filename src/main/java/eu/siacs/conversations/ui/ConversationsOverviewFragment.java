@@ -235,6 +235,20 @@ public class ConversationsOverviewFragment extends XmppFragment {
 									activity.xmppConnectionService.archiveConversation(c);
 								}
 							});
+					// the list runs on behind the floating navigation bar, and so would the
+					// snackbar; anchored, it rides above whatever is lowest on screen, leaving out
+					// the system inset that already clears. The FAB before the bar: an anchored
+					// snackbar no longer sets the inset edge a FAB dodges, so the FAB would stay
+					// put on top of it. Only a shown anchor: a gone one has no position to
+					// measure from.
+					final View bottomBar = FloatingBars.bottomBarOf(activity);
+					for (final View anchor :
+							new View[] {binding.fab, binding.fabStartConversation, bottomBar}) {
+						if (anchor != null && anchor.isShown()) {
+							snackbar.setAnchorView(anchor);
+							break;
+						}
+					}
 					snackbar.show();
 				}
 			};
