@@ -2236,7 +2236,9 @@ public class ConversationFragment extends XmppFragment
         // lowest thing in a chat, so it is the one that holds itself clear of the navigation bar
         // the wallpaper and the messages now run behind; the snackbar rides on top of it and the
         // insets below count that margin as part of what the composer occupies.
-        FloatingBars.aboveNavigationBar(binding.inputArea);
+        // Not a second time on a tablet, where the content is already inset above the navigation
+        // bar kept up beside the chat, and that bar is what clears the system one.
+        FloatingBars.aboveNavigationBar(binding.inputArea, bottomBar);
         final View[] below = {binding.snackbar, binding.inputArea};
         FloatingBars.dropBelowTopBar(binding.chatTopAnchor, topBar);
         FloatingBars.dropBelowTopBar(binding.topBarAnchor, topBar, binding.tabLayout);
@@ -2249,6 +2251,7 @@ public class ConversationFragment extends XmppFragment
         FloatingBars.insetPages(
                 binding.conversationViewPager,
                 new View[] {topBar, binding.tabLayout},
+                new View[] {bottomBar},
                 (View) binding.topBarAnchor.getParent());
 
         binding.pinnedMessageContainer.setOnLongClickListener(v -> {

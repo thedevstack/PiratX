@@ -83,9 +83,9 @@ public final class FloatingBars {
      * opened, long after any single page could have been wired up.
      *
      * <p>At the bottom they are held clear of the navigation bar the content runs behind, by the
-     * same stable inset {@link #aboveNavigationBar} gives the composer, so whatever sits at the
-     * foot of a page — the action buttons of a command or an app — lands where the composer does,
-     * keyboard up or down.
+     * same measure {@link #aboveNavigationBar} gives the composer, {@code barsBelow} included, so
+     * whatever sits at the foot of a page — the action buttons of a command or an app — lands
+     * where the composer does, keyboard up or down.
      *
      * <p>Padded as it is added, before its first layout, so a new page never draws a frame behind
      * the bars first. The pager's own listener slot is taken for that; nothing else sets one. The
@@ -93,7 +93,10 @@ public final class FloatingBars {
      * pager's inset listener away from it.
      */
     public static void insetPages(
-            final ViewGroup pager, final View[] topBars, @Nullable final View except) {
+            final ViewGroup pager,
+            final View[] topBars,
+            final View[] barsBelow,
+            @Nullable final View except) {
         if (pager == null) {
             return;
         }
@@ -101,7 +104,8 @@ public final class FloatingBars {
                 () -> {
                     final int top = occupiedHeight(topBars);
                     final var insets = windowInsets(pager);
-                    final int bottom = insets == null ? 0 : insets.getStableInsets().bottom;
+                    final int bottom =
+                            insets == null ? 0 : navigationBarUncovered(insets, barsBelow);
                     for (int i = 0; i < pager.getChildCount(); i++) {
                         final View page = pager.getChildAt(i);
                         if (page != except) {
@@ -182,23 +186,44 @@ public final class FloatingBars {
      * Holds a floating bottom bar clear of the navigation bar the content now runs behind. Applied
      * as a margin so that {@link #inset} and {@link #liftAboveBottomBar} count it as part of what
      * the bar occupies, the same way they count the margin it floats on.
+     *
+     * <p>{@code barsBelow} are floating bars that {@code view}'s container is already inset above,
+     * such as the navigation bar a tablet keeps up beside an open chat. Those clear the navigation
+     * bar themselves, so only what they leave uncovered is added, and nothing while one is up.
+     * Whether one is up changes without the insets changing, hence the layout watch as well.
      */
-    public static void aboveNavigationBar(final View view) {
+    public static void aboveNavigationBar(final View view, final View... barsBelow) {
         if (view == null || !(view.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)) {
             return;
         }
         final int baseMargin =
                 ((ViewGroup.MarginLayoutParams) view.getLayoutParams()).bottomMargin;
-        onInsets(
-                view,
+        final OnInsets apply =
                 (v, insets) -> {
                     final var params = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
-                    final int margin = baseMargin + insets.getStableInsets().bottom;
+                    final int margin = baseMargin + navigationBarUncovered(insets, barsBelow);
                     if (params.bottomMargin != margin) {
                         params.bottomMargin = margin;
                         v.setLayoutParams(params);
                     }
-                });
+                };
+        onInsets(view, apply);
+        if (barsBelow.length > 0) {
+            watch(
+                    view,
+                    () -> {
+                        final var insets = windowInsets(view);
+                        if (insets != null) {
+                            apply.apply(view, insets);
+                        }
+                    });
+        }
+    }
+
+    /** The part of the navigation bar that {@code barsBelow} do not already stand over. */
+    private static int navigationBarUncovered(
+            final WindowInsetsCompat insets, final View... barsBelow) {
+        return Math.max(0, insets.getStableInsets().bottom - occupiedHeight(barsBelow));
     }
 
     private interface OnInsets {
