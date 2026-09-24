@@ -24,6 +24,7 @@ import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Conversational;
 import eu.siacs.conversations.entities.Message;
+import eu.siacs.conversations.entities.MucOptions;
 import eu.siacs.conversations.ui.ConversationFragment;
 import eu.siacs.conversations.ui.XmppActivity;
 import eu.siacs.conversations.ui.util.Attachment;
@@ -31,6 +32,7 @@ import eu.siacs.conversations.ui.util.AvatarWorkerTask;
 import eu.siacs.conversations.utils.IrregularUnicodeDetector;
 import eu.siacs.conversations.utils.UIHelper;
 import eu.siacs.conversations.xmpp.Jid;
+import eu.siacs.conversations.xmpp.chatstate.ChatState;
 import eu.siacs.conversations.xmpp.jingle.OngoingRtpSession;
 import java.util.List;
 
@@ -174,7 +176,25 @@ public class ConversationAdapter
             viewHolder.binding.presenceIndicator.setStatus(null);
         }
 
-        if (draft != null) {
+        final CharSequence typing = getTypingPreview(conversation);
+        if (typing != null) {
+            viewHolder.binding.conversationLastmsgImg.setVisibility(View.GONE);
+            viewHolder.binding.senderName.setVisibility(View.GONE);
+            viewHolder.binding.messageStatus.setVisibility(View.GONE);
+            viewHolder.binding.typingIndicator.setVisibility(View.VISIBLE);
+            final int typingColor =
+                    MaterialColors.getColor(
+                            viewHolder.binding.conversationLastmsg,
+                            androidx.appcompat.R.attr.colorPrimary);
+            viewHolder.binding.typingIndicator.setColor(typingColor);
+            viewHolder.binding.conversationLastmsg.setVisibility(View.VISIBLE);
+            viewHolder.binding.conversationLastmsg.setText(typing);
+            viewHolder.binding.conversationLastmsg.setTextColor(typingColor);
+            viewHolder.binding.conversationLastmsg.setTypeface(
+                    isRead ? notoItalic : notoBoldItalic);
+        } else if (draft != null) {
+            viewHolder.binding.typingIndicator.setVisibility(View.GONE);
+            viewHolder.binding.conversationLastmsg.setTextColor(viewHolder.lastmsgTextColors);
             viewHolder.binding.conversationLastmsgImg.setVisibility(View.GONE);
             viewHolder.binding.conversationLastmsg.setText(draft.getMessage());
             viewHolder.binding.senderName.setText(R.string.draft);
@@ -182,6 +202,8 @@ public class ConversationAdapter
             viewHolder.binding.conversationLastmsg.setTypeface(notoRegular);
             viewHolder.binding.senderName.setTypeface(notoItalic);
         } else {
+            viewHolder.binding.typingIndicator.setVisibility(View.GONE);
+            viewHolder.binding.conversationLastmsg.setTextColor(viewHolder.lastmsgTextColors);
             final boolean fileAvailable = !message.isDeleted();
             final boolean showPreviewText;
             if (fileAvailable
@@ -320,6 +342,38 @@ public class ConversationAdapter
         }
     }
 
+    /**
+     * The text to show in place of the message preview while the other side is composing, or null
+     * when nobody is typing.
+     */
+    private CharSequence getTypingPreview(final Conversation conversation) {
+        if (conversation.getMode() == Conversational.MODE_SINGLE) {
+            if (conversation.withSelf()) {
+                return null;
+            }
+            return conversation.getIncomingChatState() == ChatState.COMPOSING
+                    ? activity.getString(R.string.is_typing)
+                    : null;
+        }
+        final List<MucOptions.User> users =
+                conversation.getMucOptions().getUsersWithChatState(ChatState.COMPOSING, 5);
+        if (users.isEmpty()) {
+            return null;
+        }
+        if (users.size() == 1) {
+            return activity.getString(
+                    R.string.contact_is_typing, UIHelper.getDisplayName(users.get(0)));
+        }
+        final StringBuilder builder = new StringBuilder();
+        for (final MucOptions.User user : users) {
+            if (builder.length() != 0) {
+                builder.append(", ");
+            }
+            builder.append(UIHelper.getDisplayName(user));
+        }
+        return activity.getString(R.string.contacts_are_typing, builder.toString());
+    }
+
     private void toggleSelection(final Conversation conversation, final int position) {
         if (!selected.remove(conversation)) {
             selected.add(conversation);
@@ -399,10 +453,13 @@ public class ConversationAdapter
 
     public static class ConversationViewHolder extends RecyclerView.ViewHolder {
         public final ItemConversationBinding binding;
+        // the themed default, kept so the typing color can be undone on rebind
+        private final ColorStateList lastmsgTextColors;
 
         private ConversationViewHolder(final ItemConversationBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
+            this.lastmsgTextColors = binding.conversationLastmsg.getTextColors();
             binding.getRoot().setLongClickable(true);
         }
     }
