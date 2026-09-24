@@ -219,7 +219,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     }
 
     private static final String DATABASE_NAME = "history";
-    private static final int DATABASE_VERSION = 74;
+    private static final int DATABASE_VERSION = 75;
     private static final String REKEY_MIGRATION_IN_PROGRESS = "rekey_migration_in_progress";
 
     private static boolean requiresMessageIndexRebuild = false;
@@ -624,6 +624,30 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + "("
                     + Message.CONVERSATION
                     + ")";
+    // Lets the per-conversation page query (conversationUuid=? ORDER BY timeSent DESC LIMIT n)
+    // stop after n rows instead of reading and sorting every message of the conversation.
+    private static final String CREATE_MESSAGE_CONVERSATION_TIME_INDEX =
+            "CREATE INDEX if not exists message_conversation_time_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.CONVERSATION
+                    + ","
+                    + Message.TIME_SENT
+                    + ")";
+    // getMessageFuzzyIds() matches reply targets by uuid OR serverMsgId OR remoteMsgId. Without
+    // these, the OR could not use any index and every page load scanned the whole table.
+    private static final String CREATE_MESSAGE_SERVER_MSG_ID_INDEX =
+            "CREATE INDEX if not exists message_server_msg_id_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.SERVER_MSG_ID
+                    + ")";
+    private static final String CREATE_MESSAGE_REMOTE_MSG_ID_INDEX =
+            "CREATE INDEX if not exists message_remote_msg_id_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.REMOTE_MSG_ID
+                    + ")";
     private static final String CREATE_MESSAGE_DELETED_INDEX =
             "CREATE INDEX if not exists message_deleted_index ON "
                     + Message.TABLENAME
@@ -759,13 +783,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         final Stopwatch stopwatch = Stopwatch.createStarted();
         db.execSQL(COPY_PREEXISTING_ENTRIES);
         Log.d(Config.LOGTAG, "rebuilt message index in " + stopwatch.stop().toString());
-    }
-
-    public boolean isFtsIndexFragmented() {
-        final SQLiteDatabase db = getReadableDatabase();
-        try (final Cursor c = db.rawQuery("SELECT count(*) FROM messages_index_segdir", null)) {
-            return c.moveToFirst() && c.getInt(0) > 4;
-        }
     }
 
     public static synchronized DatabaseBackend getInstance(Context context) {
@@ -1139,6 +1156,9 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_MESSAGE_TYPE_INDEX);
         db.execSQL(CREATE_MESSAGE_EXPIRE_AT_INDEX);
         db.execSQL(CREATE_MESSAGE_PARENT_UUID_INDEX);
+        db.execSQL(CREATE_MESSAGE_CONVERSATION_TIME_INDEX);
+        db.execSQL(CREATE_MESSAGE_SERVER_MSG_ID_INDEX);
+        db.execSQL(CREATE_MESSAGE_REMOTE_MSG_ID_INDEX);
         db.execSQL(CREATE_CONTATCS_STATEMENT);
         db.execSQL(CREATE_DISCOVERY_RESULTS_STATEMENT);
         db.execSQL(CREATE_SESSIONS_STATEMENT);
@@ -1157,6 +1177,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_MESSAGE_INSERT_TRIGGER);
         db.execSQL(CREATE_MESSAGE_UPDATE_TRIGGER);
         db.execSQL(CREATE_MESSAGE_DELETE_TRIGGER);
+        enableFtsAutomerge(db);
         db.execSQL(CREATE_POSTS_TABLE);
         db.execSQL(CREATE_STORIES_TABLE);
         monoclesDatabase(db);
@@ -2107,6 +2128,26 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             db.execSQL(
                     "ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + Message.PARENT_UUID + " TEXT");
             db.execSQL(CREATE_MESSAGE_PARENT_UUID_INDEX);
+        }
+        if (oldVersion < 75 && newVersion >= 75) {
+            db.execSQL(CREATE_MESSAGE_CONVERSATION_TIME_INDEX);
+            db.execSQL(CREATE_MESSAGE_SERVER_MSG_ID_INDEX);
+            db.execSQL(CREATE_MESSAGE_REMOTE_MSG_ID_INDEX);
+            enableFtsAutomerge(db);
+        }
+    }
+
+    /**
+     * Lets FTS4 merge index segments a little on every write, so the search index never gets
+     * fragmented enough to need a full rebuild. The setting is stored in the index's %_stat
+     * table, so it only has to be set once.
+     */
+    private static void enableFtsAutomerge(final SQLiteDatabase db) {
+        try {
+            db.execSQL("INSERT INTO messages_index(messages_index) VALUES('automerge=8')");
+        } catch (final SQLiteException e) {
+            // Only a maintenance hint; FTS4's default merging still bounds fragmentation.
+            Log.w(Config.LOGTAG, "could not enable automerge on messages_index", e);
         }
     }
 

@@ -4083,7 +4083,10 @@ public class XmppConnectionService extends Service {
             long diffConversationsRestore = SystemClock.elapsedRealtime() - startTimeConversationsRestore;
             Log.d(Config.LOGTAG, "finished restoring conversations in " + diffConversationsRestore + "ms");
             Runnable runnable = () -> {
-                if (DatabaseBackend.requiresMessageIndexRebuild() || databaseBackend.isFtsIndexFragmented()) {
+                // Only after a schema change. Rebuilding whenever the index had a few segments
+                // re-tokenized the whole message history on almost every cold start; FTS4
+                // automerge (see DatabaseBackend.enableFtsAutomerge) keeps it compact instead.
+                if (DatabaseBackend.requiresMessageIndexRebuild()) {
                     databaseBackend.rebuildMessagesIndex();
                 }
                 mutedMucUsers = databaseBackend.loadMutedMucUsers();
