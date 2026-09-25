@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The floating bars let the content show through, so a list scrolling underneath reads as
+     movement behind glass. Kept as a theme attribute with alpha rather than a literal so that
+     dynamic colour still reaches the bars. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:color="?attr/colorSurfaceContainerHigh" />
+</selector>

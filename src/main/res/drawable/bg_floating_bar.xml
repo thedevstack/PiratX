@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shared surface for the floating top and bottom bars. One radius for both: it is half of
+     @dimen/floating_toolbar_height, so the toolbar reads as a capsule and the bottom bar
+     echoes the same curve. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <solid android:color="@color/floating_bar_surface" />
+
+    <corners android:radius="@dimen/floating_bar_corner" />
+
+</shape>

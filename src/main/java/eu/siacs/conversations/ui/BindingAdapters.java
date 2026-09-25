@@ -57,48 +57,36 @@ public class BindingAdapters {
         final var context = chipGroup.getContext();
         final var size = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 35, context.getResources().getDisplayMetrics());
         final var corner = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 35, context.getResources().getDisplayMetrics());
-        final var layoutParams = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, size);
         final List<Map.Entry<EmojiSearch.Emoji, Collection<Reaction>>> reactions = aggregated.reactions;
-        final AppSettings appSettings = new AppSettings(context);
         if (reactions == null || reactions.isEmpty()) {
             chipGroup.setVisibility(View.GONE);
         } else {
-            chipGroup.removeAllViews();
+            final boolean largeFont = new AppSettings(context).isLargeFont();
+            // Resolved once for the whole group rather than per chip; each of these walks the theme.
+            final var ourReactionColor =
+                    MaterialColors.getColorStateListOrNull(
+                            context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
+            final var theirReactionColor =
+                    MaterialColors.getColorStateListOrNull(
+                            context, com.google.android.material.R.attr.colorSurfaceContainerLow);
             chipGroup.setVisibility(View.VISIBLE);
+            // A Chip is expensive to build, and this runs for every reacted message that scrolls
+            // into view, so the group keeps the chips it already has and only the difference in
+            // count is created or dropped.
+            final int needed = reactions.size() + (addReaction == null ? 0 : 1);
+            if (chipGroup.getChildCount() > needed) {
+                chipGroup.removeViews(needed, chipGroup.getChildCount() - needed);
+            }
+            int index = 0;
             for (final var reaction : reactions) {
                 final var emoji = reaction.getKey();
                 final var count = reaction.getValue().size();
-                final Chip chip = new Chip(chipGroup.getContext());
-                //chip.setEnsureMinTouchTargetSize(false);
-                if (appSettings.isLargeFont()) {
-                    chip.setTextAppearance(
-                            com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
-                    chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-                } else {
-                    chip.setTextAppearance(
-                            com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-                }
-                chip.setChipMinHeight(size-22.0f);
-                chip.ensureAccessibleTouchTarget(size);
-                chip.setLayoutParams(layoutParams);
-                chip.setChipCornerRadius(corner);
+                final Chip chip = chipAt(chipGroup, index++, size, corner, largeFont);
                 emoji.setupChip(chip, count);
                 final var oneOfOurs = reaction.getValue().stream().filter(r -> !r.received).findFirst();
                 // received = surface; sent = surface high matches bubbles
-                if (oneOfOurs.isPresent()) {
-                    chip.setChipBackgroundColor(
-                            MaterialColors.getColorStateListOrNull(
-                                    context,
-                                    com.google.android.material.R.attr
-                                            .colorSurfaceContainerHighest));
-                } else {
-                    chip.setChipBackgroundColor(
-                            MaterialColors.getColorStateListOrNull(
-                                    context,
-                                    com.google.android.material.R.attr.colorSurfaceContainerLow));
-                }
-                chip.setTextEndPadding(0.0f);
-                chip.setTextStartPadding(0.0f);
+                chip.setChipBackgroundColor(
+                        oneOfOurs.isPresent() ? ourReactionColor : theirReactionColor);
                 chip.setOnClickListener(
                         v -> {
                             if (oneOfOurs.isPresent()) {
@@ -124,41 +112,65 @@ public class BindingAdapters {
                             }
                         });
                 chip.setOnLongClickListener(v -> onDetailsClicked.apply(reaction));
-                chipGroup.addView(chip);
             }
             if (addReaction != null) {
-                final Chip chip = new Chip(chipGroup.getContext());
-                if (appSettings.isLargeFont()) {
-                    chip.setTextAppearance(
-                            com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
-                    chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-                } else {
-                    chip.setTextAppearance(
-                            com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-                }
-                chip.setChipMinHeight(size-22.0f);
-                chip.ensureAccessibleTouchTarget(size);
-                chip.setLayoutParams(layoutParams);
-                chip.setChipCornerRadius(corner);
+                final Chip chip = chipAt(chipGroup, index, size, corner, largeFont);
                 chip.setChipIconResource(R.drawable.ic_add_reaction_24dp);
-                //chip.setChipStrokeColor(
-                //        MaterialColors.getColorStateListOrNull(
-                //                chipGroup.getContext(),
-                //                com.google.android.material.R.attr.colorTertiary));
-                chip.setChipBackgroundColor(
-                        MaterialColors.getColorStateListOrNull(
-                                context,
-                                com.google.android.material.R.attr.colorSurfaceContainerLow));
+                chip.setChipBackgroundColor(theirReactionColor);
                 chip.setChipIconTint(
                         MaterialColors.getColorStateListOrNull(
                                 context,
                                 com.google.android.material.R.attr.colorOnSurface));
-                //chip.setEnsureMinTouchTargetSize(false);
-                chip.setTextEndPadding(0.0f);
-                chip.setTextStartPadding(0.0f);
                 chip.setOnClickListener(v -> addReaction.run());
-                chipGroup.addView(chip);
+                // this slot may have been a reaction a moment ago, which had one
+                chip.setOnLongClickListener(null);
             }
         }
+    }
+
+    /**
+     * The chip at {@code index}, reused when the group already has one there and built when it does
+     * not. Only this class puts children in these groups, so everything in one is a chip.
+     *
+     * <p>A reused chip is wiped back to blank first. It may have been carrying a different reaction
+     * or the add button, and {@link EmojiSearch.Emoji#setupChip} appends the count to whatever text
+     * it finds, so leftover text would accumulate.
+     */
+    private static Chip chipAt(
+            final ChipGroup chipGroup,
+            final int index,
+            final int size,
+            final float corner,
+            final boolean largeFont) {
+        final Chip chip;
+        if (index < chipGroup.getChildCount()) {
+            chip = (Chip) chipGroup.getChildAt(index);
+            chip.setText("");
+            chip.setChipIcon(null);
+            chip.setChipIconTint(null);
+        } else {
+            chip = new Chip(chipGroup.getContext());
+            chip.setChipMinHeight(size - 22.0f);
+            chip.ensureAccessibleTouchTarget(size);
+            chip.setLayoutParams(
+                    new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, size));
+            chip.setChipCornerRadius(corner);
+            chip.setTextEndPadding(0.0f);
+            chip.setTextStartPadding(0.0f);
+            chipGroup.addView(chip);
+        }
+        // Resolving a text appearance is not free, so only when it is not the one already applied.
+        if (!Boolean.valueOf(largeFont).equals(chip.getTag())) {
+            if (largeFont) {
+                chip.setTextAppearance(
+                        com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+                chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+            } else {
+                chip.setTextAppearance(
+                        com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+            }
+            chip.setTag(largeFont);
+        }
+        return chip;
     }
 }

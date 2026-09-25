@@ -432,11 +432,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
             final boolean omemo2 = message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2;
             boolean verified = false;
             if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL || omemo2) {
-                final FingerprintStatus fingerprintStatus =
-                        message.getConversation()
-                                .getAccount()
-                                .getAxolotlService()
-                                .getFingerprintTrust(message.getFingerprint());
+                // Trust is per (JID, fingerprint): the identities table is shared by both
+                // stacks and by every contact, so the shield has to be read for the device
+                // that actually sent THIS message.
+                final FingerprintStatus fingerprintStatus = message.getFingerprintStatus();
                 if (fingerprintStatus != null && fingerprintStatus.isVerified()) {
                     verified = true;
                 }

@@ -2,111 +2,145 @@
 <layout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools">
-    <RelativeLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:fitsSystemWindows="true" >
 
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_above="@id/bottom_navigation">
+        android:fitsSystemWindows="false" >
 
-<androidx.coordinatorlayout.widget.CoordinatorLayout
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    tools:context=".ui.PostsActivity">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-    <com.google.android.material.appbar.AppBarLayout
-        android:id="@+id/action_bar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minHeight="?attr/actionBarSize" />
-
-    </com.google.android.material.appbar.AppBarLayout>
-
-    <LinearLayout
-        android:id="@+id/follow_suggestions_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:visibility="gone"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior"
-        tools:visibility="visible"
-        android:animateLayoutChanges="true">
-
-        <TextView
-            android:id="@+id/follow_suggestions_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/follow_suggestions" />
-
-        <ImageButton
-            android:id="@+id/toggle_suggestions_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/toggle_suggestions"
-            android:src="@drawable/outline_keyboard_arrow_down_24" />
-
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/follow_suggestions_list"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:visibility="gone"
-        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
-
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipe_container"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" >
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/posts_list"
+        <!-- The feed runs the full height; everything anchored to the top lives in
+             top_bar_container and floats above it, and PostsActivity pads the feed
+             clear of the bars via FloatingBars. -->
+        <androidx.coordinatorlayout.widget.CoordinatorLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            tools:listitem="@layout/item_post" />
+            tools:context=".ui.PostsActivity">
 
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/swipe_container"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" >
 
-    </LinearLayout>
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fab_create_post"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
-        android:src="@drawable/ic_edit_24dp"
-        app:layout_anchor="@id/posts_list"
-        app:layout_anchorGravity="bottom|end" />
+                <eu.siacs.conversations.ui.widget.FadingEdgeRecyclerView
+                    android:id="@+id/posts_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    tools:listitem="@layout/item_post" />
 
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
-    </RelativeLayout>
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottom_navigation"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/nav_bar_height"
-        android:layout_alignParentBottom="true"
-        android:background="?colorSurfaceContainerLowest"
-        app:labelVisibilityMode="labeled"
-        app:menu="@menu/bottom_navigation_menu_feeds" />
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fab_create_post"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="16dp"
+                android:src="@drawable/ic_edit_24dp" />
+
+        </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
+        <LinearLayout
+            android:id="@+id/top_bar_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:orientation="vertical">
+
+            <com.google.android.material.appbar.AppBarLayout
+                android:id="@+id/action_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/transparent"
+                android:stateListAnimator="@null"
+                app:elevation="0dp"
+                app:liftOnScroll="false">
+
+                <com.google.android.material.appbar.MaterialToolbar
+                    android:id="@+id/toolbar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/floating_bar_margin"
+                    android:layout_marginTop="@dimen/floating_bar_margin_top"
+                    android:layout_marginEnd="@dimen/floating_bar_margin"
+                    android:layout_marginBottom="@dimen/floating_bar_margin"
+                    android:background="@drawable/bg_floating_bar"
+                    android:elevation="@dimen/floating_toolbar_elevation"
+                    android:minHeight="@dimen/floating_toolbar_height"
+                    app:buttonGravity="center_vertical" />
+
+            </com.google.android.material.appbar.AppBarLayout>
+
+            <!-- Collapses to nothing when there is nobody to suggest, which the feed's
+                 top inset follows automatically. -->
+            <LinearLayout
+                android:id="@+id/follow_suggestions_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/floating_bar_margin"
+                android:layout_marginEnd="@dimen/floating_bar_margin"
+                android:layout_marginBottom="@dimen/floating_bar_margin"
+                android:background="@drawable/bg_floating_bar"
+                android:elevation="@dimen/floating_toolbar_elevation"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:id="@+id/follow_suggestions_header"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:visibility="gone"
+                    tools:visibility="visible"
+                    android:animateLayoutChanges="true">
+
+                    <TextView
+                        android:id="@+id/follow_suggestions_title"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/follow_suggestions" />
+
+                    <ImageButton
+                        android:id="@+id/toggle_suggestions_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/toggle_suggestions"
+                        android:src="@drawable/outline_keyboard_arrow_down_24" />
+
+                </LinearLayout>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/follow_suggestions_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:visibility="gone"
+                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/bottom_navigation"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/floating_nav_bar_height"
+            android:layout_alignParentBottom="true"
+            android:layout_marginBottom="@dimen/floating_bar_margin"
+            android:layout_marginHorizontal="@dimen/floating_bar_margin_horizontal"
+            android:background="@drawable/bg_floating_nav"
+            android:elevation="@dimen/floating_nav_elevation"
+            app:labelVisibilityMode="labeled"
+            app:activeIndicatorLabelPadding="@dimen/floating_nav_label_padding"
+            app:itemPaddingTop="@dimen/floating_nav_item_padding_top"
+            app:itemPaddingBottom="@dimen/floating_nav_item_padding_bottom"
+            app:itemTextAppearanceActive="@style/TextAppearance.App.NavigationBarLabel"
+            app:itemTextAppearanceInactive="@style/TextAppearance.App.NavigationBarLabel"
+            app:menu="@menu/bottom_navigation_menu_feeds" />
+
     </RelativeLayout>
 
 </layout>

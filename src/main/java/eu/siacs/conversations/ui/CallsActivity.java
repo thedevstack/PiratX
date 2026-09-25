@@ -3,7 +3,6 @@ package eu.siacs.conversations.ui;
 import static android.view.View.VISIBLE;
 
 import android.content.Intent;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -17,6 +16,7 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivityCallsBinding;
+import eu.siacs.conversations.ui.util.FloatingBars;
 
 public class CallsActivity extends XmppActivity {
 
@@ -27,7 +27,10 @@ public class CallsActivity extends XmppActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = DataBindingUtil.setContentView(this, R.layout.activity_calls);
-        Activities.setStatusAndNavigationBarColors(this, findViewById(android.R.id.content));
+        Activities.setSystemBarsTransparent(this, findViewById(android.R.id.content));
+        FloatingBars.behindSystemBars(this);
+        FloatingBars.belowStatusBar(binding.appBar);
+        FloatingBars.aboveNavigationBar(binding.bottomNavigation);
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
 
@@ -40,7 +43,6 @@ public class CallsActivity extends XmppActivity {
         }
 
         BottomNavigationView bottomNavigationView = findViewById(R.id.bottom_navigation);
-        bottomNavigationView.setBackgroundColor(Color.TRANSPARENT);
         bottomNavigationView.setOnItemSelectedListener(item -> {
             final int navId = item.getItemId();
             if (navId == R.id.chats) {

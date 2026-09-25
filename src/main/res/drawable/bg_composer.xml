@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The composer's own surface, sharing the translucency of the floating bars. It carries the
+     transparency itself so the view does not need android:alpha, which would put the whole
+     composer, text and icons included, into an offscreen buffer on every frame the list behind
+     it scrolls. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <solid android:color="@color/floating_bar_surface" />
+
+    <corners android:radius="32dp" />
+
+</shape>

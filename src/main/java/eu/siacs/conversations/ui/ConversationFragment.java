@@ -74,6 +74,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 import android.view.animation.CycleInterpolator;
@@ -153,6 +154,7 @@ import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.entities.Bookmark;
 import eu.siacs.conversations.entities.Edit;
 import eu.siacs.conversations.medialib.activities.EditActivity;
+import eu.siacs.conversations.ui.util.FloatingBars;
 import eu.siacs.conversations.ui.util.QuoteHelper;
 import eu.siacs.conversations.ui.util.SoftKeyboardUtils;
 import eu.siacs.conversations.ui.util.TrustKeys;
@@ -543,13 +545,23 @@ public class ConversationFragment extends XmppFragment
     }
 
 
+    /**
+     * Whether the list is being held against the bottom edge, which is what {@link
+     * #settleAtBottom()} enforces. Handed over to the reader the moment they touch the list and
+     * taken back when they let it come to rest at the bottom again.
+     */
+    private boolean holdAtBottom = true;
+
     private final RecyclerView.OnScrollListener mOnScrollListener =
             new RecyclerView.OnScrollListener() {
 
                 @Override
                 public void onScrollStateChanged(
                         @NonNull final RecyclerView recyclerView, final int newState) {
-                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                        holdAtBottom = false;
+                    } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        holdAtBottom = recyclerScrolledToBottom();
                         fireReadEvent();
                         // Recompute the (O(n)) unread-count badge only when the scroll settles,
                         // never per frame — onScrolled fires every frame and would jank the scroll.
@@ -1190,9 +1202,54 @@ public class ConversationFragment extends XmppFragment
             return true;
         } else if (messagesLayoutManager.findLastVisibleItemPosition() == count - 1) {
             final View lastChild = messagesLayoutManager.findViewByPosition(count - 1);
-            return lastChild != null && lastChild.getBottom() <= binding.messagesView.getHeight();
+            // against the padded edge, not the view's: the list runs on behind the composer, so
+            // a message below this line is hidden by it rather than being at the bottom
+            final int bottomEdge =
+                    binding.messagesView.getHeight() - binding.messagesView.getPaddingBottom();
+            return lastChild != null && lastChild.getBottom() <= bottomEdge;
         } else {
             return false;
+        }
+    }
+
+    /**
+     * Takes the newest message back out from under the composer when it has ended up below it.
+     *
+     * <p>Content cannot be scrolled past the end of a list, so the last message hanging below the
+     * padded bottom edge is never a position the reader put it in: it is left over from a layout
+     * where that edge sat lower than it does now. Nothing else undoes it. {@code
+     * LinearLayoutManager.fixLayoutEndGap} closes a gap at the end of every layout but returns
+     * early on an overhang ("nothing to fix"), and {@code scrollToPosition} re-aligns a row only
+     * while it is still clipped by the edge, so once a later layout has scrolled the overhang out
+     * of sight it stays there for as long as the chat is open.
+     *
+     * <p>Only runs while the list is meant to be sitting at the bottom ({@link #holdAtBottom}).
+     * Scrolling up by less than the height of the newest message leaves that message attached and
+     * hanging below the padded edge, which is indistinguishable from the overhang this corrects —
+     * so the reader's intent has to say which it is, the geometry cannot.
+     */
+    private void settleAtBottom() {
+        if (!holdAtBottom
+                || binding == null
+                || messagesLayoutManager == null
+                || messageListAdapter == null) {
+            return;
+        }
+        final int last = messageListAdapter.getItemCount() - 1;
+        if (last < 0) {
+            return;
+        }
+        final View lastChild = messagesLayoutManager.findViewByPosition(last);
+        if (lastChild == null) {
+            return;
+        }
+        final int overhang =
+                lastChild.getBottom()
+                        - (binding.messagesView.getHeight()
+                                - binding.messagesView.getPaddingBottom());
+        if (overhang > 0) {
+            // exactly what the list has left to scroll, so this lands flush and settles
+            binding.messagesView.scrollBy(0, overhang);
         }
     }
 
@@ -1299,6 +1356,9 @@ public class ConversationFragment extends XmppFragment
             if (messagesLayoutManager != null) {
                 messagesLayoutManager.scrollToPositionWithOffset(
                         scrollPosition.position, scrollPosition.offset);
+                // getScrollPosition() only returns a state for a reader who was away from the
+                // bottom, so restoring one is never a return to the bottom.
+                this.holdAtBottom = false;
             }
             toggleScrollDownButton();
         }
@@ -2210,6 +2270,43 @@ public class ConversationFragment extends XmppFragment
                 DataBindingUtil.inflate(inflater, R.layout.fragment_conversation, container, false);
         binding.getRoot().setOnClickListener(null); // TODO why the fuck did we do this?
 
+        final View topBar = FloatingBars.topBarOf(getActivity());
+        final View bottomBar = FloatingBars.bottomBarOf(getActivity());
+        // Only the bottom: a tablet keeps the navigation bar up beside an open chat, and the
+        // composer has to stay clear of it. The top is deliberately left open so the wallpaper
+        // and the messages both run up behind the toolbar.
+        FloatingBars.inset(binding.chatContent, null, bottomBar);
+        // What floats at the top of a chat, in the order it stacks up.
+        final View[] above = {
+            topBar,
+            binding.tabLayout,
+            binding.mucSubject,
+            binding.tuneSubject,
+            binding.ephemeralHint,
+            binding.pinnedMessageContainer
+        };
+        // ...and at the bottom, where the composer is already a translucent island. It is the
+        // lowest thing in a chat, so it is the one that holds itself clear of the navigation bar
+        // the wallpaper and the messages now run behind; the snackbar rides on top of it and the
+        // insets below count that margin as part of what the composer occupies.
+        // Not a second time on a tablet, where the content is already inset above the navigation
+        // bar kept up beside the chat, and that bar is what clears the system one.
+        FloatingBars.aboveNavigationBar(binding.inputArea, bottomBar);
+        final View[] below = {binding.snackbar, binding.inputArea};
+        FloatingBars.dropBelowTopBar(binding.chatTopAnchor, topBar);
+        FloatingBars.dropBelowTopBar(binding.topBarAnchor, topBar, binding.tabLayout);
+        FloatingBars.inset(binding.messagesView, above, below);
+        FloatingBars.liftAboveBottomBar(binding.scrollToBottomButton, binding.snackbar, binding.inputArea);
+        // Every page but the chat itself, which runs up behind the bars and pads its own list: the
+        // commands list, and each command session or WebXDC app opened beside it. The composer
+        // lives on the chat page and swipes away with it, so below these there is only the
+        // navigation bar to clear.
+        FloatingBars.insetPages(
+                binding.conversationViewPager,
+                new View[] {topBar, binding.tabLayout},
+                new View[] {bottomBar},
+                (View) binding.topBarAnchor.getParent());
+
         binding.pinnedMessageContainer.setOnLongClickListener(v -> {
             if (conversation != null) {
                 // Use the async method from your repository
@@ -2282,6 +2379,11 @@ public class ConversationFragment extends XmppFragment
         // Avoid the default cross-fade item animator fighting the neighbor-merge re-render.
         binding.messagesView.setItemAnimator(null);
         binding.messagesView.addOnScrollListener(mOnScrollListener);
+        // Fires after the list has been laid out, which is the only point where an overhang past
+        // the bottom edge can be measured. Scrolling alone never lays the list out again, so this
+        // costs nothing on the scroll path.
+        binding.messagesView.addOnLayoutChangeListener(
+                (v, l, t, r, b, ol, ot, or, ob) -> settleAtBottom());
         mediaPreviewAdapter = new MediaPreviewAdapter(this);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) activity, this.messageList);
@@ -2767,6 +2869,7 @@ public class ConversationFragment extends XmppFragment
             return;
         }
         messagesLayoutManager.scrollToPosition(index);
+        this.holdAtBottom = false;
         binding.messagesView.post(() -> {
             if (messagesLayoutManager == null) {
                 return;
@@ -2943,6 +3046,8 @@ public class ConversationFragment extends XmppFragment
             Runnable performRunnable = () -> {
                 if (messagesLayoutManager != null) {
                     messagesLayoutManager.scrollToPositionWithOffset(pos, effectiveOffset);
+                    // a jump to a particular message: the reader is no longer at the bottom
+                    ConversationFragment.this.holdAtBottom = false;
                 }
             };
 
@@ -5275,6 +5380,8 @@ public class ConversationFragment extends XmppFragment
         }
         final Conversation originalConversation = this.conversation;
         this.conversation = conversation;
+        // a chat opens at its newest message unless something below moves the list off it
+        this.holdAtBottom = true;
         // once we set the conversation all is good and it will automatically do the right thing in
         // onStart()
         if (this.activity == null || this.binding == null) {
@@ -5361,7 +5468,9 @@ public class ConversationFragment extends XmppFragment
         if (commandAdapter != null && conversation != originalConversation) {
             commandAdapter.clear();
             conversation.setupViewPager(binding.conversationViewPager, binding.tabLayout, activity.xmppConnectionService.isOnboarding(), originalConversation);
-            refreshCommands(false);
+            // Delayed: advertising the commands namespace does not mean the entity has any, so
+            // showing the tab strip before the query answers makes it appear and then vanish.
+            refreshCommands(true);
         }
         if (commandAdapter == null && conversation != null) {
             conversation.setupViewPager(binding.conversationViewPager, binding.tabLayout, activity.xmppConnectionService.isOnboarding(), null);
@@ -5372,7 +5481,7 @@ public class ConversationFragment extends XmppFragment
 
                 commandAdapter.getItem(position).start(activity, ConversationFragment.this.conversation);
             });
-            refreshCommands(false);
+            refreshCommands(true);
         }
         binding.commandsNote.setVisibility(activity.xmppConnectionService.isOnboarding() ? View.VISIBLE : View.GONE);
         previousClickedReply = null;
@@ -5463,6 +5572,9 @@ public class ConversationFragment extends XmppFragment
         if (this.binding == null || messagesLayoutManager == null || pos < 0) {
             return;
         }
+        // A jump to the bottom is the one place the list is put there rather than left there, so
+        // it is also where the hold is taken back from a reader who had scrolled away.
+        this.holdAtBottom = jumpToBottom;
         final Runnable scroll =
                 () -> {
                     if (messagesLayoutManager == null) {
@@ -5953,6 +6065,7 @@ public class ConversationFragment extends XmppFragment
                         final int last = messageListAdapter.getItemCount() - 1;
                         if (last >= 0) {
                             messagesLayoutManager.scrollToPosition(last);
+                            this.holdAtBottom = true;
                         }
                     }
                 }
@@ -6791,13 +6904,16 @@ public class ConversationFragment extends XmppFragment
         } else {
             fingerprint = message.getFingerprint();
         }
-        final PopupMenu popupMenu = new PopupMenu(activity, v);
+        final FixedPopupAnchor anchor =
+                new FixedPopupAnchor(binding.conversationsFragment, v);
+        final PopupMenu popupMenu = new PopupMenu(activity, anchor.view());
         final Contact contact = message.getContact();
         if (message.getStatus() <= Message.STATUS_RECEIVED
                 && (contact == null || !contact.isSelf())) {
             if (message.getConversation().getMode() == Conversation.MODE_MULTI) {
                 final Jid cp = message.getCounterpart();
                 if (cp == null || cp.isBareJid()) {
+                    anchor.detach();
                     return;
                 }
                 final Jid tcp = message.getTrueCounterpart();
@@ -6814,7 +6930,10 @@ public class ConversationFragment extends XmppFragment
                         userByRealJid != null
                                 ? userByRealJid
                                 : (userByOccupantId != null ? userByOccupantId : conversation.getMucOptions().findUserByFullJid(cp));
-                if (user == null) return;
+                if (user == null) {
+                    anchor.detach();
+                    return;
+                }
                 popupMenu.inflate(R.menu.muc_details_context);
                 final Menu menu = popupMenu.getMenu();
                 MucDetailsContextMenuHelper.configureMucDetailsContextMenu(
@@ -6871,7 +6990,51 @@ public class ConversationFragment extends XmppFragment
                         return true;
                     });
         }
+        popupMenu.setOnDismissListener(menu -> anchor.detach());
         popupMenu.show();
+    }
+
+    /**
+     * A PopupWindow re-aligns to its anchor on every scroll and layout pass of the window. The
+     * avatar lives in the message list, which keeps shifting under an open menu (read markers,
+     * presence, typing, avatar loads), so a menu anchored to it wanders and flips between above
+     * and below. This stand-in sits over the avatar in the fragment root, outside the list, and
+     * stays put for as long as the menu is shown.
+     */
+    private static final class FixedPopupAnchor {
+        private final View view;
+
+        FixedPopupAnchor(final ViewGroup root, final View target) {
+            final int[] rootPos = new int[2];
+            final int[] targetPos = new int[2];
+            root.getLocationInWindow(rootPos);
+            target.getLocationInWindow(targetPos);
+            final int left = targetPos[0] - rootPos[0];
+            final int top = targetPos[1] - rootPos[1];
+            final int width = target.getWidth();
+            final int height = target.getHeight();
+            view = new View(root.getContext());
+            view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            final RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(width, height);
+            lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+            lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+            lp.leftMargin = left - root.getPaddingLeft();
+            lp.topMargin = top - root.getPaddingTop();
+            root.addView(view, lp);
+            // the popup measures its anchor right away, before the next layout pass gets to it
+            view.layout(left, top, left + width, top + height);
+        }
+
+        View view() {
+            return view;
+        }
+
+        void detach() {
+            final ViewParent parent = view.getParent();
+            if (parent instanceof ViewGroup) {
+                ((ViewGroup) parent).removeView(view);
+            }
+        }
     }
 
     @Override

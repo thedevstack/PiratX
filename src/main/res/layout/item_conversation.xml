@@ -106,6 +106,14 @@
                                 android:layout_marginEnd="5sp"
                                 app:tint="?colorControlNormal" />
 
+                            <eu.siacs.conversations.ui.widget.TypingIndicatorView
+                                android:id="@+id/typing_indicator"
+                                android:layout_width="22sp"
+                                android:layout_height="18sp"
+                                android:layout_gravity="center_vertical"
+                                android:layout_marginEnd="5sp"
+                                android:visibility="gone" />
+
                             <TextView
                                 android:id="@+id/conversation_lastmsg"
                                 style="?textAppearanceBodyMedium"

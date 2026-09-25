@@ -16,18 +16,51 @@
             android:adjustViewBounds="true"
             android:scaleType="centerCrop" />
 
+        <!-- The wallpaper above stays full bleed so it runs under the floating bars, while
+             the chat itself is held clear of them: ConversationFragment pads this wrapper
+             through FloatingBars. -->
+        <RelativeLayout
+            android:id="@+id/chat_content"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+        <!-- Hangs the tab strip below the floating toolbar with a layout rule rather than a
+             margin set in code, so that the strip's own height is the only thing the insets
+             below have to add up. -->
+        <View
+            android:id="@+id/chat_top_anchor"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_alignParentTop="true"
+            android:visibility="invisible" />
+
+        <!-- A floating segmented control rather than an underlined strip, so it belongs to the
+             same family as the toolbar above it and the bottom bar. -->
         <com.google.android.material.tabs.TabLayout
             android:visibility="gone"
             android:id="@+id/tab_layout"
             android:layout_width="match_parent"
-            android:layout_height="30dp"
-            android:elevation="@dimen/toolbar_elevation"
+            android:layout_height="@dimen/floating_tab_strip_height"
+            android:layout_below="@id/chat_top_anchor"
+            android:layout_marginStart="@dimen/floating_bar_margin"
+            android:layout_marginEnd="@dimen/floating_bar_margin"
+            android:layout_marginBottom="@dimen/floating_bar_margin_bottom"
+            android:background="@drawable/bg_floating_bar"
+            android:elevation="@dimen/floating_toolbar_elevation"
+            android:padding="@dimen/floating_tab_strip_padding"
             app:tabGravity="fill"
-            app:tabMode="scrollable" />
+            app:tabIndicator="@drawable/bg_floating_tab_indicator"
+            app:tabIndicatorColor="?attr/colorSecondaryContainer"
+            app:tabIndicatorGravity="stretch"
+            app:tabMode="scrollable"
+            app:tabSelectedTextColor="?attr/colorOnSecondaryContainer"
+            app:tabTextColor="?attr/colorOnSurfaceVariant" />
 
+        <!-- Full bleed rather than below the tab strip, which puts the pages in the same
+             coordinate space as the bars; that is what lets the insets below simply add up what
+             floats at each edge. -->
         <de.monocles.chat.ui.LockedViewPager
             android:id="@+id/conversation_view_pager"
-            android:layout_below="@id/tab_layout"
             android:layout_width="fill_parent"
             android:layout_height="fill_parent">
 
@@ -35,18 +68,31 @@
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent">
 
+                <!-- Where the cards below hang from. Invisible rather than gone so that
+                     RelativeLayout still walks the chain to it when every card is hidden. -->
+                <View
+                    android:id="@+id/top_bar_anchor"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_alignParentTop="true"
+                    android:visibility="invisible" />
+
                 <LinearLayout
                     android:id="@+id/muc_subject"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_below="@+id/top_bar_anchor"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:elevation="4dp"
+                    android:layout_marginStart="@dimen/floating_bar_margin"
+                    android:layout_marginEnd="@dimen/floating_bar_margin"
+                    android:layout_marginBottom="@dimen/floating_bar_margin_bottom"
+                    android:elevation="@dimen/floating_toolbar_elevation"
                     android:paddingTop="8dp"
                     android:paddingBottom="8dp"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:background="?attr/colorSurface" >
+                    android:background="@drawable/bg_floating_bar" >
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/muc_subject_icon"
@@ -95,12 +141,15 @@
                     android:layout_below="@+id/muc_subject"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:elevation="4dp"
+                    android:layout_marginStart="@dimen/floating_bar_margin"
+                    android:layout_marginEnd="@dimen/floating_bar_margin"
+                    android:layout_marginBottom="@dimen/floating_bar_margin_bottom"
+                    android:elevation="@dimen/floating_toolbar_elevation"
                     android:paddingTop="8dp"
                     android:paddingBottom="8dp"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:background="?attr/colorSurface" >
+                    android:background="@drawable/bg_floating_bar" >
 
                     <ImageView
                         android:id="@+id/tune_subject_icon"
@@ -136,12 +185,15 @@
                     android:layout_below="@+id/tune_subject"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:elevation="4dp"
+                    android:layout_marginStart="@dimen/floating_bar_margin"
+                    android:layout_marginEnd="@dimen/floating_bar_margin"
+                    android:layout_marginBottom="@dimen/floating_bar_margin_bottom"
+                    android:elevation="@dimen/floating_toolbar_elevation"
                     android:paddingTop="8dp"
                     android:paddingBottom="8dp"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:background="?attr/colorSurface"
+                    android:background="@drawable/bg_floating_bar"
                     android:visibility="gone"
                     tools:visibility="visible">
 
@@ -168,12 +220,15 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:layout_below="@+id/ephemeral_hint"
-                    android:elevation="4dp"
+                    android:layout_marginStart="@dimen/floating_bar_margin"
+                    android:layout_marginEnd="@dimen/floating_bar_margin"
+                    android:layout_marginBottom="@dimen/floating_bar_margin_bottom"
+                    android:elevation="@dimen/floating_toolbar_elevation"
                     android:paddingTop="8dp"
                     android:paddingBottom="8dp"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:background="?attr/colorSurface"
+                    android:background="@drawable/bg_floating_bar"
                     android:animateLayoutChanges="true"
                     android:visibility="gone"
                     tools:visibility="visible">
@@ -234,15 +289,18 @@
 
                 </LinearLayout>
 
-                <androidx.recyclerview.widget.RecyclerView
+                <!-- Runs the whole height. The cards above and the composer below float over it,
+                     and ConversationFragment pads it by exactly what they occupy, so bubbles pass
+                     behind them instead of stopping at them. -->
+                <eu.siacs.conversations.ui.widget.FadingEdgeRecyclerView
                     android:id="@+id/messages_view"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_above="@+id/snackbar"
+                    android:layout_alignParentTop="true"
+                    android:layout_alignParentBottom="true"
                     android:layout_alignParentStart="true"
                     android:clipToPadding="false"
                     android:scrollbars="vertical"
-                    android:layout_below="@+id/pinned_message_container"
                     tools:listitem="@layout/item_message_end" />
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -289,8 +347,7 @@
                     android:layout_marginRight="8dp"
                     android:layout_marginStart="8dp"
                     android:layout_marginLeft="8dp"
-                    android:background="@drawable/background_message_bubble"
-                    android:alpha="0.88"
+                    android:background="@drawable/bg_composer"
                     android:animateLayoutChanges="true" >
 
                     <ListView
@@ -530,7 +587,7 @@
                                 android:layout_alignBottom="@+id/textinput_layout_new"
                                 android:layout_marginEnd="3dp"
                                 android:layout_marginStart="8dp"
-                                android:layout_marginBottom="5dp"
+                                android:layout_marginBottom="7dp"
                                 android:visibility="visible"
                                 android:background="@drawable/thread_hint">
 
@@ -612,7 +669,8 @@
                                     android:imeOptions="flagNoExtractUi|actionSend"
                                     android:inputType="textShortMessage|textMultiLine|textCapSentences"
                                     android:maxLines="6"
-                                    android:minHeight="32dp"
+                                    android:gravity="center_vertical"
+                                    android:minHeight="@dimen/composer_button_size"
                                     android:minLines="1"
                                     android:paddingStart="4dp"
                                     android:paddingLeft="4dp"
@@ -630,8 +688,9 @@
 
                             <ImageButton
                                 android:id="@+id/takePictureButton"
-                                android:layout_width="36dp"
-                                android:layout_height="36dp"
+                                android:layout_width="@dimen/composer_button_size"
+                                android:layout_height="@dimen/composer_button_size"
+                                android:padding="@dimen/composer_button_inset"
                                 android:layout_marginEnd="3dp"
                                 android:layout_toStartOf="@+id/recordVoiceButton"
                                 android:layout_toLeftOf="@+id/recordVoiceButton"
@@ -643,8 +702,9 @@
 
                             <ImageButton
                                 android:id="@+id/recordVoiceButton"
-                                android:layout_width="36dp"
-                                android:layout_height="36dp"
+                                android:layout_width="@dimen/composer_button_size"
+                                android:layout_height="@dimen/composer_button_size"
+                                android:padding="@dimen/composer_button_inset"
                                 android:layout_marginEnd="3dp"
                                 android:layout_toStartOf="@+id/textSendButton"
                                 android:layout_toLeftOf="@+id/textSendButton"
@@ -917,6 +977,7 @@
             </RelativeLayout>
 
             <RelativeLayout
+                android:id="@+id/commands_page"
                 android:layout_width="fill_parent"
                 android:layout_height="fill_parent">
 
@@ -955,5 +1016,8 @@
             </RelativeLayout>
 
         </de.monocles.chat.ui.LockedViewPager>
+
+        </RelativeLayout>
+
     </RelativeLayout>
 </layout>

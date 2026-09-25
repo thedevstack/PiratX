@@ -36,6 +36,7 @@ import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.services.CallIntegrationConnectionService;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.adapter.CallsAdapter;
+import eu.siacs.conversations.ui.util.FloatingBars;
 
 public class CallsFragment extends Fragment implements CallsAdapter.OnCallAgainClickListener, CallsAdapter.OnContactClickListener, XmppConnectionService.OnCallLogUpdated {
 
@@ -96,6 +97,10 @@ public class CallsFragment extends Fragment implements CallsAdapter.OnCallAgainC
         recyclerView = view.findViewById(R.id.list);
         recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
         emptyView = view.findViewById(R.id.empty_view);
+        FloatingBars.inset(
+                recyclerView,
+                FloatingBars.topBarOf(getActivity()),
+                FloatingBars.bottomBarOf(getActivity()));
         return view;
     }
 

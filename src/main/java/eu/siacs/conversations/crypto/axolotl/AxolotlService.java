@@ -98,6 +98,18 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
     public static final String LOGPREFIX = "AxolotlService";
 
     private static final int NUM_KEYS_TO_PUBLISH = 100;
+
+    /**
+     * Most devices we accept from one JID's published OMEMO device list, either stack.
+     *
+     * <p>Every accepted id costs an outbound bundle fetch (see {@code registerDevices} and
+     * {@code findDevicesWithoutSession}) plus a cached session and fetch-status entry, and
+     * nothing else bounds the list: the XML reader limits nesting depth, not child count, so
+     * a hostile PEP node could turn a single stanza into tens of thousands of IQ round-trips.
+     * Far above any plausible real account — Conversations' own trust UI becomes unusable
+     * long before this.
+     */
+    public static final int MAX_DEVICES_PER_JID = 128;
     private static final int publishTriesThreshold = 3;
     // XEP-0384: the first message received for a given ratchet key whose Double Ratchet
     // counter reaches this value MUST be answered with a heartbeat (an empty OMEMO
@@ -414,7 +426,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                 mXmppConnectionService.databaseBackend.getLegacySubDeviceSessions(account, bareJid);
         for (final Integer deviceId : deviceIds) {
             final String fingerprint = legacyFingerprintFromSession(bareJid, deviceId);
-            if (fingerprint != null && getFingerprintTrust(fingerprint).isVerified()) {
+            if (fingerprint != null && getFingerprintTrust(bareJid, fingerprint).isVerified()) {
                 return true;
             }
         }
@@ -478,11 +490,15 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
      * Internal trust and the QR/URI stay keyed on the classical fingerprint; this
      * is purely the human-verifiable string, which we make commit to the
      * post-quantum key so manual verification authenticates it too.
+     *
+     * <p>{@code name} (the bare JID that owns the classical key) is required for the same
+     * reason it is on the trust lookups: the pin table is keyed on the triple, because a
+     * classical identity key is public and any peer can republish someone else's.
      */
-    public String hybridFingerprintFor(final String classicalFingerprint) {
-        if (classicalFingerprint == null) return null;
+    public String hybridFingerprintFor(final String name, final String classicalFingerprint) {
+        if (name == null || classicalFingerprint == null) return null;
         final byte[] pqIk = mXmppConnectionService.databaseBackend
-                .getPinnedOmemo2PqIdentity(account, classicalFingerprint);
+                .getPinnedOmemo2PqIdentity(account, name, classicalFingerprint);
         if (pqIk == null) return null;
         try {
             return CryptoHelper.hybridOmemo2Fingerprint(
@@ -551,9 +567,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
 
     public long getNumTrustedKeys(Jid jid, int encryption) {
         final Set<String> stackFingerprints = getFingerprintsForStack(jid, encryption);
+        final String bareJid = jid.asBareJid().toString();
         int count = 0;
         for (String fingerprint : stackFingerprints) {
-            if (getFingerprintTrust(fingerprint).isTrustedAndActive()) {
+            if (getFingerprintTrust(bareJid, fingerprint).isTrustedAndActive()) {
                 count++;
             }
         }
@@ -642,7 +659,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         for (Integer deviceId : deviceIds) {
             final String fingerprint = getLegacyFingerprint(bareJid, deviceId);
             if (fingerprint != null) {
-                out.add(new LegacySessionInfo(fingerprint, getFingerprintTrust(fingerprint), deviceId));
+                out.add(new LegacySessionInfo(fingerprint, getFingerprintTrust(bareJid, fingerprint), deviceId));
             }
         }
         return out;
@@ -679,7 +696,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             if (deviceId == getOwnDeviceId()) continue;
             final String fingerprint = getLegacyFingerprint(bareJid, deviceId);
             if (fingerprint != null) {
-                out.add(new LegacySessionInfo(fingerprint, getFingerprintTrust(fingerprint), deviceId));
+                out.add(new LegacySessionInfo(fingerprint, getFingerprintTrust(bareJid, fingerprint), deviceId));
             }
         }
         return out;
@@ -1063,7 +1080,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         if (fingerprint == null || deviceId == getOwnDeviceId()) {
             return false;
         }
-        if (getFingerprintTrust(fingerprint).isVerified()) {
+        if (getFingerprintTrust(account.getJid().asBareJid().toString(), fingerprint).isVerified()) {
             Log.d(Config.LOGTAG, account.getJid().asBareJid()
                     + ": refusing to purge verified device " + deviceId);
             return false;
@@ -1095,7 +1112,8 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             sessions.remove(address);
             fetchStatusMap.remove(address);
             mXmppConnectionService.databaseBackend.deleteSession(account, address);
-            mXmppConnectionService.databaseBackend.unpinOmemo2PqIdentity(account, fingerprint);
+            mXmppConnectionService.databaseBackend.unpinOmemo2PqIdentity(
+                    account, bareJid, fingerprint);
             if (wasAnnounced) {
                 this.lastOmemo2DeviceListNotificationHash = 0;
                 publishOmemo2DeviceIds(remaining);
@@ -1139,10 +1157,28 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         return false;
     }
 
-    public void distrustFingerprint(final String fingerprint) {
+    /**
+     * Marks the key {@code name} holds under {@code fingerprint} untrusted.
+     *
+     * <p>Null-safe: {@code getFingerprintStatus} genuinely returns null for a key with no row
+     * — the row may have been removed by {@link #purgeOwnDevice} or by a manual identity
+     * re-exchange while the list on screen went stale — and dereferencing it crashed the very
+     * screen the user was using to revoke trust.
+     *
+     * @return false when there was nothing to distrust.
+     */
+    public boolean distrustFingerprint(final String name, final String fingerprint) {
+        if (name == null || fingerprint == null) {
+            return false;
+        }
         final String fp = fingerprint.replaceAll("\\s", "");
-        final FingerprintStatus fingerprintStatus = axolotlStore.getFingerprintStatus(fp);
-        axolotlStore.setFingerprintStatus(fp, fingerprintStatus.toUntrusted());
+        final FingerprintStatus fingerprintStatus = axolotlStore.getFingerprintStatus(name, fp);
+        if (fingerprintStatus == null) {
+            Log.d(Config.LOGTAG, getLogprefix(account)
+                    + "nothing to distrust: no identity row for " + fp + " of " + name);
+            return false;
+        }
+        return axolotlStore.setFingerprintStatus(name, fp, fingerprintStatus.toUntrusted());
     }
 
     private void publishOwnDeviceIdIfNeeded() {
@@ -1189,8 +1225,9 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             return;
         }
         // A device that published the SAME curve25519 identity key on both nodes (pre-split
-        // builds, some third-party clients) collapses into a single identities row, because
-        // setIdentityKeyTrust matches on (account, fingerprint) with no stack predicate.
+        // builds, some third-party clients) still collapses into a single identities row:
+        // trust is keyed on (account, name, fingerprint) and BOTH stacks would produce the
+        // identical triple for such a device — the row carries no stack discriminator.
         // Writing there from the legacy path would silently rewrite the OMEMO2 view of that
         // device, so leave those rows to the OMEMO2 bookkeeping.
         final Set<String> omemo2Fingerprints =
@@ -1209,7 +1246,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                         + " because it is shared with an OMEMO2 session");
                 continue;
             }
-            final FingerprintStatus status = getFingerprintTrust(fingerprint);
+            final FingerprintStatus status = getFingerprintTrust(bareJid, fingerprint);
             final boolean shouldBeActive = deviceIds.contains(deviceId);
             if (shouldBeActive == status.isActive()) {
                 continue;
@@ -1218,7 +1255,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                     + ": marking legacy device " + deviceId + " (" + fingerprint + ") "
                     + (shouldBeActive ? "active" : "inactive"));
             axolotlStore.setFingerprintStatus(
-                    fingerprint, shouldBeActive ? status.toActive() : status.toInactive());
+                    bareJid, fingerprint, shouldBeActive ? status.toActive() : status.toInactive());
         }
     }
 
@@ -1741,8 +1778,18 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         return b;
     }
 
-    public FingerprintStatus getFingerprintTrust(String fingerprint) {
-        final FingerprintStatus status = axolotlStore.getFingerprintStatus(fingerprint);
+    /**
+     * The trust the user has recorded for the key {@code name} (a bare JID) holds under
+     * {@code fingerprint}, substituting UNDECIDED when there is no row.
+     *
+     * <p>{@code name} is REQUIRED. The {@code identities} table is shared by the legacy and
+     * the OMEMO2 stack and by every contact on the account, and an identity public key is
+     * published in PEP for anyone to copy — so a fingerprint on its own does not identify a
+     * trust decision. Asking without the JID used to let a peer republishing someone else's
+     * identity key read (and inherit) the trust its real owner had been given.
+     */
+    public FingerprintStatus getFingerprintTrust(final String name, final String fingerprint) {
+        final FingerprintStatus status = axolotlStore.getFingerprintStatus(name, fingerprint);
         return status != null ? status : FingerprintStatus.createActiveUndecided();
     }
 
@@ -1759,20 +1806,34 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
      * verification. Do not fold these two methods back together.
      */
     @Nullable
-    public FingerprintStatus getFingerprintStatusOrNull(final String fingerprint) {
-        return axolotlStore.getFingerprintStatus(fingerprint);
+    public FingerprintStatus getFingerprintStatusOrNull(final String name, final String fingerprint) {
+        return axolotlStore.getFingerprintStatus(name, fingerprint);
     }
 
-    public X509Certificate getFingerprintCertificate(String fingerprint) {
-        return axolotlStore.getFingerprintCertificate(fingerprint);
+    public X509Certificate getFingerprintCertificate(String name, String fingerprint) {
+        return axolotlStore.getFingerprintCertificate(name, fingerprint);
     }
 
-    public void setFingerprintTrust(final String fingerprint, final FingerprintStatus status) {
-        axolotlStore.setFingerprintStatus(fingerprint, status);
+    /**
+     * Records a trust decision for the key {@code name} holds under {@code fingerprint}.
+     *
+     * @return false when no such row existed, so nothing was recorded. Callers that are
+     *     acting on an explicit user decision should surface that rather than reporting
+     *     success — an UPDATE matching no rows is exactly how verification of a
+     *     never-before-seen key came to be a silent no-op.
+     */
+    public boolean setFingerprintTrust(
+            final String name, final String fingerprint, final FingerprintStatus status) {
+        final boolean recorded = axolotlStore.setFingerprintStatus(name, fingerprint, status);
+        if (!recorded) {
+            Log.w(Config.LOGTAG, getLogprefix(account) + "trust for " + fingerprint
+                    + " of " + name + " was not recorded — no matching identity row");
+        }
         // TODO we decided to call this after a fingerprint gets toggled to update the 'your contact
         //  is using unverified devices text'; however this means the entire screen gets redrawn
         //  after a toggle which might be annoying or cause other weird UI glitches
         mXmppConnectionService.updateAccountUi();
+        return recorded;
     }
 
     private ListenableFuture<XmppAxolotlSession> verifySessionWithPEP(final XmppAxolotlSession session) {
@@ -1801,8 +1862,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                             mXmppConnectionService.getMemorizingTrustManager().getNonInteractive().checkClientTrusted(verification.first, "RSA");
                             String fingerprint = session.getFingerprint();
                             Log.d(Config.LOGTAG, "verified session with x.509 signature. fingerprint was: " + fingerprint);
-                            setFingerprintTrust(fingerprint, FingerprintStatus.createActiveVerified(true));
-                            axolotlStore.setFingerprintCertificate(fingerprint, verification.first[0]);
+                            setFingerprintTrust(address.getName(), fingerprint,
+                                    FingerprintStatus.createActiveVerified(true));
+                            axolotlStore.setFingerprintCertificate(
+                                    address.getName(), fingerprint, verification.first[0]);
                             fetchStatusMap.put(address, FetchStatus.SUCCESS_VERIFIED);
                             Bundle information = CryptoHelper.extractCertificateInformation(verification.first[0]);
                             try {
@@ -2078,7 +2141,8 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                         preKeyBundle = null;
                     } else {
                         final byte[] pinned = mXmppConnectionService.databaseBackend
-                                .getPinnedOmemo2PqIdentity(account, ikFingerprint);
+                                .getPinnedOmemo2PqIdentity(
+                                        account, address.getName(), ikFingerprint);
                         final boolean pqChanged = pinned != null
                                 && !Arrays.equals(pinned, peerPq.identityKey);
                         // A changed pq_ik for a known classical identity is normally
@@ -2095,7 +2159,8 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                         // pin row lingered) — treat that as NOT verified so we fall into
                         // the strict refuse branch rather than NPEing here (a crash would
                         // deny session building entirely).
-                        final FingerprintStatus classicalTrust = getFingerprintTrust(ikFingerprint);
+                        final FingerprintStatus classicalTrust =
+                                getFingerprintTrust(address.getName(), ikFingerprint);
                         final boolean classicalVerified =
                                 classicalTrust != null && classicalTrust.isVerified();
                         if (pqChanged && !classicalVerified) {
@@ -2135,11 +2200,12 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                         // transcript; pin pq_ik to this peer's classical identity
                         // (idempotent — we already rejected a changed pq_ik above).
                         mXmppConnectionService.databaseBackend.pinOmemo2PqIdentity(
-                                account, ikFingerprint, peerPq.identityKey);
+                                account, address.getName(), ikFingerprint, peerPq.identityKey);
                         */
                         final XmppAxolotlSession session = new XmppAxolotlSession(account, axolotlStore, localAddress, address, bundle.getIdentityKey());
                         sessions.put(address, session);
-                        final FingerprintStatus fpStatus = getFingerprintTrust(CryptoHelper.bytesToHex(bundle.getIdentityKey().getPublicKey().serialize()));
+                        final FingerprintStatus fpStatus = getFingerprintTrust(address.getName(),
+                                CryptoHelper.bytesToHex(bundle.getIdentityKey().getPublicKey().serialize()));
                         final FetchStatus fetchStatus;
                         if (fpStatus != null && fpStatus.isVerified()) {
                             fetchStatus = FetchStatus.SUCCESS_VERIFIED;
@@ -2153,10 +2219,16 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                         if (callback != null) callback.onSessionBuildSuccessful();
                         future.set(session);
                         return;
-			/*
-                    } catch (UntrustedIdentityException | InvalidKeyException | CryptoFailedException e) {
-		    */
-		    } catch (UntrustedIdentityException | InvalidKeyException e) {
+                    /*
+                    } catch (UntrustedIdentityException | InvalidKeyException
+                             | CryptoFailedException | RuntimeException e) {
+                    */
+                    } catch (UntrustedIdentityException | InvalidKeyException
+                             | RuntimeException e) {
+                        // RuntimeException: everything here is built from a peer-supplied
+                        // bundle, and this lambda runs on the connection thread where an
+                        // escaping unchecked exception would take the process down. Fall
+                        // through to the FetchStatus.ERROR path below like any other failure.
                         Log.e(Config.LOGTAG, getLogprefix(account) + "OMEMO2 session build error for " + address + ": " + e.getMessage());
                     }
                 } else if (bundle != null) {
@@ -2268,7 +2340,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             // table (fingerprint anchor). Send/receive routing is responsible
             // for picking the legacy backend when this address has a legacy
             // session (see future encrypt/decrypt wiring).
-            final FingerprintStatus fpStatus = getFingerprintTrust(
+            final FingerprintStatus fpStatus = getFingerprintTrust(address.getName(),
                     CryptoHelper.bytesToHex(
                             partial.getIdentityKey().getPublicKey().serialize()));
             final FetchStatus fetchStatus;
@@ -2643,11 +2715,12 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
      * says nothing about what the user decided.
      */
     private boolean isLegacyDeviceTrusted(final Jid jid, final int deviceId) {
-        final String fingerprint = getLegacyFingerprint(jid.asBareJid().toString(), deviceId);
+        final String bareJid = jid.asBareJid().toString();
+        final String fingerprint = getLegacyFingerprint(bareJid, deviceId);
         if (fingerprint == null) {
             return false;
         }
-        final FingerprintStatus status = getFingerprintTrust(fingerprint);
+        final FingerprintStatus status = getFingerprintTrust(bareJid, fingerprint);
         return status != null && status.isTrusted();
     }
 
@@ -2913,7 +2986,8 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         if (useLegacy) {
             fingerprint = legacyFingerprintForAddress(legacyAddr(address));
             if (Config.REQUIRE_RTP_VERIFICATION) {
-                final FingerprintStatus status = fingerprint == null ? null : getFingerprintTrust(fingerprint);
+                final FingerprintStatus status =
+                        fingerprint == null ? null : getFingerprintTrust(address.getName(), fingerprint);
                 if (status == null || !status.isVerified()) {
                     throw new NotVerifiedException("legacy session with " + fingerprint + " was not verified");
                 }
@@ -3111,7 +3185,9 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                             if (Config.REQUIRE_RTP_VERIFICATION) {
                                 final String fp = plaintext.getFingerprint();
                                 final FingerprintStatus status =
-                                        fp == null ? null : getFingerprintTrust(fp);
+                                        fp == null
+                                                ? null
+                                                : getFingerprintTrust(legacyAddress.getName(), fp);
                                 if (status == null || !status.isVerified()) {
                                     throw new NotVerifiedException(
                                             "legacy session with " + fp + " was not verified");
@@ -3524,7 +3600,8 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                 return; // already attempted this run
             }
             if (mXmppConnectionService.databaseBackend
-                    .getPinnedOmemo2PqIdentity(account, ikFingerprint) != null) {
+                    .getPinnedOmemo2PqIdentity(account, address.getName(), ikFingerprint)
+                    != null) {
                 return; // already pinned
             }
             Log.d(Config.LOGTAG, getLogprefix(account) + "no pq_ik pinned for " + address
@@ -3588,7 +3665,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         // pin-fill only: re-check under the current state and never overwrite —
         // a concurrent session build may have pinned (possibly this same value) already
         final byte[] pinned = mXmppConnectionService.databaseBackend
-                .getPinnedOmemo2PqIdentity(account, ikFingerprint);
+                .getPinnedOmemo2PqIdentity(account, address.getName(), ikFingerprint);
         if (pinned != null) {
             if (!Arrays.equals(pinned, peerPq.identityKey)) {
                 Log.e(Config.LOGTAG, getLogprefix(account) + "pq_ik reconciliation: a"
@@ -3598,7 +3675,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             return;
         }
         mXmppConnectionService.databaseBackend.pinOmemo2PqIdentity(
-                account, ikFingerprint, peerPq.identityKey);
+                account, address.getName(), ikFingerprint, peerPq.identityKey);
         Log.d(Config.LOGTAG, getLogprefix(account)
                 + "pq_ik reconciliation: pinned PQ identity for " + address);
         // hybrid fingerprint is now available — refresh key lists in the UI
@@ -3874,7 +3951,8 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                 SignalProtocolAddress axolotlAddress = new SignalProtocolAddress(bareJid, deviceId);
                 IdentityKey identityKey = getRemoteIdentityKeySafe(store.loadSession(axolotlAddress));
                 if (Config.X509_VERIFICATION && identityKey != null) {
-                    X509Certificate certificate = store.getFingerprintCertificate(CryptoHelper.bytesToHex(identityKey.getPublicKey().serialize()));
+                    X509Certificate certificate = store.getFingerprintCertificate(bareJid,
+                            CryptoHelper.bytesToHex(identityKey.getPublicKey().serialize()));
                     if (certificate != null) {
                         Bundle information = CryptoHelper.extractCertificateInformation(certificate);
                         try {

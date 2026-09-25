@@ -63,7 +63,41 @@
 
 
     <dimen name="avatar_corners_radius">8dp</dimen>
-    <dimen name="nav_bar_height">81dp</dimen>
+
+    <!-- Floating top and bottom bars. Both are inset islands the content scrolls
+         underneath, they share one radius, and the bottom bar carries more
+         elevation because it is the one that overlaps content. -->
+    <dimen name="floating_bar_margin">10dp</dimen>
+
+    <dimen name="floating_bar_margin_bottom">5dp</dimen>
+    <dimen name="floating_bar_margin_horizontal">50dp</dimen>
+    <!-- the status bar already supplies the space above the toolbar -->
+    <dimen name="floating_bar_margin_top">6dp</dimen>
+    <!-- half of floating_toolbar_height: the toolbar reads as a capsule -->
+    <dimen name="floating_bar_corner">24dp</dimen>
+    <dimen name="floating_toolbar_height">48dp</dimen>
+    <dimen name="floating_nav_bar_height">60dp</dimen>
+    <!-- Material's own 12dp/16dp assume an 80dp bar. With the 32dp active indicator and a
+         label between them, that overflows a slim bar and the labels get clipped. -->
+    <dimen name="floating_nav_item_padding">6dp</dimen>
+    <dimen name="floating_nav_item_padding_top">16dp</dimen>
+    <dimen name="floating_nav_item_padding_bottom">-2dp</dimen>
+    <dimen name="floating_nav_label_padding">-2dp</dimen>
+    <dimen name="floating_toolbar_elevation">3dp</dimen>
+    <dimen name="floating_nav_elevation">8dp</dimen>
+    <!-- How far content ramps out before it disappears under a floating bar -->
+    <dimen name="edge_fade_length">40dp</dimen>
+    <!-- Every button in the composer occupies this square, and so does the text field on a single
+         line, so that buttons anchored to the bottom of the field read as centred on it until the
+         text grows past one line and takes the field's bottom edge down with it. -->
+    <dimen name="composer_button_size">40dp</dimen>
+    <!-- Trims the drawable back to its old 36dp inside the larger square above -->
+    <dimen name="composer_button_inset">2dp</dimen>
+    <!-- The command tab strip, a floating segmented control -->
+    <dimen name="floating_tab_strip_height">36dp</dimen>
+    <dimen name="floating_tab_strip_padding">3dp</dimen>
+    <dimen name="floating_tab_indicator_corner">15dp</dimen>
+
     <dimen name="muc_avatar_actionbar">24dp</dimen>
     <dimen name="avatar_big">640dp</dimen>
 

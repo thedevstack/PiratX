@@ -126,8 +126,100 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         }
     };
 
+    /**
+     * Swaps a freshly re-encrypted {@code tempFile} into place, keeping {@code dbFile}'s previous
+     * contents in {@code backupFile}.
+     *
+     * @return true when the files were actually moved, i.e. the on-disk state no longer matches
+     *     what the stored key state describes. The caller MUST leave {@code
+     *     REKEY_MIGRATION_IN_PROGRESS} set whenever this is true, so that the recovery pass on the
+     *     next launch reconciles them. Returning false means nothing moved (or a rename failed and
+     *     was fully rolled back), so there is nothing for recovery to do.
+     * @throws IOException when a rename fails; inspect the return value even then — a throw does
+     *     NOT imply the disk is untouched.
+     */
+    /**
+     * The {@code ATTACH DATABASE … KEY …} statement used to drive {@code sqlcipher_export},
+     * assembled without the extra heap copies of the live database key the naive version made.
+     *
+     * <p>{@link eu.siacs.conversations.Argon2KeyDerivation#formatAsRawSqlCipherKey} deliberately
+     * keeps the key out of a {@code String} because a {@code String} cannot be zeroed and lives
+     * until GC — reachable in a heap dump, an ANR trace or swap. Building the statement as
+     * {@code new String(rawKey) → quote → concatenate} put four such copies on the heap.
+     * {@code PRAGMA cipher_memory_security} does not help here: it covers SQLCipher's native
+     * allocations, not the JVM heap.
+     *
+     * <p>Returns a {@code char[]} the caller must zero once {@code rawExecSQL} has run. One
+     * unzeroable copy remains — the {@code String} that {@code rawExecSQL} requires — which is
+     * the floor without changing how the key is handed to SQLCipher.
+     *
+     * @param rawKey the key as {@code x'<64 hex>'} UTF-8 bytes, i.e. the output of
+     *     {@code formatAsRawSqlCipherKey}. Emitted verbatim inside a SQL string literal, exactly
+     *     as the previous code did, so the bytes SQLCipher receives are unchanged.
+     */
+    static char[] buildAttachSql(final String tempPath, final byte[] rawKey) {
+        final String prefix =
+                "ATTACH DATABASE "
+                        + android.database.DatabaseUtils.sqlEscapeString(tempPath)
+                        + " AS encrypted KEY '";
+        // rawKey is x'<hex>' — it CONTAINS single quotes, which have to be doubled to survive
+        // the surrounding SQL string literal. The old code did this with
+        // keyStr.replace("'", "''"); dropping it would hand SQLCipher a different key and
+        // silently produce a database nothing can open.
+        int quotes = 0;
+        for (final byte b : rawKey) {
+            if (b == '\'') {
+                quotes++;
+            }
+        }
+        final char[] out = new char[prefix.length() + rawKey.length + quotes + 1];
+        prefix.getChars(0, prefix.length(), out, 0);
+        int at = prefix.length();
+        for (final byte b : rawKey) {
+            final char c = (char) (b & 0xFF);
+            out[at++] = c;
+            if (c == '\'') {
+                out[at++] = c;
+            }
+        }
+        out[at] = '\'';
+        return out;
+    }
+
+    static boolean swapInMigratedDatabase(
+            final File dbFile, final File tempFile, final File backupFile) throws java.io.IOException {
+        if (!dbFile.renameTo(backupFile)) {
+            // Nothing moved.
+            throw new java.io.IOException("Failed to backup old database file");
+        }
+        if (!tempFile.renameTo(dbFile)) {
+            // Put the original back. Only a SUCCESSFUL rollback returns us to a state that
+            // matches the stored key; if it fails, dbFile is missing and backupFile holds the
+            // data — recovery has to run.
+            final boolean rolledBack = backupFile.renameTo(dbFile);
+            if (!rolledBack) {
+                Log.e(Config.LOGTAG, "rekey: CRITICAL — failed to rollback after temp rename failure");
+            }
+            throw new MigrationSwapException("Failed to rename temporary database file", !rolledBack);
+        }
+        return true;
+    }
+
+    /**
+     * Signals a failed file swap together with whether the disk was left in a state that needs
+     * the recovery pass. {@code filesMoved} is what decides if the sentinel may be cleared.
+     */
+    static class MigrationSwapException extends java.io.IOException {
+        final boolean filesMoved;
+
+        MigrationSwapException(final String message, final boolean filesMoved) {
+            super(message);
+            this.filesMoved = filesMoved;
+        }
+    }
+
     private static final String DATABASE_NAME = "history";
-    private static final int DATABASE_VERSION = 72;
+    private static final int DATABASE_VERSION = 75;
     private static final String REKEY_MIGRATION_IN_PROGRESS = "rekey_migration_in_progress";
 
     private static boolean requiresMessageIndexRebuild = false;
@@ -321,14 +413,34 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     //     peer's pinned ML-DSA-87 public key. Pinned on first contact (TOFU) and
     //     never allowed to silently change — a different pq_ik for a known ik is an
     //     identity change and the session is refused (never downgrade).
+    //
+    // Rows are keyed on (account, NAME, fingerprint), where name is the bare JID the
+    // classical key belongs to (the own bare JID for the "self" row). The JID is not
+    // decoration: a classical identity key is published in PEP for anyone to copy, so
+    // keying the pin on the fingerprint alone let one JID poison the pin for another's
+    // key — publish someone else's ik alongside your own pq_ik, get it pinned on first
+    // contact, and every later OMEMO2 session with the real owner is refused as a
+    // changed pq_ik. See the (account, name, fingerprint) rule on `identities`.
     public static final String OMEMO2_PQ_IDENTITIES_TABLE = "omemo2_pq_identities";
     public static final String OMEMO2_PQ_KEY = "pq_key";
     private static final String OMEMO2_PQ_OWN_FINGERPRINT = "self";
+
+    /**
+     * NAME under which this device's OWN ML-DSA-87 key pair is filed. A constant rather than
+     * our bare JID: the row is already per-account (the account column), and keying it on the
+     * JID string would mean editing an account's address silently loses the post-quantum half
+     * of its identity and re-keys it. The leading NUL cannot occur in a real JID, so it can
+     * never collide with a peer row — same convention as
+     * {@link #omemo2OwnIdentityKeyName(Account)}.
+     */
+    private static final String OMEMO2_PQ_OWN_NAME = "\0omemo2-pq-own";
     private static final String CREATE_OMEMO2_PQ_IDENTITIES_STATEMENT =
             "CREATE TABLE IF NOT EXISTS "
                     + OMEMO2_PQ_IDENTITIES_TABLE
                     + "("
                     + SQLiteAxolotlStore.ACCOUNT
+                    + " TEXT, "
+                    + SQLiteAxolotlStore.NAME
                     + " TEXT, "
                     + SQLiteAxolotlStore.FINGERPRINT
                     + " TEXT, "
@@ -343,6 +455,8 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + ") ON DELETE CASCADE, "
                     + "UNIQUE("
                     + SQLiteAxolotlStore.ACCOUNT
+                    + ", "
+                    + SQLiteAxolotlStore.NAME
                     + ", "
                     + SQLiteAxolotlStore.FINGERPRINT
                     + ") ON CONFLICT REPLACE"
@@ -413,6 +527,22 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + SQLiteAxolotlStore.DEVICE_ID
                     + ") ON CONFLICT REPLACE"
                     + ");";
+
+    /**
+     * {@code (account, name, fingerprint)} is the identity of a row in {@code identities};
+     * nothing enforced that until v73, so the table could hold duplicates and every
+     * update-then-insert in here had to emulate an upsert by hand.
+     */
+    private static final String CREATE_IDENTITIES_UNIQUE_INDEX =
+            "CREATE UNIQUE INDEX IF NOT EXISTS identities_account_name_fingerprint_index ON "
+                    + SQLiteAxolotlStore.IDENTITIES_TABLENAME
+                    + "("
+                    + SQLiteAxolotlStore.ACCOUNT
+                    + ", "
+                    + SQLiteAxolotlStore.NAME
+                    + ", "
+                    + SQLiteAxolotlStore.FINGERPRINT
+                    + ")";
 
     private static final String CREATE_IDENTITIES_STATEMENT =
             "CREATE TABLE if not exists "
@@ -493,6 +623,30 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + Message.TABLENAME
                     + "("
                     + Message.CONVERSATION
+                    + ")";
+    // Lets the per-conversation page query (conversationUuid=? ORDER BY timeSent DESC LIMIT n)
+    // stop after n rows instead of reading and sorting every message of the conversation.
+    private static final String CREATE_MESSAGE_CONVERSATION_TIME_INDEX =
+            "CREATE INDEX if not exists message_conversation_time_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.CONVERSATION
+                    + ","
+                    + Message.TIME_SENT
+                    + ")";
+    // getMessageFuzzyIds() matches reply targets by uuid OR serverMsgId OR remoteMsgId. Without
+    // these, the OR could not use any index and every page load scanned the whole table.
+    private static final String CREATE_MESSAGE_SERVER_MSG_ID_INDEX =
+            "CREATE INDEX if not exists message_server_msg_id_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.SERVER_MSG_ID
+                    + ")";
+    private static final String CREATE_MESSAGE_REMOTE_MSG_ID_INDEX =
+            "CREATE INDEX if not exists message_remote_msg_id_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.REMOTE_MSG_ID
                     + ")";
     private static final String CREATE_MESSAGE_DELETED_INDEX =
             "CREATE INDEX if not exists message_deleted_index ON "
@@ -597,7 +751,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                             eu.siacs.conversations.EncryptionException.Reason.KEYSTORE_ERROR);
                 }
                 return eu.siacs.conversations.Argon2KeyDerivation.INSTANCE
-                        .deriveRawKeyBytes(password, salt);
+                        .deriveRawKeyBytes(password, salt, context);
             } finally {
                 java.util.Arrays.fill(password, '\0');
             }
@@ -605,7 +759,8 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         // Auto mode: use or generate a hardware-bound random key.
         final byte[] rawAutoKey = appSettings.getOrCreateAutoKey();
         try {
-            return eu.siacs.conversations.Argon2KeyDerivation.INSTANCE.deriveAutoRawKeyBytes(rawAutoKey);
+            return eu.siacs.conversations.Argon2KeyDerivation.INSTANCE
+                    .deriveAutoRawKeyBytes(rawAutoKey, context);
         } finally {
             java.util.Arrays.fill(rawAutoKey, (byte) 0);
         }
@@ -628,13 +783,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         final Stopwatch stopwatch = Stopwatch.createStarted();
         db.execSQL(COPY_PREEXISTING_ENTRIES);
         Log.d(Config.LOGTAG, "rebuilt message index in " + stopwatch.stop().toString());
-    }
-
-    public boolean isFtsIndexFragmented() {
-        final SQLiteDatabase db = getReadableDatabase();
-        try (final Cursor c = db.rawQuery("SELECT count(*) FROM messages_index_segdir", null)) {
-            return c.moveToFirst() && c.getInt(0) > 4;
-        }
     }
 
     public static synchronized DatabaseBackend getInstance(Context context) {
@@ -764,11 +912,12 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     null);
             try {
                 final int version = db.getVersion();
-                final String keyStr = new String(newRawKey, java.nio.charset.StandardCharsets.UTF_8);
-                final String attachKeySql = "'" + keyStr.replace("'", "''") + "'";
-                db.rawExecSQL("ATTACH DATABASE "
-                        + android.database.DatabaseUtils.sqlEscapeString(tempFile.getAbsolutePath())
-                        + " AS encrypted KEY " + attachKeySql);
+                final char[] attachSql = buildAttachSql(tempFile.getAbsolutePath(), newRawKey);
+                try {
+                    db.rawExecSQL(new String(attachSql));
+                } finally {
+                    java.util.Arrays.fill(attachSql, '\0');
+                }
                 db.rawExecSQL("SELECT sqlcipher_export('encrypted');");
                 db.rawExecSQL("PRAGMA encrypted.user_version = " + version);
                 db.rawExecSQL("DETACH DATABASE encrypted;");
@@ -782,21 +931,13 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             PreferenceManager.getDefaultSharedPreferences(context)
                     .edit().putBoolean(REKEY_MIGRATION_IN_PROGRESS, true).commit();
 
-            boolean prefsUpdated = false;
+            boolean filesMoved = false;
             try {
-                if (!dbFile.renameTo(backupFile)) {
-                    throw new java.io.IOException("Failed to rename DB to backup");
-                }
-                if (!tempFile.renameTo(dbFile)) {
-                    if (!backupFile.renameTo(dbFile)) {
-                        Log.e(Config.LOGTAG, "rekey: CRITICAL — could not roll back legacy encryption");
-                    }
-                    throw new java.io.IOException("Failed to rename temp to DB");
-                }
+                filesMoved = swapInMigratedDatabase(dbFile, tempFile, backupFile);
                 // Key written AFTER rename: crash before here leaves .bak (plaintext) recoverable.
                 settings.writeAutoKey(newAutoKey);
                 settings.setAutoKeyMode();
-                prefsUpdated = true;
+                filesMoved = false;
                 PreferenceManager.getDefaultSharedPreferences(context)
                         .edit().remove(REKEY_MIGRATION_IN_PROGRESS).commit();
                 FileHelper.secureDelete(backupFile);
@@ -806,14 +947,31 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
                 Log.i(Config.LOGTAG, "rekey: legacy database successfully encrypted");
             } catch (Exception e) {
-                if (!prefsUpdated) {
+                if (e instanceof MigrationSwapException) {
+                    filesMoved = ((MigrationSwapException) e).filesMoved;
+                }
+                if (!filesMoved) {
                     PreferenceManager.getDefaultSharedPreferences(context)
                             .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+                } else {
+                    // The encrypted file is in place but its key was never stored. Leaving the
+                    // sentinel set makes the next launch restore the plaintext .bak, after which
+                    // this method runs again — the whole thing is self-healing.
+                    Log.e(Config.LOGTAG, "rekey: failed after the database file was replaced —"
+                            + " keeping the recovery sentinel set so the next launch restores it", e);
                 }
                 throw e;
             }
         } catch (Exception e) {
+            // Do NOT swallow: this is the one chance to encrypt an existing history, and the
+            // alternative is continuing with a plaintext database on disk and nothing but a
+            // logcat line to say so. Nothing becomes unreachable by throwing — the open that
+            // follows would fail anyway (plaintext file, or a key that was never stored); this
+            // just names the reason. EncryptionException is what the rest of this layer uses to
+            // report key trouble, and XmppConnectionService/SecuritySettingsFragment handle it.
             Log.e(Config.LOGTAG, "rekey: failed to encrypt legacy plaintext database", e);
+            throw new eu.siacs.conversations.EncryptionException(
+                    "Could not encrypt the existing plaintext database", e);
         } finally {
             java.util.Arrays.fill(newRawKey, (byte) 0);
             java.util.Arrays.fill(newAutoKey, (byte) 0);
@@ -998,6 +1156,9 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_MESSAGE_TYPE_INDEX);
         db.execSQL(CREATE_MESSAGE_EXPIRE_AT_INDEX);
         db.execSQL(CREATE_MESSAGE_PARENT_UUID_INDEX);
+        db.execSQL(CREATE_MESSAGE_CONVERSATION_TIME_INDEX);
+        db.execSQL(CREATE_MESSAGE_SERVER_MSG_ID_INDEX);
+        db.execSQL(CREATE_MESSAGE_REMOTE_MSG_ID_INDEX);
         db.execSQL(CREATE_CONTATCS_STATEMENT);
         db.execSQL(CREATE_DISCOVERY_RESULTS_STATEMENT);
         db.execSQL(CREATE_SESSIONS_STATEMENT);
@@ -1009,12 +1170,14 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_LEGACY_PREKEYS_STATEMENT);
         db.execSQL(CREATE_LEGACY_SIGNED_PREKEYS_STATEMENT);
         db.execSQL(CREATE_IDENTITIES_STATEMENT);
+        db.execSQL(CREATE_IDENTITIES_UNIQUE_INDEX);
         db.execSQL(CREATE_PRESENCE_TEMPLATES_STATEMENT);
         db.execSQL(CREATE_RESOLVER_RESULTS_TABLE);
         db.execSQL(CREATE_MESSAGE_INDEX_TABLE);
         db.execSQL(CREATE_MESSAGE_INSERT_TRIGGER);
         db.execSQL(CREATE_MESSAGE_UPDATE_TRIGGER);
         db.execSQL(CREATE_MESSAGE_DELETE_TRIGGER);
+        enableFtsAutomerge(db);
         db.execSQL(CREATE_POSTS_TABLE);
         db.execSQL(CREATE_STORIES_TABLE);
         monoclesDatabase(db);
@@ -1861,6 +2024,103 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             db.execSQL(CREATE_LEGACY_PREKEYS_STATEMENT);        // prekeys
             db.execSQL(CREATE_LEGACY_SIGNED_PREKEYS_STATEMENT); // signed_prekeys
         }
+        if (oldVersion < 74 && newVersion >= 74) {
+            // Scope the ML-DSA-87 pin table to (account, name, fingerprint) as well. A
+            // classical identity key is public, so pinning a pq_ik against the fingerprint
+            // alone let any peer poison the pin for someone else's key: publish their ik with
+            // your own pq_ik, get pinned on first contact, and every later OMEMO2 session with
+            // the real owner is refused as a changed pq_ik.
+            //
+            // SQLite cannot alter a UNIQUE constraint, so rebuild the table and carry the rows
+            // across, recovering each pin's owner from `identities` (both store the fingerprint
+            // in the same form — bytesToHex of the serialized public key, leading 05 included):
+            //   - the "self" row (our own key pair) takes the OMEMO2_PQ_OWN_NAME sentinel;
+            //   - a peer pin whose fingerprint appears under EXACTLY ONE name takes that name;
+            //   - a pin whose fingerprint appears under several names is precisely the ambiguous
+            //     case this change exists to prevent, and one of those names may be the
+            //     poisoner's, so it is dropped rather than guessed. Dropping only costs a
+            //     re-pin: the next bundle fetch (or reconcileOmemo2PqPinIfMissing) restores it.
+            //
+            // Deliberately NOT wrapped in a catch. onUpgrade runs in a transaction, so a
+            // failure here rolls the whole step back; swallowing it would instead COMMIT a
+            // half-built table, and a missing "self" row silently re-keys this device's
+            // post-quantum identity. The statements are plain DDL/DML over tables we own.
+            db.execSQL(
+                    "ALTER TABLE "
+                            + OMEMO2_PQ_IDENTITIES_TABLE
+                            + " RENAME TO omemo2_pq_identities_old");
+            db.execSQL(CREATE_OMEMO2_PQ_IDENTITIES_STATEMENT);
+            db.execSQL(
+                    "INSERT INTO "
+                            + OMEMO2_PQ_IDENTITIES_TABLE
+                            + " (account, name, fingerprint, "
+                            + OMEMO2_PQ_KEY
+                            + ") SELECT account, ?, fingerprint, "
+                            + OMEMO2_PQ_KEY
+                            + " FROM omemo2_pq_identities_old WHERE fingerprint = ?",
+                    new Object[] {OMEMO2_PQ_OWN_NAME, OMEMO2_PQ_OWN_FINGERPRINT});
+            db.execSQL(
+                    "INSERT INTO "
+                            + OMEMO2_PQ_IDENTITIES_TABLE
+                            + " (account, name, fingerprint, "
+                            + OMEMO2_PQ_KEY
+                            + ") SELECT o.account, (SELECT i.name FROM "
+                            + SQLiteAxolotlStore.IDENTITIES_TABLENAME
+                            + " i WHERE i.account = o.account AND i.fingerprint = o.fingerprint)"
+                            + ", o.fingerprint, o."
+                            + OMEMO2_PQ_KEY
+                            + " FROM omemo2_pq_identities_old o WHERE o.fingerprint <> ? AND"
+                            + " (SELECT count(DISTINCT i.name) FROM "
+                            + SQLiteAxolotlStore.IDENTITIES_TABLENAME
+                            + " i WHERE i.account = o.account AND i.fingerprint = o.fingerprint)"
+                            + " = 1",
+                    new Object[] {OMEMO2_PQ_OWN_FINGERPRINT});
+            db.execSQL("DROP TABLE omemo2_pq_identities_old");
+        }
+        if (oldVersion < 73 && newVersion >= 73) {
+            // Identity trust is now scoped to (account, name, fingerprint): the identities
+            // table is shared by both OMEMO stacks and by every contact, and reading/writing
+            // trust by fingerprint alone let a key published under one JID inherit the trust
+            // another JID's identical key had been given.
+            //
+            // Collapse any pre-existing duplicates before the unique index goes on. The row
+            // kept is the one with the strongest trust, so the dedupe can only ever lose a
+            // WEAKER opinion, never silently promote one; COMPROMISED ranks above everything
+            // because it is an explicit revocation and must not be merged away.
+            //
+            // The bare `rowid` next to max() is SQLite's documented "bare columns in an
+            // aggregate query" rule: with exactly one min()/max() aggregate, the bare columns
+            // come from the row that produced the extreme value. Do NOT rewrite this as an
+            // ORDER BY inside a subquery — which row a plain GROUP BY returns is undefined.
+            try {
+                db.execSQL(
+                        "DELETE FROM "
+                                + SQLiteAxolotlStore.IDENTITIES_TABLENAME
+                                + " WHERE rowid NOT IN (SELECT rowid FROM (SELECT rowid, max(CASE "
+                                + SQLiteAxolotlStore.TRUST
+                                + " WHEN 'COMPROMISED' THEN 6 WHEN 'VERIFIED_X509' THEN 5"
+                                + " WHEN 'VERIFIED' THEN 4 WHEN 'TRUSTED' THEN 3"
+                                + " WHEN 'UNDECIDED' THEN 2 WHEN 'UNTRUSTED' THEN 1"
+                                + " ELSE 0 END) FROM "
+                                + SQLiteAxolotlStore.IDENTITIES_TABLENAME
+                                + " GROUP BY "
+                                + SQLiteAxolotlStore.ACCOUNT
+                                + ", "
+                                + SQLiteAxolotlStore.NAME
+                                + ", "
+                                + SQLiteAxolotlStore.FINGERPRINT
+                                + "))");
+                db.execSQL(CREATE_IDENTITIES_UNIQUE_INDEX);
+            } catch (final SQLiteException e) {
+                // The index is a belt-and-braces guard: every writer in here already does
+                // update-then-insert on the full triple. Losing it must not brick the
+                // upgrade and leave the user unable to open their database.
+                Log.e(
+                        Config.LOGTAG,
+                        "could not add unique index to " + SQLiteAxolotlStore.IDENTITIES_TABLENAME,
+                        e);
+            }
+        }
         if (oldVersion < 72 && newVersion >= 72) {
             // XEP-0447: a message can carry several files. Every file keeps its own row
             // (so download, open, share and deletion keep working per file); the rows for
@@ -1868,6 +2128,26 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             db.execSQL(
                     "ALTER TABLE " + Message.TABLENAME + " ADD COLUMN " + Message.PARENT_UUID + " TEXT");
             db.execSQL(CREATE_MESSAGE_PARENT_UUID_INDEX);
+        }
+        if (oldVersion < 75 && newVersion >= 75) {
+            db.execSQL(CREATE_MESSAGE_CONVERSATION_TIME_INDEX);
+            db.execSQL(CREATE_MESSAGE_SERVER_MSG_ID_INDEX);
+            db.execSQL(CREATE_MESSAGE_REMOTE_MSG_ID_INDEX);
+            enableFtsAutomerge(db);
+        }
+    }
+
+    /**
+     * Lets FTS4 merge index segments a little on every write, so the search index never gets
+     * fragmented enough to need a full rebuild. The setting is stored in the index's %_stat
+     * table, so it only has to be set once.
+     */
+    private static void enableFtsAutomerge(final SQLiteDatabase db) {
+        try {
+            db.execSQL("INSERT INTO messages_index(messages_index) VALUES('automerge=8')");
+        } catch (final SQLiteException e) {
+            // Only a maintenance hint; FTS4's default merging still bounds fragmentation.
+            Log.w(Config.LOGTAG, "could not enable automerge on messages_index", e);
         }
     }
 
@@ -3884,26 +4164,37 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         getWritableDatabase().execSQL(CREATE_OMEMO2_PQ_IDENTITIES_STATEMENT);
     }
 
-    private String loadOmemo2PqKey(final Account account, final String fingerprint) {
+    /** Selection matching exactly one pq-identity row; see the table comment for why NAME. */
+    private static final String OMEMO2_PQ_ROW_SELECTION =
+            SQLiteAxolotlStore.ACCOUNT
+                    + " = ? AND "
+                    + SQLiteAxolotlStore.NAME
+                    + " = ? AND "
+                    + SQLiteAxolotlStore.FINGERPRINT
+                    + " = ?";
+
+    private String loadOmemo2PqKey(
+            final Account account, final String name, final String fingerprint) {
+        if (name == null || fingerprint == null) {
+            return null;
+        }
         ensureOmemo2PqTablesExist();
         final SQLiteDatabase db = getReadableDatabase();
-        final Cursor cursor = db.query(OMEMO2_PQ_IDENTITIES_TABLE,
+        try (final Cursor cursor = db.query(OMEMO2_PQ_IDENTITIES_TABLE,
                 new String[]{OMEMO2_PQ_KEY},
-                SQLiteAxolotlStore.ACCOUNT + "=? AND " + SQLiteAxolotlStore.FINGERPRINT + "=?",
-                new String[]{account.getUuid(), fingerprint}, null, null, null);
-        String value = null;
-        if (cursor.moveToFirst()) {
-            value = cursor.getString(0);
+                OMEMO2_PQ_ROW_SELECTION,
+                new String[]{account.getUuid(), name, fingerprint}, null, null, null)) {
+            return cursor.moveToFirst() ? cursor.getString(0) : null;
         }
-        cursor.close();
-        return value;
     }
 
-    private void storeOmemo2PqKey(final Account account, final String fingerprint, final byte[] bytes) {
+    private void storeOmemo2PqKey(
+            final Account account, final String name, final String fingerprint, final byte[] bytes) {
         ensureOmemo2PqTablesExist();
         final SQLiteDatabase db = getWritableDatabase();
         final ContentValues values = new ContentValues();
         values.put(SQLiteAxolotlStore.ACCOUNT, account.getUuid());
+        values.put(SQLiteAxolotlStore.NAME, name);
         values.put(SQLiteAxolotlStore.FINGERPRINT, fingerprint);
         values.put(OMEMO2_PQ_KEY, Base64.encodeToString(bytes, Base64.NO_WRAP));
         db.insertWithOnConflict(OMEMO2_PQ_IDENTITIES_TABLE, null, values,
@@ -3912,41 +4203,48 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 
     /** This device's serialized ML-DSA-87 key pair, or null if not generated yet. */
     public byte[] loadOwnOmemo2PqKeyPair(final Account account) {
-        final String value = loadOmemo2PqKey(account, OMEMO2_PQ_OWN_FINGERPRINT);
+        final String value =
+                loadOmemo2PqKey(account, OMEMO2_PQ_OWN_NAME, OMEMO2_PQ_OWN_FINGERPRINT);
         return value == null ? null : Base64.decode(value, Base64.NO_WRAP);
     }
 
     public void storeOwnOmemo2PqKeyPair(final Account account, final byte[] serialized) {
-        storeOmemo2PqKey(account, OMEMO2_PQ_OWN_FINGERPRINT, serialized);
+        storeOmemo2PqKey(account, OMEMO2_PQ_OWN_NAME, OMEMO2_PQ_OWN_FINGERPRINT, serialized);
     }
 
     /**
-     * The ML-DSA-87 public key pinned to {@code ikFingerprint} (a peer's classical
-     * identity-key fingerprint), or null if none is pinned yet.
+     * The ML-DSA-87 public key {@code name} (a bare JID) has pinned for its classical
+     * identity-key fingerprint {@code ikFingerprint}, or null if none is pinned yet.
      */
-    public byte[] getPinnedOmemo2PqIdentity(final Account account, final String ikFingerprint) {
-        final String value = loadOmemo2PqKey(account, ikFingerprint);
+    public byte[] getPinnedOmemo2PqIdentity(
+            final Account account, final String name, final String ikFingerprint) {
+        final String value = loadOmemo2PqKey(account, name, ikFingerprint);
         return value == null ? null : Base64.decode(value, Base64.NO_WRAP);
     }
 
-    public void pinOmemo2PqIdentity(final Account account, final String ikFingerprint, final byte[] pqIdentityKey) {
-        storeOmemo2PqKey(account, ikFingerprint, pqIdentityKey);
+    public void pinOmemo2PqIdentity(
+            final Account account,
+            final String name,
+            final String ikFingerprint,
+            final byte[] pqIdentityKey) {
+        storeOmemo2PqKey(account, name, ikFingerprint, pqIdentityKey);
     }
 
     /**
-     * Drops the ML-DSA-87 key pinned to {@code ikFingerprint}. Used when a device is
-     * purged from the own-device list; never called for the
-     * {@link #OMEMO2_PQ_OWN_FINGERPRINT} sentinel, which holds this device's own key
-     * pair.
+     * Drops the ML-DSA-87 key {@code name} pinned for {@code ikFingerprint}. Used when a
+     * device is purged from the own-device list; never touches the
+     * {@link #OMEMO2_PQ_OWN_FINGERPRINT} sentinel, which holds this device's own key pair.
      */
-    public void unpinOmemo2PqIdentity(final Account account, final String ikFingerprint) {
-        if (OMEMO2_PQ_OWN_FINGERPRINT.equals(ikFingerprint)) {
+    public void unpinOmemo2PqIdentity(
+            final Account account, final String name, final String ikFingerprint) {
+        if (name == null || ikFingerprint == null
+                || OMEMO2_PQ_OWN_FINGERPRINT.equals(ikFingerprint)) {
             return;
         }
         ensureOmemo2PqTablesExist();
         getWritableDatabase().delete(OMEMO2_PQ_IDENTITIES_TABLE,
-                SQLiteAxolotlStore.ACCOUNT + " = ? AND " + SQLiteAxolotlStore.FINGERPRINT + " = ?",
-                new String[]{account.getUuid(), ikFingerprint});
+                OMEMO2_PQ_ROW_SELECTION,
+                new String[]{account.getUuid(), name, ikFingerprint});
     }
 
     public void storeKyberPreKey(Account account, KyberPreKeyRecord record, boolean isLastResort) {
@@ -4241,15 +4539,6 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         return getIdentityKeyCursor(db, account, name, own, null);
     }
 
-    private Cursor getIdentityKeyCursor(Account account, String fingerprint) {
-        final SQLiteDatabase db = this.getReadableDatabase();
-        return getIdentityKeyCursor(db, account, fingerprint);
-    }
-
-    private Cursor getIdentityKeyCursor(SQLiteDatabase db, Account account, String fingerprint) {
-        return getIdentityKeyCursor(db, account, null, null, fingerprint);
-    }
-
     private Cursor getIdentityKeyCursor(
             SQLiteDatabase db, Account account, String name, Boolean own, String fingerprint) {
         String[] columns = {
@@ -4431,6 +4720,17 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         }
     }
 
+    /**
+     * Records an out-of-band verification for a key we have never seen (scanned QR / URI).
+     * The row carries no {@code key} column — {@link #loadIdentityKeys(Account, String)} skips
+     * such rows, and {@link SQLiteAxolotlStore#saveIdentity} picks it up by
+     * {@code (name, fingerprint)} once the real key arrives.
+     *
+     * <p>Update-then-insert rather than a bare INSERT: {@code (account, name, fingerprint)} is
+     * the identity of a row here, and the same fingerprint may legitimately exist under a
+     * DIFFERENT name (a peer republishing someone else's public identity key), so re-scanning
+     * a code must not accumulate duplicates.
+     */
     public void storePreVerification(
             Account account, String name, String fingerprint, FingerprintStatus status) {
         SQLiteDatabase db = this.getWritableDatabase();
@@ -4440,39 +4740,77 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         values.put(SQLiteAxolotlStore.OWN, 0);
         values.put(SQLiteAxolotlStore.FINGERPRINT, fingerprint);
         values.putAll(status.toContentValues());
-        db.insert(SQLiteAxolotlStore.IDENTITIES_TABLENAME, null, values);
-    }
-
-    public FingerprintStatus getFingerprintStatus(Account account, String fingerprint) {
-        Cursor cursor = getIdentityKeyCursor(account, fingerprint);
-        final FingerprintStatus status;
-        if (cursor.getCount() > 0) {
-            cursor.moveToFirst();
-            status = FingerprintStatus.fromCursor(cursor);
-        } else {
-            status = null;
+        final int rows =
+                db.update(
+                        SQLiteAxolotlStore.IDENTITIES_TABLENAME,
+                        values,
+                        IDENTITY_ROW_SELECTION,
+                        new String[] {account.getUuid(), name, fingerprint});
+        if (rows == 0) {
+            db.insert(SQLiteAxolotlStore.IDENTITIES_TABLENAME, null, values);
         }
-        cursor.close();
-        return status;
     }
 
+    /**
+     * Selection matching exactly one identity row. The {@code identities} table is shared by
+     * the legacy and the OMEMO2 stack AND by every contact on the account, so {@code name} —
+     * the bare JID that owns the key — is part of a row's identity, not optional context.
+     * Selecting on the fingerprint alone let a key published by one JID inherit (or overwrite)
+     * the trust another JID's identical key had been given.
+     */
+    private static final String IDENTITY_ROW_SELECTION =
+            SQLiteAxolotlStore.ACCOUNT
+                    + " = ? AND "
+                    + SQLiteAxolotlStore.NAME
+                    + " = ? AND "
+                    + SQLiteAxolotlStore.FINGERPRINT
+                    + " = ?";
+
+    /**
+     * The stored trust for the key {@code name} holds under {@code fingerprint}, or null when
+     * no such row exists. Scoped to {@code name} on purpose — see {@link
+     * #IDENTITY_ROW_SELECTION}.
+     */
+    public FingerprintStatus getFingerprintStatus(
+            Account account, String name, String fingerprint) {
+        if (name == null || fingerprint == null) {
+            return null;
+        }
+        try (final Cursor cursor = getIdentityKeyCursor(getReadableDatabase(), account, name, null, fingerprint)) {
+            if (cursor.moveToFirst()) {
+                return FingerprintStatus.fromCursor(cursor);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @return true when exactly one row was updated. A zero here means the caller tried to
+     *     record trust for a key that has no row under this JID — historically that was
+     *     silently discarded, which is how verification of a never-before-seen fingerprint
+     *     came to be a no-op.
+     */
     public boolean setIdentityKeyTrust(
-            Account account, String fingerprint, FingerprintStatus fingerprintStatus) {
+            Account account, String name, String fingerprint, FingerprintStatus fingerprintStatus) {
         SQLiteDatabase db = this.getWritableDatabase();
-        return setIdentityKeyTrust(db, account, fingerprint, fingerprintStatus);
+        return setIdentityKeyTrust(db, account, name, fingerprint, fingerprintStatus);
     }
 
     private boolean setIdentityKeyTrust(
-            SQLiteDatabase db, Account account, String fingerprint, FingerprintStatus status) {
-        String[] selectionArgs = {account.getUuid(), fingerprint};
+            SQLiteDatabase db,
+            Account account,
+            String name,
+            String fingerprint,
+            FingerprintStatus status) {
+        if (name == null || fingerprint == null) {
+            return false;
+        }
+        String[] selectionArgs = {account.getUuid(), name, fingerprint};
         int rows =
                 db.update(
                         SQLiteAxolotlStore.IDENTITIES_TABLENAME,
                         status.toContentValues(),
-                        SQLiteAxolotlStore.ACCOUNT
-                                + " = ? AND "
-                                + SQLiteAxolotlStore.FINGERPRINT
-                                + " = ? ",
+                        IDENTITY_ROW_SELECTION,
                         selectionArgs);
         return rows == 1;
     }
@@ -4482,38 +4820,27 @@ public class DatabaseBackend extends SQLiteOpenHelper {
      * and the OMEMO2 stack, so the caller must have established that no session in either
      * stack still references this fingerprint — otherwise the surviving stack loses its
      * trust record. Scoped to {@code name} (the owning bare JID) as well as the
-     * fingerprint, because most other writers here key on the fingerprint alone; and never
-     * touches own-key rows ({@code ownkey = 1}).
+     * fingerprint, and never touches own-key rows ({@code ownkey = 1}).
      */
     public int deleteIdentityKey(final Account account, final String name, final String fingerprint) {
         final SQLiteDatabase db = this.getWritableDatabase();
         return db.delete(
                 SQLiteAxolotlStore.IDENTITIES_TABLENAME,
-                SQLiteAxolotlStore.ACCOUNT
-                        + " = ? AND "
-                        + SQLiteAxolotlStore.NAME
-                        + " = ? AND "
-                        + SQLiteAxolotlStore.FINGERPRINT
-                        + " = ? AND "
-                        + SQLiteAxolotlStore.OWN
-                        + " = 0",
+                IDENTITY_ROW_SELECTION + " AND " + SQLiteAxolotlStore.OWN + " = 0",
                 new String[]{account.getUuid(), name, fingerprint});
     }
 
     public boolean setIdentityKeyCertificate(
-            Account account, String fingerprint, X509Certificate x509Certificate) {
+            Account account, String name, String fingerprint, X509Certificate x509Certificate) {
         SQLiteDatabase db = this.getWritableDatabase();
-        String[] selectionArgs = {account.getUuid(), fingerprint};
+        String[] selectionArgs = {account.getUuid(), name, fingerprint};
         try {
             ContentValues values = new ContentValues();
             values.put(SQLiteAxolotlStore.CERTIFICATE, x509Certificate.getEncoded());
             return db.update(
                             SQLiteAxolotlStore.IDENTITIES_TABLENAME,
                             values,
-                            SQLiteAxolotlStore.ACCOUNT
-                                    + " = ? AND "
-                                    + SQLiteAxolotlStore.FINGERPRINT
-                                    + " = ? ",
+                            IDENTITY_ROW_SELECTION,
                             selectionArgs)
                     == 1;
         } catch (CertificateEncodingException e) {
@@ -4522,40 +4849,42 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         }
     }
 
-    public X509Certificate getIdentityKeyCertifcate(Account account, String fingerprint) {
+    public X509Certificate getIdentityKeyCertifcate(
+            Account account, String name, String fingerprint) {
+        if (name == null || fingerprint == null) {
+            return null;
+        }
         SQLiteDatabase db = this.getReadableDatabase();
-        String[] selectionArgs = {account.getUuid(), fingerprint};
+        String[] selectionArgs = {account.getUuid(), name, fingerprint};
         String[] colums = {SQLiteAxolotlStore.CERTIFICATE};
-        String selection =
-                SQLiteAxolotlStore.ACCOUNT + " = ? AND " + SQLiteAxolotlStore.FINGERPRINT + " = ? ";
-        Cursor cursor =
+        final byte[] certificate;
+        // try-with-resources: the early "no row" return used to leak the cursor, and with
+        // Config.X509_VERIFICATION off that is the path every rendered key row takes.
+        try (final Cursor cursor =
                 db.query(
                         SQLiteAxolotlStore.IDENTITIES_TABLENAME,
                         colums,
-                        selection,
+                        IDENTITY_ROW_SELECTION,
                         selectionArgs,
                         null,
                         null,
-                        null);
-        if (cursor.getCount() < 1) {
+                        null)) {
+            if (!cursor.moveToFirst()) {
+                return null;
+            }
+            certificate = cursor.getBlob(cursor.getColumnIndex(SQLiteAxolotlStore.CERTIFICATE));
+        }
+        if (certificate == null || certificate.length == 0) {
             return null;
-        } else {
-            cursor.moveToFirst();
-            byte[] certificate =
-                    cursor.getBlob(cursor.getColumnIndex(SQLiteAxolotlStore.CERTIFICATE));
-            cursor.close();
-            if (certificate == null || certificate.length == 0) {
-                return null;
-            }
-            try {
-                CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
-                return (X509Certificate)
-                        certificateFactory.generateCertificate(
-                                new ByteArrayInputStream(certificate));
-            } catch (CertificateException e) {
-                Log.d(Config.LOGTAG, "certificate exception " + e.getMessage());
-                return null;
-            }
+        }
+        try {
+            CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+            return (X509Certificate)
+                    certificateFactory.generateCertificate(
+                            new ByteArrayInputStream(certificate));
+        } catch (CertificateException e) {
+            Log.d(Config.LOGTAG, "certificate exception " + e.getMessage());
+            return null;
         }
     }
 
@@ -4602,6 +4931,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_SIGNED_PREKEYS_STATEMENT);
         db.execSQL("DROP TABLE IF EXISTS " + SQLiteAxolotlStore.IDENTITIES_TABLENAME);
         db.execSQL(CREATE_IDENTITIES_STATEMENT);
+        db.execSQL(CREATE_IDENTITIES_UNIQUE_INDEX);
     }
 
     public void wipeAxolotlDb(Account account) {
@@ -4697,8 +5027,8 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         // identities table).
         ensureOmemo2PqTablesExist();
         db.delete(OMEMO2_PQ_IDENTITIES_TABLE,
-                SQLiteAxolotlStore.ACCOUNT + " = ? AND " + SQLiteAxolotlStore.FINGERPRINT + " = ?",
-                new String[]{accountName, OMEMO2_PQ_OWN_FINGERPRINT});
+                OMEMO2_PQ_ROW_SELECTION,
+                new String[]{accountName, OMEMO2_PQ_OWN_NAME, OMEMO2_PQ_OWN_FINGERPRINT});
     }
 
     public List<ShortcutService.FrequentContact> getFrequentContacts(final int days) {
@@ -5100,11 +5430,12 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 db.rawExecSQL("PRAGMA cipher_default_memory_security = ON;");
                 // CRITICAL: wrap in SQL string literal, not blob literal, so SQLCipher detects
                 // the x'...' prefix and uses raw-key mode (see SQLCipher API docs for KEY).
-                final String keyStr = new String(newRawKey, java.nio.charset.StandardCharsets.UTF_8);
-                final String attachKeySql = "'" + keyStr.replace("'", "''") + "'";
-                db.rawExecSQL("ATTACH DATABASE "
-                        + android.database.DatabaseUtils.sqlEscapeString(tempFile.getAbsolutePath())
-                        + " AS encrypted KEY " + attachKeySql);
+                final char[] attachSql = buildAttachSql(tempFile.getAbsolutePath(), newRawKey);
+                try {
+                    db.rawExecSQL(new String(attachSql));
+                } finally {
+                    java.util.Arrays.fill(attachSql, '\0');
+                }
                 db.rawExecSQL("SELECT sqlcipher_export('encrypted');");
                 db.rawExecSQL("PRAGMA encrypted.user_version = " + version);
                 db.rawExecSQL("DETACH DATABASE encrypted;");
@@ -5120,21 +5451,18 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             PreferenceManager.getDefaultSharedPreferences(context)
                     .edit().putBoolean(REKEY_MIGRATION_IN_PROGRESS, true).commit();
 
-            boolean prefsUpdated = false;
+            // Tracks the DISK, not the prefs. Once the files have moved, the stored key state
+            // no longer describes what is on disk, so the sentinel must survive any failure from
+            // here on — otherwise recoverFromInterruptedMigration() returns at its first line and
+            // the intact backup is never restored.
+            boolean filesMoved = false;
             try {
-                if (!dbFile.renameTo(backupFile)) {
-                    throw new java.io.IOException("Failed to backup old database file");
-                }
-                if (!tempFile.renameTo(dbFile)) {
-                    if (!backupFile.renameTo(dbFile)) {
-                        Log.e(Config.LOGTAG, "rekey: CRITICAL — failed to rollback after temp rename failure");
-                    }
-                    throw new java.io.IOException("Failed to rename temporary database file");
-                }
+                filesMoved = swapInMigratedDatabase(dbFile, tempFile, backupFile);
                 // Persist new key state AFTER the file rename so the stored key always matches
                 // the DB file on disk (crash-safety invariant for recoverFromInterruptedMigration).
                 persistNewKeyState(settings, newPassword, newSalt, newAutoKey);
-                prefsUpdated = true;
+                // Disk and prefs agree again — nothing left for recovery to reconcile.
+                filesMoved = false;
                 PreferenceManager.getDefaultSharedPreferences(context)
                         .edit().remove(REKEY_MIGRATION_IN_PROGRESS).commit();
                 FileHelper.secureDelete(backupFile);
@@ -5143,9 +5471,15 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-wal"));
                 FileHelper.secureDelete(new File(dbFile.getAbsolutePath() + "-shm"));
             } catch (Exception e) {
-                if (!prefsUpdated) {
+                if (e instanceof MigrationSwapException) {
+                    filesMoved = ((MigrationSwapException) e).filesMoved;
+                }
+                if (!filesMoved) {
                     PreferenceManager.getDefaultSharedPreferences(context)
                             .edit().remove(REKEY_MIGRATION_IN_PROGRESS).apply();
+                } else {
+                    Log.e(Config.LOGTAG, "rekey: failed after the database file was replaced —"
+                            + " keeping the recovery sentinel set so the next launch restores it", e);
                 }
                 throw e;
             }

@@ -15,6 +15,8 @@ import android.text.style.ClickableSpan;
 import android.text.style.RelativeSizeSpan;
 import android.util.Base64;
 import android.util.Log;
+
+import androidx.annotation.Nullable;
 import android.util.Pair;
 import android.view.View;
 
@@ -57,6 +59,7 @@ import io.ipfs.cid.Cid;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.crypto.axolotl.FingerprintStatus;
+import eu.siacs.conversations.persistance.DatabaseBackend;
 import eu.siacs.conversations.http.URL;
 import eu.siacs.conversations.services.AvatarService;
 import eu.siacs.conversations.ui.text.FixedURLSpan;
@@ -2199,12 +2202,63 @@ public class Message extends AbstractEntity implements AvatarService.Avatarable 
         return axolotlFingerprint;
     }
 
-    public boolean isTrusted() {
+    /**
+     * Bare JID of the device that produced {@link #getFingerprint()}, or null when there is no
+     * fingerprint. Identity trust is stored per (JID, fingerprint) — the identities table is
+     * shared by both OMEMO stacks and by every contact — so any trust lookup for a message
+     * needs this, not just the fingerprint.
+     *
+     * <p>An outgoing message carries one of OUR devices' keys (our own bare JID); a received
+     * one carries the sender's. In a group chat that is the occupant's real JID when the room
+     * discloses it, which is the same value the OMEMO receive path used to attribute the
+     * message in the first place.
+     */
+    @Nullable
+    public Jid getFingerprintOwner() {
+        if (axolotlFingerprint == null) {
+            return null;
+        }
+        if (status != STATUS_RECEIVED) {
+            return conversation.getAccount().getJid().asBareJid();
+        }
+        if (trueCounterpart != null) {
+            return trueCounterpart.asBareJid();
+        }
+        final Jid counterpart = getCounterpart();
+        return counterpart == null
+                ? conversation.getJid().asBareJid()
+                : counterpart.asBareJid();
+    }
+
+    /**
+     * The stored trust of the key that sent this message, or {@code null} when it has no
+     * fingerprint. Trust is read for (owner JID, fingerprint), with one exception: this
+     * device's own OMEMO2 identity row is not stored under the bare JID but under
+     * {@link DatabaseBackend#omemo2OwnIdentityKeyName}, so a lookup under the bare JID never
+     * finds it and our own OMEMO2 messages would show as unverified. Only a message we sent
+     * can carry our own OMEMO2 key (a received one gets its fingerprint from the decrypting
+     * session, which can't be built on our identity without our private key). Legacy
+     * messages sent before the legacy send path stored the legacy key also carry it.
+     */
+    @Nullable
+    public FingerprintStatus getFingerprintStatus() {
         final AxolotlService axolotlService = conversation.getAccount().getAxolotlService();
-        final FingerprintStatus s =
-                axolotlService != null
-                        ? axolotlService.getFingerprintTrust(axolotlFingerprint)
-                        : null;
+        final Jid owner = getFingerprintOwner();
+        if (axolotlService == null || owner == null) {
+            return null;
+        }
+        if (status != STATUS_RECEIVED
+                && !isCarbon()
+                && axolotlFingerprint.equals(axolotlService.getOwnFingerprint())) {
+            return axolotlService.getFingerprintTrust(
+                    DatabaseBackend.omemo2OwnIdentityKeyName(conversation.getAccount()),
+                    axolotlFingerprint);
+        }
+        return axolotlService.getFingerprintTrust(owner.toString(), axolotlFingerprint);
+    }
+
+    public boolean isTrusted() {
+        final FingerprintStatus s = getFingerprintStatus();
         return s != null && s.isTrusted();
     }
 
