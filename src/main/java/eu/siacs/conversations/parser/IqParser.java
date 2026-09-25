@@ -546,7 +546,10 @@ public class IqParser extends AbstractParser implements Consumer<Iq> {
         try {
             // libsignal 0.94.1: deviceId must be non-zero; preKeyId sentinel for "absent" is -1
             // (not 0); KEM placeholder satisfies mandatory Kyber fields without a real key.
+            /*
             final KEMKeyPair kemPlaceholder = KEMKeyPair.generate(KEMKeyType.MLKEM1024);
+             */
+            final KEMKeyPair kemPlaceholder = KEMKeyPair.generate(KEMKeyType.KYBER_1024);
             return new PreKeyBundle(
                     0,
                     1,

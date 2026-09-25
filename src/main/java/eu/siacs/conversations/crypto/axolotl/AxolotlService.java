@@ -4193,7 +4193,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
     }
 
     private static KyberPreKeyRecord generateKyberSignedPreKey(final IdentityKeyPair identityKeyPair, final int id) {
+        /*
         final KEMKeyPair kemPair = KEMKeyPair.generate(KEMKeyType.MLKEM1024);
+         */
+        final KEMKeyPair kemPair = KEMKeyPair.generate(KEMKeyType.KYBER_1024);
         final byte[] sig = identityKeyPair.getPrivateKey().calculateSignature(kemPair.getPublicKey().serialize());
         return new KyberPreKeyRecord(id, System.currentTimeMillis(), kemPair, sig);
     }
