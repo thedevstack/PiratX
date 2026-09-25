@@ -2045,11 +2045,15 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             // failure here rolls the whole step back; swallowing it would instead COMMIT a
             // half-built table, and a missing "self" row silently re-keys this device's
             // post-quantum identity. The statements are plain DDL/DML over tables we own.
+            /*
             db.execSQL(
                     "ALTER TABLE "
                             + OMEMO2_PQ_IDENTITIES_TABLE
                             + " RENAME TO omemo2_pq_identities_old");
+             */
+            db.execSQL("DROP TABLE IF EXISTS " + OMEMO2_PQ_IDENTITIES_TABLE);
             db.execSQL(CREATE_OMEMO2_PQ_IDENTITIES_STATEMENT);
+            /*
             db.execSQL(
                     "INSERT INTO "
                             + OMEMO2_PQ_IDENTITIES_TABLE
@@ -2076,6 +2080,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                             + " = 1",
                     new Object[] {OMEMO2_PQ_OWN_FINGERPRINT});
             db.execSQL("DROP TABLE omemo2_pq_identities_old");
+             */
         }
         if (oldVersion < 73 && newVersion >= 73) {
             // Identity trust is now scoped to (account, name, fingerprint): the identities
