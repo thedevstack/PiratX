@@ -219,7 +219,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     }
 
     private static final String DATABASE_NAME = "history";
-    private static final int DATABASE_VERSION = 75;
+    private static final int DATABASE_VERSION = 76;
     private static final String REKEY_MIGRATION_IN_PROGRESS = "rekey_migration_in_progress";
 
     private static boolean requiresMessageIndexRebuild = false;
@@ -647,6 +647,19 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + Message.TABLENAME
                     + "("
                     + Message.REMOTE_MSG_ID
+                    + ")";
+    // For per-type lookups such as the call log (conversationUuid=? AND type=? ORDER BY timeSent
+    // DESC LIMIT n). Without it the planner walks message_conversation_time_index through the
+    // whole conversation, since rows of a rare type like RTP sessions never fill the limit.
+    private static final String CREATE_MESSAGE_CONVERSATION_TYPE_TIME_INDEX =
+            "CREATE INDEX if not exists message_conversation_type_time_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.CONVERSATION
+                    + ","
+                    + Message.TYPE
+                    + ","
+                    + Message.TIME_SENT
                     + ")";
     private static final String CREATE_MESSAGE_DELETED_INDEX =
             "CREATE INDEX if not exists message_deleted_index ON "
@@ -1159,6 +1172,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_MESSAGE_CONVERSATION_TIME_INDEX);
         db.execSQL(CREATE_MESSAGE_SERVER_MSG_ID_INDEX);
         db.execSQL(CREATE_MESSAGE_REMOTE_MSG_ID_INDEX);
+        db.execSQL(CREATE_MESSAGE_CONVERSATION_TYPE_TIME_INDEX);
         db.execSQL(CREATE_CONTATCS_STATEMENT);
         db.execSQL(CREATE_DISCOVERY_RESULTS_STATEMENT);
         db.execSQL(CREATE_SESSIONS_STATEMENT);
@@ -2134,6 +2148,9 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             db.execSQL(CREATE_MESSAGE_SERVER_MSG_ID_INDEX);
             db.execSQL(CREATE_MESSAGE_REMOTE_MSG_ID_INDEX);
             enableFtsAutomerge(db);
+        }
+        if (oldVersion < 76 && newVersion >= 76) {
+            db.execSQL(CREATE_MESSAGE_CONVERSATION_TYPE_TIME_INDEX);
         }
     }
 
