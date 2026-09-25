@@ -2135,8 +2135,12 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
                     viewHolder,
                     activity.getString(R.string.not_encrypted_for_this_device),
                     bubbleColor);
-        } else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL_FAILED
-                || message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED) {
+        } else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL_FAILED) {
+            displayInfoMessage(
+                    viewHolder,
+                    activity.getString(R.string.legacy_omemo_decryption_failed),
+                    bubbleColor);
+        } else if (message.getEncryption() == Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED) {
             displayInfoMessage(
                     viewHolder, activity.getString(R.string.omemo2_decryption_failed), bubbleColor);
         } else {

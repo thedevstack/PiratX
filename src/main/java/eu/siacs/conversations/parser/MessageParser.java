@@ -468,9 +468,18 @@ public class MessageParser extends AbstractParser
                     ? new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_OMEMO2_NOT_FOR_THIS_DEVICE, status)
                     : null;
         } catch (BrokenSessionException e) {
-            if (checkedForDuplicates) {
-                service.reportBrokenSessionException(e, postpone, true);
+            if (!checkedForDuplicates) {
+                // A second copy (MAM catch-up, carbon, MUC history replay) of a
+                // stanza we already hold: its message key was consumed by the first
+                // copy, so the ratchet cannot open it again. Not a broken session —
+                // drop it like the legacy stack does instead of adding a bogus
+                // "failed to decrypt" bubble next to the readable original.
+                Log.d(Config.LOGTAG, conversation.getAccount().getJid().asBareJid()
+                        + ": ignoring OMEMO2 broken session exception on possible duplicate from "
+                        + from);
+                return null;
             }
+            service.reportBrokenSessionException(e, postpone, true);
             return isContentMessage
                     ? new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED, status)
                     : null;
@@ -479,6 +488,20 @@ public class MessageParser extends AbstractParser
                     ? new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_OMEMO2_FAILED, status)
                     : null;
         } catch (eu.siacs.conversations.crypto.axolotl.CryptoFailedException e) {
+            if (e.getCause() instanceof org.signal.libsignal.protocol.DuplicateMessageException
+                    || !checkedForDuplicates) {
+                // libsignal refused a counter it has already consumed: this exact
+                // ciphertext was decrypted before (live + MAM, carbon + archive,
+                // stream-resumption redelivery). The original is already shown; a
+                // redelivered copy carries nothing new, so there is nothing to warn
+                // about — surfacing it produced the spurious "Failed to decrypt PQ
+                // OMEMO2 message" bubbles. Same for any failure on a stanza whose
+                // server/remote id we already hold.
+                Log.d(Config.LOGTAG, conversation.getAccount().getJid().asBareJid()
+                        + ": dropping already-processed OMEMO2 message from " + from
+                        + ": " + e.getMessage());
+                return null;
+            }
             // Generic decrypt failure: GCM tag mismatch, SCE from/to binding
             // violation, future-dated <time>, malformed envelope. The ratchet may
             // already have advanced, so the message is unrecoverable — surface a
