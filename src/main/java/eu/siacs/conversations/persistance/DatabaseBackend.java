@@ -4181,6 +4181,15 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         getWritableDatabase().execSQL(CREATE_OMEMO2_PQ_IDENTITIES_STATEMENT);
     }
 
+    /**
+     * Whether an {@link #OMEMO2_PQ_IDENTITIES_TABLE} row is this device's OWN ML-DSA-87 key
+     * pair rather than a peer's pinned public key. Backup import uses it to keep the peer pins
+     * but drop our private key when OMEMO keys are not restored.
+     */
+    public static boolean isOwnOmemo2PqRow(final String name, final String fingerprint) {
+        return OMEMO2_PQ_OWN_NAME.equals(name) || OMEMO2_PQ_OWN_FINGERPRINT.equals(fingerprint);
+    }
+
     /** Selection matching exactly one pq-identity row; see the table comment for why NAME. */
     private static final String OMEMO2_PQ_ROW_SELECTION =
             SQLiteAxolotlStore.ACCOUNT

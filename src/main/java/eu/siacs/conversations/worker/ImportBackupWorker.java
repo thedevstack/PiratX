@@ -88,6 +88,7 @@ public class ImportBackupWorker extends Worker {
                     SQLiteAxolotlStore.KYBER_PREKEY_TABLENAME,   // kyber_prekeys (PQXDH)
                     SQLiteAxolotlStore.KYBER_LAST_RESORT_SESSIONS_TABLENAME, // kyber_last_resort_sessions
                     SQLiteAxolotlStore.IDENTITIES_TABLENAME,     // shared trust
+                    DatabaseBackend.OMEMO2_PQ_IDENTITIES_TABLE,  // own ML-DSA-87 + peer pq_ik pins
                     // Original/legacy OMEMO tables (org.whispersystems). These are
                     // also the table names used by pre-PQ (master) backups, so they
                     // MUST stay accepted or restoring an old backup would fail.
@@ -249,6 +250,8 @@ public class ImportBackupWorker extends Worker {
         } else {
             throw new IllegalStateException("Backup file did not begin with array");
         }
+        // Created lazily elsewhere; the backup may carry rows for it.
+        database.ensureOmemo2PqTablesExist();
         db.beginTransaction();
         while (jsonReader.hasNext()) {
             if (isStopped()) {
@@ -373,8 +376,16 @@ public class ImportBackupWorker extends Worker {
             rowId = db.insertWithOnConflict(table, null, contentValues, SQLiteDatabase.CONFLICT_IGNORE);
         } else {
             if (OMEMO_TABLE_LIST.contains(table)) {
-                if (SQLiteAxolotlStore.IDENTITIES_TABLENAME.equals(table)
-                        && contentValues.getAsInteger(SQLiteAxolotlStore.OWN) == 0) {
+                // Contact trust is kept either way; only our own key material is dropped.
+                // Keeping the peers' pq_ik pins matters: without them every peer's post-quantum
+                // key would be pinned afresh on first contact after the restore.
+                if ((SQLiteAxolotlStore.IDENTITIES_TABLENAME.equals(table)
+                                && contentValues.getAsInteger(SQLiteAxolotlStore.OWN) == 0)
+                        || (DatabaseBackend.OMEMO2_PQ_IDENTITIES_TABLE.equals(table)
+                                && !DatabaseBackend.isOwnOmemo2PqRow(
+                                        contentValues.getAsString(SQLiteAxolotlStore.NAME),
+                                        contentValues.getAsString(
+                                                SQLiteAxolotlStore.FINGERPRINT)))) {
                     rowId = db.insertWithOnConflict(table, null, contentValues, SQLiteDatabase.CONFLICT_IGNORE);
                 } else {
                     Log.d(Config.LOGTAG, "skipping over omemo key material in table " + table);
