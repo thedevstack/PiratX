@@ -1529,7 +1529,10 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                 }
                 int ownDeviceId = Integer.valueOf(ownDeviceIdString);
                 SignalProtocolAddress ownAddress =
+                        /*
                         new SignalProtocolAddress(
+                         */
+                        de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(
                                 account.getJid().asBareJid().toString(), ownDeviceId);
                 deleteSession(db, account, ownAddress);
                 IdentityKeyPair identityKeyPair = loadOwnIdentityKeyPair(db, account);

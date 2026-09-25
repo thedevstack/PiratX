@@ -377,7 +377,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             final Set<Integer> ids = getDeviceIdsForStack(jid, isOmemo2);
             if (ids != null) {
                 for (Integer foreignId : ids) {
+                    /*
                     SignalProtocolAddress address = new SignalProtocolAddress(jid.toString(), foreignId);
+                     */
+                    SignalProtocolAddress address = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), foreignId);
                     if (fetchStatusMap.get(address) == FetchStatus.ERROR) {
                         return true;
                     }
@@ -553,7 +556,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         for (Integer deviceId : deviceIds) {
             final String fingerprint;
             if (encryptionType == Message.ENCRYPTION_AXOLOTL_OMEMO2) {
+                /*
                 final var session = sessions.get(new SignalProtocolAddress(bareJid, deviceId));
+                 */
+                final var session = sessions.get(de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), deviceId));
                 fingerprint = session != null ? session.getFingerprint() : null;
             } else {
                 fingerprint = getLegacyFingerprint(bareJid, deviceId);
@@ -782,7 +788,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
     }
 
     public SignalProtocolAddress getOwnAxolotlAddress() {
+        /*
         return new SignalProtocolAddress(account.getJid().asBareJid().toString(), getOwnDeviceId());
+         */
+        return de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), getOwnDeviceId());
     }
 
     public Set<Integer> getOwnDeviceIds() {
@@ -862,7 +871,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             final Set<Integer> expiredDevices = new HashSet<>(axolotlStore.getSubDeviceSessions(jid.asBareJid().toString()));
             expiredDevices.removeAll(deviceIds);
             for (Integer deviceId : expiredDevices) {
+                /*
                 SignalProtocolAddress address = new SignalProtocolAddress(jid.asBareJid().toString(), deviceId);
+                 */
+                SignalProtocolAddress address = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), deviceId);
                 XmppAxolotlSession session = sessions.get(address);
                 if (session != null && session.getFingerprint() != null) {
                     if (session.getTrust().isActive()) {
@@ -872,7 +884,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             }
             final Set<Integer> newDevices = ImmutableSet.copyOf(deviceIds);
             for (final Integer deviceId : newDevices) {
+                /*
                 SignalProtocolAddress address = new SignalProtocolAddress(jid.asBareJid().toString(), deviceId);
+                 */
+                SignalProtocolAddress address = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), deviceId);
                 XmppAxolotlSession session = sessions.get(address);
                 if (session != null && session.getFingerprint() != null) {
                     if (!session.getTrust().isActive()) {
@@ -894,7 +909,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             }
             needsPublishing |= this.changeAccessMode.get();
             for (final Integer deviceId : deviceIds) {
+                /*
                 SignalProtocolAddress ownDeviceAddress = new SignalProtocolAddress(jid.asBareJid().toString(), deviceId);
+                 */
+                SignalProtocolAddress ownDeviceAddress = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(jid.asBareJid().toString(), deviceId);
                 if (isOmemo2) {
                     if (sessions.get(ownDeviceAddress) == null) {
                         FetchStatus status = fetchStatusMap.get(ownDeviceAddress);
@@ -1087,7 +1105,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         }
         final Jid bare = account.getJid().asBareJid();
         final String bareJid = bare.toString();
+        /*
         final SignalProtocolAddress address = new SignalProtocolAddress(bareJid, deviceId);
+         */
+        final SignalProtocolAddress address = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), deviceId);
         final Map<Jid, Set<Integer>> announced = legacy ? this.deviceIds : this.omemo2DeviceIds;
         // Re-announce only when this device is actually IN our cached list. If it is not,
         // the device is not announced anyway and publishing a locally-held list could drop
@@ -1897,7 +1918,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
     }
 
     private void finishBuildingSessionsFromPEP(final SignalProtocolAddress address) {
+        /*
         SignalProtocolAddress ownAddress = new SignalProtocolAddress(account.getJid().asBareJid().toString(), 1);
+         */
+        SignalProtocolAddress ownAddress = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), 1);
         Map<Integer, FetchStatus> own = fetchStatusMap.getAll(ownAddress.getName());
         Map<Integer, FetchStatus> remote = fetchStatusMap.getAll(address.getName());
         if (!own.containsValue(FetchStatus.PENDING) && !remote.containsValue(FetchStatus.PENDING)) {
@@ -2396,7 +2420,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             final Set<Integer> ids = getDeviceIdsForStack(jid, isOmemo2);
             if (ids != null && !ids.isEmpty()) {
                 for (Integer foreignId : ids) {
+                    /*
                     SignalProtocolAddress address = new SignalProtocolAddress(jid.toString(), foreignId);
+                     */
+                    SignalProtocolAddress address = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), foreignId);
                     if (sessions.get(address) == null) {
                         IdentityKey identityKey = getRemoteIdentityKeySafe(axolotlStore.loadSession(address));
                         if (identityKey != null) {
@@ -2429,7 +2456,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         }
         Set<Integer> ownIds = getDeviceIdsForStack(account.getJid().asBareJid(), isOmemo2);
         for (Integer ownId : (ownIds != null ? ownIds : new HashSet<Integer>())) {
+            /*
             SignalProtocolAddress address = new SignalProtocolAddress(account.getJid().asBareJid().toString(), ownId);
+             */
+            SignalProtocolAddress address = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), ownId);
             if (sessions.get(address) == null) {
                 IdentityKey identityKey = getRemoteIdentityKeySafe(axolotlStore.loadSession(address));
                 if (identityKey != null) {
@@ -2632,7 +2662,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         }
         final String name = jid.asBareJid().toString();
         for (final Integer id : ids) {
+            /*
             if (fetchStatusMap.get(new SignalProtocolAddress(name, id)) == FetchStatus.PENDING) {
+             */
+            if (fetchStatusMap.get(de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(name, id)) == FetchStatus.PENDING) {
                 return true;
             }
         }
@@ -2964,7 +2997,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
 
 
     public ListenableFuture<OmemoVerifiedPayload<OmemoVerifiedRtpContentMap>> encrypt(final RtpContentMap rtpContentMap, final Jid jid, final int deviceId) {
+        /*
         final SignalProtocolAddress address = new SignalProtocolAddress(jid.asBareJid().toString(), deviceId);
+         */
+        final SignalProtocolAddress address = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(jid.asBareJid().toString(), deviceId);
         return Futures.transformAsync(
                 prepareRtpSession(address),
                 useLegacy -> {
@@ -3122,7 +3158,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                 if (omemo2Encrypted != null) {
                     final XmppOmemo2Message omemo2Message =
                             XmppOmemo2Message.fromElement(omemo2Encrypted, from.asBareJid());
+                    /*
                     final SignalProtocolAddress senderAddress = new SignalProtocolAddress(
+                     */
+                    final SignalProtocolAddress senderAddress = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(
                             from.asBareJid().toString(), omemo2Message.getSenderDeviceId());
                     final XmppAxolotlSession session = getReceivingSession(senderAddress);
                     final XmppOmemo2Message.DecryptedSce sce;
@@ -3168,7 +3207,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                     // primary session.
                     final var legacy = getLegacyBackend();
                     final var legacyAddress = legacyAddr(
+                            /*
                             new SignalProtocolAddress(from.asBareJid().toString(), xmppAxolotlMessage.getSenderDeviceId()));
+                             */
+                            de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(from.asBareJid().toString(), xmppAxolotlMessage.getSenderDeviceId()));
                     CryptoFailedException legacyFailure = null;
                     if (legacy != null) {
                         try {
@@ -3287,7 +3329,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
     }
 
     private XmppAxolotlSession getReceivingSession(XmppAxolotlMessage message) {
+        /*
         SignalProtocolAddress senderAddress = new SignalProtocolAddress(message.getFrom().toString(), message.getSenderDeviceId());
+         */
+        SignalProtocolAddress senderAddress = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(message.getFrom().toString(), message.getSenderDeviceId());
         return getReceivingSession(senderAddress);
 
     }
@@ -3948,7 +3993,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                     Log.w(Config.LOGTAG, "Skipping invalid device ID " + deviceId + " for " + bareJid);
                     continue;
                 }
+                /*
                 SignalProtocolAddress axolotlAddress = new SignalProtocolAddress(bareJid, deviceId);
+                 */
+                SignalProtocolAddress axolotlAddress = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(bareJid, deviceId);
                 IdentityKey identityKey = getRemoteIdentityKeySafe(store.loadSession(axolotlAddress));
                 if (Config.X509_VERIFICATION && identityKey != null) {
                     X509Certificate certificate = store.getFingerprintCertificate(bareJid,
@@ -3965,7 +4013,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
                         }
                     }
                 }
+                /*
                 final SignalProtocolAddress localAddress = new SignalProtocolAddress(account.getJid().asBareJid().toString(), store.getLocalRegistrationId());
+                 */
+                final SignalProtocolAddress localAddress = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(account.getJid().asBareJid().toString(), store.getLocalRegistrationId());
                 this.put(axolotlAddress, new XmppAxolotlSession(account, store, localAddress, axolotlAddress, identityKey));
             }
         }
@@ -4662,7 +4713,10 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             final Jid expectedTo, final Long stanzaTimestamp)
             throws CryptoFailedException {
 
+        /*
         final SignalProtocolAddress senderAddress = new SignalProtocolAddress(
+         */
+        final SignalProtocolAddress senderAddress = de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(
                 message.getFrom().toString(), message.getSenderDeviceId());
         final XmppAxolotlSession session = getReceivingSession(senderAddress);
         final int ownDeviceId = getOwnDeviceId();

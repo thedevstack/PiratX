@@ -105,7 +105,10 @@ public class LegacySignalProtocolStore implements SignalProtocolStore {
             final org.signal.libsignal.protocol.IdentityKey primaryIk =
                     new org.signal.libsignal.protocol.IdentityKey(identityKey.serialize());
             final org.signal.libsignal.protocol.SignalProtocolAddress primaryAddr =
+                    /*
                     new org.signal.libsignal.protocol.SignalProtocolAddress(
+                     */
+                    de.thedevstack.piratx.libsignal.SignalProtocolAddress.newSignalProtocolAddress(
                             address.getName(), address.getDeviceId());
             primary.saveIdentity(primaryAddr, primaryIk);
         } catch (final org.signal.libsignal.protocol.InvalidKeyException e) {
