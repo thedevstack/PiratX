@@ -275,6 +275,7 @@ public class ExportBackupWorker extends Worker {
             final GZIPOutputStream gzipOutputStream = new GZIPOutputStream(cipherOutputStream);
             try (final JsonWriter jsonWriter = new JsonWriter(new OutputStreamWriter(gzipOutputStream, StandardCharsets.UTF_8))) {
                 jsonWriter.beginArray();
+                database.ensureOmemo2PqTablesExist();
                 final SQLiteDatabase db = database.getReadableDatabase();
                 final String uuid = account.getUuid();
                 accountExport(db, uuid, jsonWriter);
@@ -293,6 +294,10 @@ public class ExportBackupWorker extends Worker {
                                 SQLiteAxolotlStore.KYBER_PREKEY_TABLENAME,   // kyber_prekeys (PQXDH)
                                 SQLiteAxolotlStore.KYBER_LAST_RESORT_SESSIONS_TABLENAME, // kyber_last_resort_sessions
                                 SQLiteAxolotlStore.IDENTITIES_TABLENAME,     // shared trust
+                                // Our ML-DSA-87 key pair + peers' pinned pq_ik. Without it a
+                                // restored OMEMO2 identity comes back with a new PQ half and
+                                // peers who pinned the old one refuse the session.
+                                DatabaseBackend.OMEMO2_PQ_IDENTITIES_TABLE,
                                 // Original/legacy OMEMO tables (org.whispersystems)
                                 "sessions",
                                 "prekeys",
