@@ -570,11 +570,14 @@ public class UIHelper {
     public static String getMessageHint(final Context context,final  Conversation conversation) {
         return switch (conversation.getNextEncryption()) {
             case Message.ENCRYPTION_NONE -> {
+                /*
                 if (Config.multipleEncryptionChoices()) {
                     yield context.getString(R.string.send_message);
                 } else {
                     yield context.getString(R.string.send_message_to_x, conversation.getName());
                 }
+                */
+                yield context.getString(R.string.send_message);
             }
             case Message.ENCRYPTION_OTR -> context.getString(R.string.send_otr_message);
             // AxolotlService#trustedSessionVerified only inspects the OMEMO2 session map, so
