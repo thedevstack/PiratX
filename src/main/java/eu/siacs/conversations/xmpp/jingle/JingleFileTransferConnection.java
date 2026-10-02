@@ -618,7 +618,7 @@ public class JingleFileTransferConnection extends AbstractJingleConnection
         final boolean useTor = id.account.isOnion() || xmppConnectionService.useTorToConnect();
         final boolean useI2P = id.account.isI2P() || xmppConnectionService.useI2PToConnect();
         final boolean useRelays = appSettings.isUseRelays();
-        if (!useTor && remoteHasFeature(Namespace.JINGLE_TRANSPORT_WEBRTC_DATA_CHANNEL)) {
+        if (!useTor && !useI2P && remoteHasFeature(Namespace.JINGLE_TRANSPORT_WEBRTC_DATA_CHANNEL)) {
             return new WebRTCDataChannelTransport(
                     xmppConnectionService.getApplicationContext(),
                     xmppConnection,
