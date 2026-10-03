@@ -389,6 +389,7 @@ public class XmppConnectionService extends Service {
     private android.location.LocationManager mLiveLocationAndroidManager = null;
     private final java.util.concurrent.ConcurrentHashMap<String, OutgoingLiveInfo> mOutgoingLiveSessions = new java.util.concurrent.ConcurrentHashMap<>();
     private final android.os.Handler mLiveLocationHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final android.os.Handler mMainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final AppSettings appSettings = new AppSettings(this);
     private final FileBackend fileBackend = new FileBackend(this);
     private MemorizingTrustManager mMemorizingTrustManager;
@@ -1323,9 +1324,39 @@ public class XmppConnectionService extends Service {
             }
             return;
         }
-        // File/image share: upload once per representation and reuse where it is safe.
-        for (final Uri uri : uris) {
-            shareUriToConversations(new ArrayList<>(targets), uri, type, caption);
+        // Several files go out as one multi-file message wherever the recipient's wire format
+        // can carry it — the same rule the attachment menu follows (see
+        // ConversationFragment#attachmentGroupFor). Everybody else gets one message per file.
+        final List<Conversation> perFile = new ArrayList<>();
+        final List<Conversation> groupedPlain = new ArrayList<>();
+        final List<Conversation> groupedEncrypted = new ArrayList<>();
+        for (final Conversation target : targets) {
+            if (uris.size() < 2 || !canGroupShare(target, uris)) {
+                perFile.add(target);
+            } else if (target.getNextEncryption() == Message.ENCRYPTION_NONE) {
+                groupedPlain.add(target);
+            } else {
+                groupedEncrypted.add(target);
+            }
+        }
+        if (getBooleanPreference("share_separate_uploads", R.bool.share_separate_uploads)) {
+            for (final Conversation target : groupedPlain) {
+                attachUrisAsGroup(target, uris, type, caption, null);
+            }
+            for (final Conversation target : groupedEncrypted) {
+                attachUrisAsGroup(target, uris, type, caption, null);
+            }
+        } else {
+            sendGroupToBucketWithReuse(groupedPlain, uris, type, caption);
+            sendGroupToBucketWithReuse(groupedEncrypted, uris, type, caption);
+        }
+        // File/image share: upload once per representation and reuse where it is safe. The
+        // caption rides on the first file only, as it does for a multi-file message.
+        if (!perFile.isEmpty()) {
+            for (int i = 0; i < uris.size(); ++i) {
+                shareUriToConversations(
+                        new ArrayList<>(perFile), uris.get(i), type, i == 0 ? caption : null);
+            }
         }
         if (!Strings.isNullOrEmpty(caption)) {
             // The caption is embedded directly in the file message (inside the encrypted
@@ -1349,6 +1380,213 @@ public class XmppConnectionService extends Service {
     private boolean canEmbedCaption(final int encryption) {
         return encryption == Message.ENCRYPTION_NONE
                 || encryption == Message.ENCRYPTION_AXOLOTL_OMEMO2;
+    }
+
+    /**
+     * Whether a share of several files reaches {@code target} as one multi-file message: the
+     * file descriptions must be able to travel with it (plaintext or PQ OMEMO2, never legacy
+     * OMEMO or PGP) and every file needs an HTTP upload URL to put into that one stanza.
+     */
+    private boolean canGroupShare(final Conversation target, final List<Uri> uris) {
+        if (!canEmbedCaption(target.getNextEncryption())
+                || !target.getAccount().httpUploadAvailable()) {
+            return false;
+        }
+        for (final Uri uri : uris) {
+            if ("geo".equals(uri.getScheme())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Uploads the files for the first recipient of {@code bucket} as one multi-file message,
+     * then hands the same URLs to everybody else in the bucket instead of uploading again.
+     */
+    private void sendGroupToBucketWithReuse(
+            final List<Conversation> bucket,
+            final List<Uri> uris,
+            final String type,
+            final String caption) {
+        if (bucket.isEmpty()) {
+            return;
+        }
+        final Conversation first = bucket.get(0);
+        final List<Conversation> remaining = new ArrayList<>(bucket.subList(1, bucket.size()));
+        attachUrisAsGroup(
+                first,
+                uris,
+                type,
+                caption,
+                remaining.isEmpty()
+                        ? null
+                        // Copies every file once per recipient, so keep it off the main thread.
+                        : uploaded ->
+                                FILE_ATTACHMENT_EXECUTOR.execute(
+                                        () ->
+                                                reuseUploadedGroup(
+                                                        uploaded, remaining, uris, type, caption)));
+    }
+
+    /**
+     * Attaches {@code uris} to {@code conversation} as one multi-file message. The files are
+     * attached one after the other, each once the previous one is through, just as the
+     * attachment menu does — that keeps their rows in send order. {@code onDone} receives
+     * the message of every file, in send order, with {@code null} for a file that failed.
+     */
+    private void attachUrisAsGroup(
+            final Conversation conversation,
+            final List<Uri> uris,
+            final String type,
+            final String caption,
+            final Consumer<List<Message>> onDone) {
+        final AttachmentGroup group = new AttachmentGroup(uris.size());
+        final List<Message> results = new ArrayList<>();
+        final Runnable next =
+                new Runnable() {
+                    private int index = 0;
+
+                    @Override
+                    public void run() {
+                        if (index >= uris.size()) {
+                            if (onDone != null) {
+                                onDone.accept(results);
+                            }
+                            return;
+                        }
+                        final Uri uri = uris.get(index);
+                        final Runnable self = this;
+                        final UiCallback<Message> callback =
+                                new UiCallback<>() {
+                                    @Override
+                                    public void success(final Message message) {
+                                        results.add(message);
+                                        mMainHandler.post(self);
+                                    }
+
+                                    @Override
+                                    public void error(final int errorCode, final Message message) {
+                                        results.add(null);
+                                        mMainHandler.post(self);
+                                    }
+
+                                    @Override
+                                    public void userInputRequired(
+                                            final PendingIntent pi, final Message message) {}
+                                };
+                        attachUriToConversation(
+                                conversation,
+                                uri,
+                                type,
+                                index == 0 ? caption : null,
+                                callback,
+                                group);
+                        index++;
+                    }
+                };
+        next.run();
+    }
+
+    /**
+     * Sends the multi-file message that was just uploaded for one recipient to every other
+     * recipient as well, reusing the uploaded URLs. Any recipient for whom that is not possible
+     * — an upload did not finish, or a local copy failed — gets a fresh upload of its own.
+     */
+    private void reuseUploadedGroup(
+            final List<Message> uploaded,
+            final List<Conversation> remaining,
+            final List<Uri> uris,
+            final String type,
+            final String caption) {
+        boolean complete = uploaded.size() == uris.size();
+        for (final Message message : uploaded) {
+            if (message == null
+                    || message.getFileParams() == null
+                    || Strings.isNullOrEmpty(message.getFileParams().url)) {
+                complete = false;
+                break;
+            }
+        }
+        for (final Conversation target : remaining) {
+            if (!complete) {
+                attachUrisAsGroup(target, uris, type, caption, null);
+                continue;
+            }
+            final List<Message> messages = new ArrayList<>();
+            for (int i = 0; i < uploaded.size(); ++i) {
+                final Message source = uploaded.get(i);
+                final Message message =
+                        reusedFileMessage(
+                                target,
+                                source,
+                                source.getFileParams().url,
+                                type,
+                                i == 0 ? caption : null);
+                if (message == null) {
+                    break;
+                }
+                messages.add(message);
+            }
+            if (messages.size() != uploaded.size()) {
+                attachUrisAsGroup(target, uris, type, caption, null);
+                continue;
+            }
+            // Same order as a fresh group: the parent is held back until it has every file,
+            // and the last file to be added releases it (see releaseParentIfReady).
+            final Message parent = messages.get(0);
+            parent.setExpectedAttachments(messages.size() - 1);
+            sendMessage(parent);
+            for (final Message attachment : messages.subList(1, messages.size())) {
+                parent.addAttachment(attachment);
+                sendMessage(attachment);
+            }
+        }
+    }
+
+    /**
+     * Builds a message for {@code target} that carries a copy of {@code source}'s file under the
+     * already-uploaded {@code url}, so it needs no upload of its own. Returns null if the local
+     * copy failed.
+     */
+    private Message reusedFileMessage(
+            final Conversation target,
+            final Message source,
+            final String url,
+            final String type,
+            final String caption) {
+        final Message message;
+        if (target.getReplyTo() == null) {
+            message = new Message(target, "", target.getNextEncryption());
+        } else {
+            message = target.getReplyTo().reply();
+            message.setEncryption(target.getNextEncryption());
+        }
+        // Embed the caption in the file message body for OMEMO2/plaintext recipients
+        // (it then rides inside their own encrypted envelope); legacy/PGP recipients
+        // get the separate caption message sent by shareToConversations instead.
+        if (!Strings.isNullOrEmpty(caption) && canEmbedCaption(target.getNextEncryption())) {
+            message.appendBody(caption + " ");
+        }
+        if (!Message.configurePrivateFileMessage(message)) {
+            message.setCounterpart(target.getNextCounterpart());
+            message.setType(
+                    source.getType() == Message.TYPE_IMAGE
+                            ? Message.TYPE_IMAGE
+                            : Message.TYPE_FILE);
+        }
+        try {
+            getFileBackend()
+                    .copyFileToPrivateStorage(
+                            message, Uri.fromFile(getFileBackend().getFile(source)), type);
+            // Pre-set the shared URL so needsUploading() is false: no second upload,
+            // the message just transmits the already-uploaded (aesgcm or https) URL.
+            getFileBackend().updateFileParams(message, url);
+        } catch (final FileBackend.FileCopyException e) {
+            Log.d(Config.LOGTAG, "reuse copy failed; falling back to a fresh upload", e);
+            return null;
+        }
+        return message;
     }
 
     private void shareUriToConversations(
@@ -1440,6 +1678,16 @@ public class XmppConnectionService extends Service {
             final String type,
             final String caption,
             final UiCallback<Message> callback) {
+        attachUriToConversation(conversation, uri, type, caption, callback, null);
+    }
+
+    private void attachUriToConversation(
+            final Conversation conversation,
+            final Uri uri,
+            final String type,
+            final String caption,
+            final UiCallback<Message> callback,
+            final AttachmentGroup group) {
         // attachImage/FileToConversation read the caption from conversation.getCaption()
         // (synchronously, while building the message). Set it only for recipients whose
         // wire format can embed it; clear it otherwise so legacy/PGP recipients fall back
@@ -1467,9 +1715,9 @@ public class XmppConnectionService extends Service {
         final String mime =
                 uriMime == null || "application/octet-stream".equals(uriMime) ? type : uriMime;
         if (mime != null && mime.startsWith("image/")) {
-            attachImageToConversation(conversation, uri, type, null, cb);
+            attachImageToConversation(conversation, uri, type, null, cb, group);
         } else {
-            attachFileToConversation(conversation, uri, type, null, cb);
+            attachFileToConversation(conversation, uri, type, null, cb, group);
         }
     }
 
@@ -1479,34 +1727,15 @@ public class XmppConnectionService extends Service {
             final List<Conversation> remaining,
             final String type,
             final String caption) {
-        final File source = getFileBackend().getFile(firstMessage);
-        final boolean image = firstMessage.getType() == Message.TYPE_IMAGE;
         for (final Conversation target : remaining) {
-            final Message message;
-            if (target.getReplyTo() == null) {
-                message = new Message(target, "", target.getNextEncryption());
-            } else {
-                message = target.getReplyTo().reply();
-                message.setEncryption(target.getNextEncryption());
-            }
-            // Embed the caption in the file message body for OMEMO2/plaintext recipients
-            // (it then rides inside their own encrypted envelope); legacy/PGP recipients
-            // get the separate caption message sent by shareToConversations instead.
-            if (!Strings.isNullOrEmpty(caption) && canEmbedCaption(target.getNextEncryption())) {
-                message.appendBody(caption + " ");
-            }
-            if (!Message.configurePrivateFileMessage(message)) {
-                message.setCounterpart(target.getNextCounterpart());
-                message.setType(image ? Message.TYPE_IMAGE : Message.TYPE_FILE);
-            }
-            try {
-                getFileBackend().copyFileToPrivateStorage(message, Uri.fromFile(source), type);
-                // Pre-set the shared URL so needsUploading() is false: no second upload,
-                // the message just transmits the already-uploaded (aesgcm or https) URL.
-                getFileBackend().updateFileParams(message, url);
-            } catch (final FileBackend.FileCopyException e) {
-                Log.d(Config.LOGTAG, "reuse copy failed; falling back to a fresh upload", e);
-                attachUriToConversation(target, Uri.fromFile(source), type, caption, null);
+            final Message message = reusedFileMessage(target, firstMessage, url, type, caption);
+            if (message == null) {
+                attachUriToConversation(
+                        target,
+                        Uri.fromFile(getFileBackend().getFile(firstMessage)),
+                        type,
+                        caption,
+                        null);
                 continue;
             }
             sendMessage(message);
