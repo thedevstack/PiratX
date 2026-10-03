@@ -2,8 +2,10 @@ package eu.siacs.conversations.ui;
 
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -27,6 +29,7 @@ import eu.siacs.conversations.services.ShortcutService;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.adapter.ConversationAdapter;
 import eu.siacs.conversations.ui.util.TrustKeys;
+import eu.siacs.conversations.utils.MimeUtils;
 import eu.siacs.conversations.xmpp.Jid;
 import java.io.File;
 import java.util.ArrayList;
@@ -517,13 +520,29 @@ public class ShareWithActivity extends XmppActivity
                                 if ("content".equals(uri.getScheme())
                                         && !ownAuthority.equals(uri.getAuthority())) {
                                     try {
+                                        String extension =
+                                                MimeUtils.guessExtensionFromMimeType(
+                                                        MimeUtils.guessMimeTypeFromUri(
+                                                                this, uri));
+                                        if (extension == null) {
+                                            extension =
+                                                    MimeUtils.guessExtensionFromMimeType(type);
+                                        }
+                                        if (extension == null) {
+                                            extension =
+                                                    MimeUtils.extractRelevantExtension(
+                                                            displayName(uri));
+                                        }
                                         final File tmp =
                                                 new File(
                                                         getCacheDir(),
                                                         "share/"
                                                                 + System.currentTimeMillis()
                                                                 + "-"
-                                                                + localUris.size());
+                                                                + localUris.size()
+                                                                + (Strings.isNullOrEmpty(extension)
+                                                                        ? ""
+                                                                        : "." + extension));
                                         xmppConnectionService
                                                 .getFileBackend()
                                                 .copyFileToPrivateStorage(tmp, uri);
@@ -547,6 +566,16 @@ public class ShareWithActivity extends XmppActivity
                                     });
                         })
                 .start();
+    }
+
+    private String displayName(final Uri uri) {
+        try (final Cursor cursor =
+                getContentResolver()
+                        .query(uri, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            return cursor != null && cursor.moveToFirst() ? cursor.getString(0) : null;
+        } catch (final Exception e) {
+            return null;
+        }
     }
 
     private void finishAfterShare(final List<Conversation> selected) {

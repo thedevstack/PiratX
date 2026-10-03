@@ -1463,7 +1463,10 @@ public class XmppConnectionService extends Service {
                             public void userInputRequired(
                                     final PendingIntent pi, final Message object) {}
                         };
-        if (type != null && type.startsWith("image/")) {
+        final String uriMime = MimeUtils.guessMimeTypeFromUri(this, uri);
+        final String mime =
+                uriMime == null || "application/octet-stream".equals(uriMime) ? type : uriMime;
+        if (mime != null && mime.startsWith("image/")) {
             attachImageToConversation(conversation, uri, type, null, cb);
         } else {
             attachFileToConversation(conversation, uri, type, null, cb);
