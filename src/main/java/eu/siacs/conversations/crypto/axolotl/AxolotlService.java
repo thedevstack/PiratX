@@ -183,7 +183,9 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
             Collections.synchronizedMap(new HashMap<>());
     private final HashMap<Jid, List<OnDeviceIdsFetched>> fetchDeviceIdsMap = new HashMap<>();
     private final SerialSingleThreadExecutor executor;
-    private final Set<SignalProtocolAddress> healingAttempts = new HashSet<>();
+    // Added to from message processing, cleared on every connect (resetBrokenness).
+    private final Set<SignalProtocolAddress> healingAttempts =
+            Collections.synchronizedSet(new HashSet<>());
     // XEP-0384 heartbeat de-duplication: the sender ratchet key we last heartbeated
     // for, per peer device, so we send at most one heartbeat per receiving chain.
     private final Map<SignalProtocolAddress, byte[]> heartbeatRatchetKeys = new HashMap<>();
@@ -271,6 +273,21 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         if (Config.supportOmemo()
                 && account.getXmppConnection() != null
                 && account.getXmppConnection().getFeatures().pep()) {
+            // A `pepBroken` latch set by a single non-item-not-found PEP error response
+            // (a transient server error, a VPN reconnect dropping a response mid-flight)
+            // previously survived every subsequent connection indefinitely: nothing
+            // cleared it except reconnectAccount()'s disabled/no-internet branch, which an
+            // account that keeps reconnecting successfully never reaches. That silently
+            // vetoed publishBundlesIfNeeded(), publishOwnDeviceIdIfNeeded() (the legacy
+            // XEP-0384 v0.3 device-list announce), verifyOmemo2BundlePublished(), and
+            // avatar republication for the remaining life of the account, with no
+            // user-visible symptom beyond peers on the un-announced stack silently
+            // failing to decrypt. A freshly negotiated stream is exactly the point at
+            // which a previously-broken PEP interaction deserves a fresh attempt:
+            // publishBundlesIfNeeded() below re-latches pepBroken immediately if the
+            // problem is still there, so this does not paper over a genuinely broken PEP,
+            // it only stops one bad response from being treated as permanent.
+            resetBrokenness();
             publishBundlesIfNeeded(true, false);
             verifyOmemo2BundlePublished();
         } else {
