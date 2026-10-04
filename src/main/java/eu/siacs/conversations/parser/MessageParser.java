@@ -1201,6 +1201,12 @@ public class MessageParser extends AbstractParser
             isForwarded = true;
             serverMsgId = result.getAttribute("id");
             query.incrementMessageCount();
+
+            if (query.isImplausibleFrom(packet.getFrom())) {
+                Log.d(Config.LOGTAG, "found implausible from in MUC MAM archive");
+                return;
+            }
+
             if (handleErrorMessage(account, packet)) {
                 return;
             }

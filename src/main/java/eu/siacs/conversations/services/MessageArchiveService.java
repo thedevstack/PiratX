@@ -653,6 +653,17 @@ public class MessageArchiveService implements OnAdvancedStreamFeaturesLoaded {
             }
         }
 
+        public boolean isImplausibleFrom(final Jid from) {
+            if (muc()) {
+                if (from == null) {
+                    return true;
+                }
+                return !from.asBareJid().equals(getWith());
+            } else {
+                return false;
+            }
+        }
+
         @NonNull
         @Override
         public String toString() {
