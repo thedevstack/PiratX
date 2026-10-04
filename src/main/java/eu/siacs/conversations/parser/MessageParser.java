@@ -192,6 +192,41 @@ public class MessageParser extends AbstractParser
         return trueCountersMatch || occupantIdMatch || mucUserMatches || fromRoomItself;
     }
 
+    /**
+     * The encryption half of {@link #mayReplace}: may an edit carrying {@code editFingerprint}
+     * rewrite a message that was received under {@code originalFingerprint}?
+     *
+     * <p>An unencrypted original may be edited by anything the sender rule admits. An encrypted
+     * one only under the same OMEMO fingerprint, for corrections and retractions alike —
+     * otherwise the sender's server could forge a cleartext stanza that rewrites or deletes it.
+     * Two retraction cases are exempt:
+     *
+     * <ul>
+     *   <li>XEP-0425 moderation from the room itself: the room is the authority over its own
+     *       history and never holds the author's keys.
+     *   <li>Legacy OMEMO (v0.3) originals: that protocol can only encrypt {@code <body>}, so its
+     *       retractions are necessarily cleartext (see MessageGenerator). OMEMO2 carries them
+     *       inside the SCE envelope, so no exemption is needed there.
+     * </ul>
+     */
+    static boolean editFingerprintsMatch(
+            final String originalFingerprint,
+            final int originalEncryption,
+            final String editFingerprint,
+            final boolean isRetraction,
+            final boolean moderation) {
+        if (originalFingerprint == null || originalFingerprint.equals(editFingerprint)) {
+            return true;
+        }
+        if (!isRetraction) {
+            return false;
+        }
+        return moderation
+                || originalEncryption == Message.ENCRYPTION_AXOLOTL
+                || originalEncryption == Message.ENCRYPTION_AXOLOTL_NOT_FOR_THIS_DEVICE
+                || originalEncryption == Message.ENCRYPTION_AXOLOTL_FAILED;
+    }
+
     static Jid getTrueCounterpart(
             final Element mucUserElement,
             final Jid fallback,
@@ -1602,7 +1637,11 @@ public class MessageParser extends AbstractParser
                     final Jid fallback = conversation.getMucOptions().getTrueCounterpart(counterpart);
                     origin =
                             getTrueCounterpart(
-                                    query != null ? mucUserElement : null,
+                                    // Only the room's own archive vouches for <item jid>; in a
+                                    // user archive (MUC PMs) the sender's client wrote it.
+                                    (query != null && query.safeToExtractTrueCounterpart())
+                                            ? mucUserElement
+                                            : null,
                                     fallback,
                                     account,
                                     isSelfInConference(
@@ -1685,7 +1724,11 @@ public class MessageParser extends AbstractParser
                             conversation.getMucOptions().getTrueCounterpart(counterpart);
                     origin =
                             getTrueCounterpart(
-                                    query != null ? mucUserElement : null,
+                                    // Only the room's own archive vouches for <item jid>; in a
+                                    // user archive (MUC PMs) the sender's client wrote it.
+                                    (query != null && query.safeToExtractTrueCounterpart())
+                                            ? mucUserElement
+                                            : null,
                                     fallback,
                                     account,
                                     isSelfInConference(
@@ -1930,11 +1973,12 @@ public class MessageParser extends AbstractParser
                 if (replacedMessage != null) {
                     final boolean isRetraction = replaceElement != null && !replaceElement.getName().equals("replace");
                     final boolean fingerprintsMatch =
-                            isRetraction
-                                    || replacedMessage.getFingerprint() == null
-                                    || replacedMessage
-                                    .getFingerprint()
-                                    .equals(message.getFingerprint());
+                            editFingerprintsMatch(
+                                    replacedMessage.getFingerprint(),
+                                    replacedMessage.getEncryption(),
+                                    message.getFingerprint(),
+                                    isRetraction,
+                                    conversationMultiMode && counterpart.isBareJid());
                     final boolean trueCountersMatch =
                             replacedMessage.getTrueCounterpart() != null
                                     && message.getTrueCounterpart() != null
@@ -2248,7 +2292,11 @@ public class MessageParser extends AbstractParser
                             conversation.getMucOptions().getTrueCounterpart(counterpart);
                     origin =
                             getTrueCounterpart(
-                                    query != null ? mucUserElement : null,
+                                    // Only the room's own archive vouches for <item jid>; in a
+                                    // user archive (MUC PMs) the sender's client wrote it.
+                                    (query != null && query.safeToExtractTrueCounterpart())
+                                            ? mucUserElement
+                                            : null,
                                     fallback,
                                     account,
                                     isSelfInConference(
