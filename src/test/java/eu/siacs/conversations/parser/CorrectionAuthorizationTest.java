@@ -115,4 +115,48 @@ public class CorrectionAuthorizationTest {
                     conference(false, trueCounters, occupantId, mucUser, fromRoom));
         }
     }
+
+    // ---- editFingerprintsMatch: which edits may touch an encrypted original ----
+
+    private static final int OMEMO2 = eu.siacs.conversations.entities.Message.ENCRYPTION_AXOLOTL_OMEMO2;
+    private static final int LEGACY = eu.siacs.conversations.entities.Message.ENCRYPTION_AXOLOTL;
+    private static final int NONE = eu.siacs.conversations.entities.Message.ENCRYPTION_NONE;
+
+    @Test
+    public void unencryptedOriginalAcceptsAnyEdit() {
+        Assert.assertTrue(MessageParser.editFingerprintsMatch(null, NONE, null, false, false));
+        Assert.assertTrue(MessageParser.editFingerprintsMatch(null, NONE, "fp", true, false));
+    }
+
+    @Test
+    public void sameFingerprintMayCorrectAndRetract() {
+        Assert.assertTrue(MessageParser.editFingerprintsMatch("fp", OMEMO2, "fp", false, false));
+        Assert.assertTrue(MessageParser.editFingerprintsMatch("fp", OMEMO2, "fp", true, false));
+    }
+
+    /** The tightened rule: a cleartext (or foreign-key) retraction can't delete an OMEMO2 message. */
+    @Test
+    public void foreignRetractionCannotDeleteAnOmemo2Message() {
+        Assert.assertFalse(MessageParser.editFingerprintsMatch("fp", OMEMO2, null, true, false));
+        Assert.assertFalse(MessageParser.editFingerprintsMatch("fp", OMEMO2, "other", true, false));
+    }
+
+    @Test
+    public void foreignCorrectionIsRejectedEvenForLegacyOrModeration() {
+        Assert.assertFalse(MessageParser.editFingerprintsMatch("fp", OMEMO2, null, false, false));
+        Assert.assertFalse(MessageParser.editFingerprintsMatch("fp", LEGACY, null, false, false));
+        Assert.assertFalse(MessageParser.editFingerprintsMatch("fp", OMEMO2, null, false, true));
+    }
+
+    /** XEP-0425: the room may moderate any message, encrypted or not. */
+    @Test
+    public void roomModerationMayRetractAnEncryptedMessage() {
+        Assert.assertTrue(MessageParser.editFingerprintsMatch("fp", OMEMO2, null, true, true));
+    }
+
+    /** Legacy OMEMO can't encrypt retractions, so they stay accepted in cleartext. */
+    @Test
+    public void legacyOmemoMessageStillAcceptsCleartextRetraction() {
+        Assert.assertTrue(MessageParser.editFingerprintsMatch("fp", LEGACY, null, true, false));
+    }
 }
